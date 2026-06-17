@@ -300,8 +300,18 @@ def skillpack_sync(args: argparse.Namespace) -> None:
     mode_default = args.mode or (manifest.get("defaults") or {}).get("mode") or "copy"
     sp = state_path(home, manifest, args.state_dir)
     state = load_state(sp)
+    old_entries = state.get("managed", [])
     new_entries: list[dict[str, Any]] = []
-    current_skills: set[tuple[str, str]] = set()
+    if getattr(args, "first_party_only", False):
+        # dev-link updates local/first-party entries but preserves external entries
+        # installed by a previous full sync. Otherwise dev-link would make the
+        # state forget externally managed skills and report them as stale.
+        new_entries.extend(e for e in old_entries if e.get("kind") != "first_party")
+    current_skills: set[tuple[str, str]] = {
+        (e.get("target"), e.get("skill"))
+        for e in new_entries
+        if e.get("target") and e.get("skill")
+    }
 
     for item in enabled_items(manifest):
         if getattr(args, "first_party_only", False) and item["kind"] != "first_party":
