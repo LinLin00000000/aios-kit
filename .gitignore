@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Local runtime/state/logs
+/state/**
+!/state/README.md
+!/state/.gitkeep
+/logs/**
+!/logs/README.md
+!/logs/.gitkeep
+*.log
+
+# Local overlays: machine-specific paths, private skills, live vault links
+skillpack.local.yaml
+manifests/local-assets.local.json
+manifests/local-assets.json
+registries/*.local.*
+profiles/*.local.*
+profiles/local-*.yaml
+profiles/local-*.json
+
+# Local generated reports
+internal/
+.tmp/
+.cache/
+
+# Secrets and private machine profiles
+.env
+.env.*
+*.secret
+*.secrets
+secrets/
+
+# Never vendor real ai-ops vault data here
+ai-ops/
+real-assets/
+local-vault/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

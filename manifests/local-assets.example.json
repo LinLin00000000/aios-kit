@@ -1,0 +1,41 @@
+{
+  "schema": "aios-kit.local-assets.v1",
+  "name": "aios-kit-local-assets-example",
+  "policy": {
+    "templates_and_real_assets_are_separate": true,
+    "do_not_commit_real_ai_ops": true,
+    "prefer_symlink_for_local_discovery": true,
+    "prefer_copy_for_friend_distribution": true
+  },
+  "assets": [
+    {
+      "id": "aios-kit",
+      "kind": "assembly-repo",
+      "canonical_path": "~/projects/aios-kit",
+      "remote": "https://github.com/<owner>/aios-kit.git",
+      "role": "main project: manifests, scripts, docs, and reusable scaffolding"
+    },
+    {
+      "id": "lins-living-loop",
+      "kind": "first-party-skill-repo",
+      "canonical_path": "~/projects/lins-living-loop",
+      "remote": "https://github.com/<owner>/lins-living-loop.git",
+      "role": "independent LLL skill/project; linked into runtime for development when authoring"
+    },
+    {
+      "id": "aiops-vault-template",
+      "kind": "template-repo",
+      "canonical_path": "~/projects/aiops-vault-template",
+      "remote": "https://github.com/<owner>/aiops-vault-template.git",
+      "role": "reusable template for new ai-ops vaults; never contains a machine's live secrets/assets"
+    },
+    {
+      "id": "ai-ops",
+      "kind": "real-asset-vault",
+      "canonical_path": "~/ai-ops",
+      "discovery_link": "~/projects/ai-ops",
+      "remote": null,
+      "role": "live operational facts, maintenance log, resource registry, and secret locations"
+    }
+  ]
+}

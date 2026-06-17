@@ -1,0 +1,69 @@
+name: aios-kit
+version: 0.2.0
+description: Portable AIOS kit base skillpack. Machine-specific/local skills belong in skillpack.local.yaml.
+
+defaults:
+  scope: global
+  agent: universal
+  mode: copy
+  state_dir: ~/.agents/skillpacks/state/aios-kit
+
+external:
+  - id: docx
+    source: anthropics/skills
+    skill: docx
+    enabled: true
+    reason: Document creation/inspection baseline.
+  - id: pptx
+    source: anthropics/skills
+    skill: pptx
+    enabled: true
+    reason: Presentation creation/inspection baseline.
+  - id: xlsx
+    source: anthropics/skills
+    skill: xlsx
+    enabled: true
+    reason: Spreadsheet workflows.
+  - id: pdf
+    source: openai/skills
+    skill: pdf
+    enabled: true
+    reason: PDF reading/review workflows.
+  - id: find-skills
+    source: vercel-labs/skills
+    skill: find-skills
+    enabled: true
+    reason: Discover/install additional agent skills.
+  - id: skill-creator
+    source: anthropics/skills
+    skill: skill-creator
+    enabled: true
+    reason: Author and improve reusable skills.
+  - id: awesome-mcp-servers-discovery
+    source: aradotso/mcp-skills
+    skill: awesome-mcp-servers-discovery
+    enabled: true
+    reason: MCP server discovery.
+  - id: github-repo-search
+    source: yunshu0909/yunshu_skillshub
+    skill: github-repo-search
+    enabled: true
+    reason: GitHub project discovery and comparison.
+
+first_party:
+  - id: aios-resource-resolver
+    path: skills/aios-resource-resolver
+    source: LinLin00000000/aios-kit
+    skill: aios-resource-resolver
+    enabled: true
+    default_mode: symlink
+    targets: universal
+    reason: Thin AIOS resource/context resolver skill. Facts live in registries, not in the skill.
+  - id: lins-living-loop
+    path: ~/projects/lins-living-loop
+    source: LinLin00000000/lins-living-loop
+    skill: lins-living-loop
+    enabled: true
+    default_mode: symlink
+    targets: universal
+    reason: File-backed long-running workflow skill, maintained as an independent first-party project.
