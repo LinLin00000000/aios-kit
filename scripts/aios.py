@@ -12,7 +12,8 @@ import json
 import os
 import shutil
 import subprocess
-import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -180,11 +181,20 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def run(cmd: list[str], *, apply: bool) -> int:
+def run(cmd: list[str], *, apply: bool, attempts: int = 3) -> int:
     print(("RUN " if apply else "DRY ") + " ".join(cmd))
     if not apply:
         return 0
-    return subprocess.run(cmd, check=False).returncode
+    rc = 1
+    for attempt in range(1, attempts + 1):
+        if attempt > 1:
+            print(f"RETRY {attempt}/{attempts}: " + " ".join(cmd))
+        rc = subprocess.run(cmd, check=False).returncode
+        if rc == 0:
+            return 0
+        if attempt < attempts:
+            time.sleep(min(2 * attempt, 5))
+    return rc
 
 
 def copytree(src: Path, dst: Path, *, apply: bool) -> None:
@@ -246,10 +256,32 @@ def skillpack_doctor(args: argparse.Namespace) -> None:
         ok = ok and exists
     for name, d in target_dirs(args.target, home).items():
         print(f"target {name}: {d} {'exists' if d.exists() else 'missing'}")
+    check_dirs = target_dirs(args.target, home)
     for item in enabled_items(manifest):
         if item["kind"] == "first_party":
             p = resolve_repo_path(item.get("path"), home=home)
             valid, msg = validate_skill_dir(p) if p else (False, "no path")
+            if valid:
+                print(f"first_party {item.get('id')}: {p} -> {msg}")
+                continue
+
+            # Friend/new-machine installs often do not have the author's source
+            # checkout for an independent first-party repo such as
+            # `lins-living-loop`. In that case sync falls back to `npx skills add
+            # <source>`, so doctor should validate the installed runtime skill.
+            source = item.get("source")
+            name = str(item.get("skill") or item.get("id"))
+            if source and source not in {"local-only", "local-hermes"}:
+                installed = []
+                for target_name, dst_root in check_dirs.items():
+                    runtime = dst_root / name
+                    runtime_ok, runtime_msg = validate_skill_dir(runtime)
+                    installed.append(f"{target_name}:{runtime} -> {runtime_msg}")
+                    valid = valid or runtime_ok
+                print(f"first_party {item.get('id')}: source checkout {p} -> {msg}; runtime fallback: " + "; ".join(installed))
+                ok = ok and valid
+                continue
+
             print(f"first_party {item.get('id')}: {p} -> {msg}")
             ok = ok and valid
     sp = state_path(home, manifest, args.state_dir)
@@ -257,21 +289,64 @@ def skillpack_doctor(args: argparse.Namespace) -> None:
     raise SystemExit(0 if ok else 1)
 
 
+def github_source_url(source: str) -> str:
+    if source.startswith("http://") or source.startswith("https://") or source.startswith("git@"):
+        return source
+    return f"https://github.com/{source}.git"
+
+
+def install_first_party_from_remote(source: str, name: str, dst: Path, *, apply: bool, state_entries: list[dict[str, Any]], item: dict[str, Any], target: str, mode: str) -> None:
+    """Fallback installer for independent first-party skill repos.
+
+    `npx skills add` is preferred because it understands skill repositories.
+    This fallback keeps friend installs robust when the skills CLI has a transient
+    failure after GitHub itself is reachable.
+    """
+    url = github_source_url(source)
+    print(f"FALLBACK git clone {url} for {name}")
+    if not apply:
+        return
+    with tempfile.TemporaryDirectory(prefix="aios-skill-") as tmp:
+        clone_dir = Path(tmp) / "repo"
+        rc = subprocess.run(["git", "clone", "--depth", "1", url, str(clone_dir)], check=False).returncode
+        if rc:
+            raise SystemExit(rc)
+        candidates = [clone_dir, clone_dir / "skills" / name]
+        src = next((p for p in candidates if validate_skill_dir(p)[0]), None)
+        if src is None:
+            raise SystemExit(f"remote source cloned but no skill found for {name}: {url}")
+        copytree(src, dst, apply=True)
+    state_entries.append({"kind": "first_party", "id": item.get("id"), "skill": name, "target": target, "mode": f"{mode}-remote-copy", "source": source, "installed_path": str(dst)})
+
+
 def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode: str, apply: bool, home: Path, state_entries: list[dict[str, Any]]) -> None:
     # `home` is the target HOME (useful for temp-home tests or friend installs).
     # Source paths in this repo's manifest describe this author's local source layout,
     # so resolve `~/...` against the real process HOME, not the simulated target HOME.
     src = resolve_repo_path(item.get("path"), home=Path.home())
-    name = item.get("skill") or item.get("id")
+    name = str(item.get("skill") or item.get("id"))
     runtime_path = item.get("runtime_path")
-    dst = expand(runtime_path, home=Path.home()) if runtime_path else (dst_root / name)
+    if runtime_path:
+        dst_candidate = expand(str(runtime_path), home=Path.home())
+        if dst_candidate is None:
+            raise SystemExit(f"invalid runtime_path for {name}: {runtime_path}")
+        dst = dst_candidate
+    else:
+        dst = dst_root / name
     if not src or not src.exists():
         source = item.get("source")
         if source and source not in {"local-only", "local-hermes"}:
             cmd = ["npx", "--yes", "skills@latest", "add", source, "--skill", name, "-g", "-y", "--agent", target]
             if mode == "copy":
                 cmd.append("--copy")
-            run(cmd, apply=apply)
+            rc = run(cmd, apply=apply)
+            if apply:
+                runtime_ok, runtime_msg = validate_skill_dir(dst)
+                if rc == 0 and runtime_ok:
+                    state_entries.append({"kind": "first_party", "id": item.get("id"), "skill": name, "target": target, "mode": mode, "source": source, "installed_path": str(dst)})
+                    return
+                print(f"WARN npx install did not produce valid runtime skill {dst}: rc={rc}, {runtime_msg}")
+                install_first_party_from_remote(str(source), name, dst, apply=apply, state_entries=state_entries, item=item, target=target, mode=mode)
             return
         raise SystemExit(f"first-party source missing for {name}: {src}")
     valid, msg = validate_skill_dir(src)
