@@ -794,6 +794,59 @@ def status(args: argparse.Namespace) -> None:
     print(f"Projects: {len(projects)} {counts}")
 
 
+
+
+def update(args: argparse.Namespace) -> None:
+    """Update AIOS module checkouts and selected runtime skills."""
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    paths = instance_paths(home)
+    apply = not bool(args.dry_run)
+    code = 0
+
+    print("== modules ==")
+    modules = paths["modules"]
+    if modules.exists():
+        for child in sorted(modules.iterdir(), key=lambda x: x.name):
+            real = child.resolve() if child.exists() or child.is_symlink() else child
+            if (real / ".git").exists():
+                rc = run(["git", "-C", str(real), "pull", "--ff-only"], apply=apply)
+                code = max(code, rc)
+            else:
+                print(f"skip non-git module: {child}")
+    else:
+        print(f"modules dir missing: {modules}")
+        code = max(code, 1)
+
+    if not args.no_ops:
+        print("== ops vault template ==")
+        tpl = paths["modules"] / "aiops-vault-template"
+        script = tpl / "scripts" / "install.py"
+        if script.exists():
+            rc = run(["python3", str(script), "--vault", str(paths["ops"]), "--agent", "auto", "--skills-dir", str(paths["agent_skills"])], apply=apply)
+            code = max(code, rc)
+        else:
+            print(f"skip ops template install; missing {script}")
+
+    if not args.no_skills:
+        print("== skills ==")
+        skill_args = argparse.Namespace(
+            home=args.home,
+            apply=apply,
+            dry_run=not apply,
+            prune=args.prune,
+            mode=args.mode,
+            target=args.target,
+            state_dir=None,
+            first_party_only=False,
+        )
+        try:
+            skillpack_sync(skill_args)
+        except SystemExit as e:
+            code = max(code, int(e.code or 0))
+
+    raise SystemExit(code)
+
+
 def assets_manifest_path() -> Path | None:
     for path in ASSET_FILES:
         if path.exists():
@@ -885,6 +938,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("status", help="show AIOS instance summary")
     st.set_defaults(func=status)
+
+    upd = sub.add_parser("update", help="update AIOS module git checkouts and managed skills")
+    upd.add_argument("--dry-run", action="store_true")
+    upd.add_argument("--target", default="universal", choices=["universal", "hermes", "both"])
+    upd.add_argument("--mode", choices=["copy", "symlink"], help="override skill install mode for this update")
+    upd.add_argument("--prune", action="store_true", help="prune stale skills managed by this pack")
+    upd.add_argument("--no-skills", action="store_true", help="only update module git checkouts")
+    upd.add_argument("--no-ops", action="store_true", help="skip re-running the OPS vault template installer")
+    upd.set_defaults(func=update)
 
     proj = sub.add_parser("project", help="manage the minimal AIOS project registry")
     psub = proj.add_subparsers(dest="project_cmd", required=True)

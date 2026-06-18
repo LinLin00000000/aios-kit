@@ -44,11 +44,26 @@ external:
     skill: awesome-mcp-servers-discovery
     enabled: true
     reason: MCP server discovery.
-  - id: github-repo-search
-    source: yunshu0909/yunshu_skillshub
-    skill: github-repo-search
+  - id: frontend-design
+    source: https://github.com/anthropics/skills
+    skill: frontend-design
     enabled: true
-    reason: GitHub project discovery and comparison.
+    reason: Frontend design guidance for UI/product work.
+  - id: ui-ux-pro-max
+    source: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill
+    skill: ui-ux-pro-max
+    enabled: true
+    reason: Advanced UI/UX design review and improvement guidance.
+  - id: vercel-composition-patterns
+    source: https://github.com/vercel-labs/agent-skills
+    skill: vercel-composition-patterns
+    enabled: true
+    reason: Vercel app/component composition patterns.
+  - id: web-design-guidelines
+    source: https://github.com/vercel-labs/agent-skills
+    skill: web-design-guidelines
+    enabled: true
+    reason: Web design guidelines for modern frontend work.
 
 first_party:
   - id: aios-resource-resolver
@@ -60,10 +75,18 @@ first_party:
     targets: universal
     reason: Thin AIOS resource/context resolver skill. Facts live in registries, not in the skill.
   - id: lins-living-loop
-    path: ~/projects/lins-living-loop
+    path: ~/aios/modules/lins-living-loop
     source: LinLin00000000/lins-living-loop
     skill: lins-living-loop
     enabled: true
     default_mode: symlink
     targets: universal
     reason: File-backed long-running workflow skill, maintained as an independent first-party project.
+  - id: github-repo-search
+    path: skills/github-repo-search
+    source: LinLin00000000/aios-kit
+    skill: github-repo-search
+    enabled: true
+    default_mode: symlink
+    targets: universal
+    reason: Lin-customized GitHub project discovery and comparison skill; AIOS repo is the truth source.

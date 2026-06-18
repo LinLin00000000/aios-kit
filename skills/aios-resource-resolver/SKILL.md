@@ -38,6 +38,44 @@ Do not store large project/resource facts in this skill.
 7. If multiple resources match, show the top candidates and ask the user to choose.
 8. If no registry exists or no match is found, then use targeted discovery; do not start with full-disk search.
 
+## AIOS kit commands
+
+When `aios-kit` is available locally, use its CLI instead of hand-editing instance files unless the CLI is missing or broken.
+
+Common instance commands:
+
+```bash
+cd ~/aios/modules/aios-kit  # friend/new-machine install
+# or: cd ~/projects/aios-kit  # Lin's author machine
+
+./aios status
+./aios doctor
+./aios update
+./aios update --dry-run
+```
+
+Skillpack commands:
+
+```bash
+./aios skillpack list
+./aios skillpack sync --dry-run
+./aios skillpack sync --apply
+./aios skillpack dev-link --apply  # author/dev only: symlink first-party skills one-by-one
+```
+
+External skill installs use the `skills` CLI under the hood, shaped like:
+
+```bash
+npx --yes skills@latest add <repo-or-url> --skill <skill> -g -y --agent universal --copy
+```
+
+Important boundaries:
+
+- AIOS does not symlink the whole `~/.agents/skills` directory.
+- Friends/Windows default to copy.
+- Lin's dev machine may use per-skill symlinks for first-party/modified skills.
+- `~/aios/modules/*` are updateable source/template checkouts; runtime skills are still loaded from `~/.agents/skills` or `~/.hermes/skills`.
+
 ## AIOS project registry commands
 
 When `aios-kit` is available locally, use its CLI instead of hand-editing the registry unless the CLI is missing or broken.

@@ -7,13 +7,16 @@ set -euo pipefail
 
 AIOS_KIT_REPO_URL="${AIOS_KIT_REPO_URL:-https://github.com/LinLin00000000/aios-kit.git}"
 AIOPS_TEMPLATE_REPO_URL="${AIOPS_TEMPLATE_REPO_URL:-https://github.com/LinLin00000000/aiops-vault-template.git}"
+LLL_REPO_URL="${LLL_REPO_URL:-https://github.com/LinLin00000000/lins-living-loop.git}"
 AIOS_ROOT="${AIOS_ROOT:-$HOME/aios}"
 KIT_DIR="${AIOS_KIT_DIR:-}"
 TEMPLATE_DIR="${AIOPS_TEMPLATE_DIR:-}"
+LLL_DIR="${LLL_DIR:-${AIOS_LLL_DIR:-}}"
 VAULT_PATH="${AIOPS_ROOT:-}"
 SKILLS_DIR="${AIOS_AGENT_SKILLS_DIR:-${AIOS_SKILLS_DIR:-}}"
 KIT_DIR_EXPLICIT=$([ -n "${AIOS_KIT_DIR:-}" ] && echo 1 || echo 0)
 TEMPLATE_DIR_EXPLICIT=$([ -n "${AIOPS_TEMPLATE_DIR:-}" ] && echo 1 || echo 0)
+LLL_DIR_EXPLICIT=$([ -n "${LLL_DIR:-}" ] && echo 1 || echo 0)
 VAULT_PATH_EXPLICIT=$([ -n "${AIOPS_ROOT:-}" ] && echo 1 || echo 0)
 SKILLS_DIR_EXPLICIT=$([ -n "${AIOS_AGENT_SKILLS_DIR:-${AIOS_SKILLS_DIR:-}}" ] && echo 1 || echo 0)
 WITH_AIOPS=1
@@ -34,6 +37,7 @@ Installs a portable AIOS instance rooted at ~/aios by default:
 Options:
   --root PATH          AIOS instance root (default: $AIOS_ROOT or ~/aios)
   --kit-dir PATH       Where to clone/update aios-kit (default: $AIOS_ROOT/modules/aios-kit)
+  --lll-dir PATH       Where to clone/update lins-living-loop (default: $AIOS_ROOT/modules/lins-living-loop)
   --vault PATH         Where to create/update the OPS vault (default: $AIOPS_ROOT or $AIOS_ROOT/vault/ops)
   --skills-dir PATH    Agent runtime skills dir (default: ~/.agents/skills)
   --target TARGET      Skill target for aios skillpack sync: universal|hermes|both (default: universal)
@@ -75,6 +79,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --root) AIOS_ROOT="$2"; shift 2 ;;
     --kit-dir) KIT_DIR="$2"; KIT_DIR_EXPLICIT=1; shift 2 ;;
+    --lll-dir) LLL_DIR="$2"; LLL_DIR_EXPLICIT=1; shift 2 ;;
     --vault) VAULT_PATH="$2"; VAULT_PATH_EXPLICIT=1; shift 2 ;;
     --skills-dir) SKILLS_DIR="$2"; SKILLS_DIR_EXPLICIT=1; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
@@ -92,6 +97,7 @@ case "$MODE" in copy|symlink) ;; *) echo "invalid --mode: $MODE" >&2; exit 2 ;; 
 
 if [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then KIT_DIR="$AIOS_ROOT/modules/aios-kit"; fi
 if [ "$TEMPLATE_DIR_EXPLICIT" -eq 0 ]; then TEMPLATE_DIR="$AIOS_ROOT/modules/aiops-vault-template"; fi
+if [ "$LLL_DIR_EXPLICIT" -eq 0 ]; then LLL_DIR="$AIOS_ROOT/modules/lins-living-loop"; fi
 if [ "$VAULT_PATH_EXPLICIT" -eq 0 ]; then VAULT_PATH="$AIOS_ROOT/vault/ops"; fi
 if [ "$SKILLS_DIR_EXPLICIT" -eq 0 ]; then SKILLS_DIR="$HOME/.agents/skills"; fi
 
@@ -136,6 +142,22 @@ else
   "$KIT_DIR/aios" --home "$HOME" init --root "$AIOS_ROOT" --ops "$VAULT_PATH" --skills-dir "$SKILLS_DIR"
 fi
 
+log "Preparing lins-living-loop module at $LLL_DIR"
+if [ ! -f "$LLL_DIR/SKILL.md" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "+ git clone $LLL_REPO_URL $LLL_DIR"
+  else
+    mkdir -p "$(dirname "$LLL_DIR")"
+    git clone "$LLL_REPO_URL" "$LLL_DIR"
+  fi
+else
+  if [ -d "$LLL_DIR/.git" ]; then
+    run_visible git -C "$LLL_DIR" pull --ff-only
+  else
+    echo "using existing non-git LLL dir: $LLL_DIR"
+  fi
+fi
+
 log "Installing skillpack"
 AIOS_ROOT="$AIOS_ROOT" AIOS_AGENT_SKILLS_DIR="$SKILLS_DIR" run_visible "$KIT_DIR/aios" --home "$HOME" skillpack sync --apply --mode "$MODE" --target "$TARGET"
 AIOS_ROOT="$AIOS_ROOT" AIOS_AGENT_SKILLS_DIR="$SKILLS_DIR" run_visible "$KIT_DIR/aios" --home "$HOME" skillpack doctor --target "$TARGET"
@@ -172,6 +194,7 @@ fi
 log "Done"
 echo "AIOS root: $AIOS_ROOT"
 echo "aios-kit: $KIT_DIR"
+echo "lins-living-loop: $LLL_DIR"
 echo "agent runtime skills: $SKILLS_DIR"
 if [ "$WITH_AIOPS" -eq 1 ]; then
   echo "OPS vault: $VAULT_PATH"

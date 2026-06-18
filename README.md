@@ -39,19 +39,21 @@ What this does by default:
 
 1. creates a unified AIOS instance root at `~/aios`;
 2. clones/updates `aios-kit` under `~/aios/modules/aios-kit`;
-3. initializes instance directories such as `vault/ops`, `work`, `skills`, `modules`, `config`, `state`, `logs`, and `cache`;
-4. installs only the selected skills one-by-one into the real agent skills directory, defaulting to `~/.agents/skills`;
-5. does **not** symlink the whole `~/.agents/skills` directory;
-6. clones/updates `aiops-vault-template` under `~/aios/modules/aiops-vault-template`;
-7. creates/updates the OPS vault at `~/aios/vault/ops` using the public template installer;
-8. creates a minimal project registry at `~/aios/vault/ops/projects/`;
-9. runs validation checks.
+3. clones/updates `lins-living-loop` under `~/aios/modules/lins-living-loop`;
+4. initializes instance directories such as `vault/ops`, `work`, `skills`, `modules`, `config`, `state`, `logs`, and `cache`;
+5. installs only the selected skills one-by-one into the real agent skills directory, defaulting to `~/.agents/skills`;
+6. does **not** symlink the whole `~/.agents/skills` directory;
+7. clones/updates `aiops-vault-template` under `~/aios/modules/aiops-vault-template`;
+8. creates/updates the OPS vault at `~/aios/vault/ops` using the public template installer;
+9. creates a minimal project registry at `~/aios/vault/ops/projects/`;
+10. runs validation checks.
 
 Useful installer options:
 
 ```bash
 bash install.sh --dry-run                    # show actions only
 bash install.sh --root ~/my-aios             # choose a different AIOS instance root
+bash install.sh --lll-dir ~/my-aios/modules/lins-living-loop # choose LLL module checkout path
 bash install.sh --no-aiops                   # install instance + skills only, skip OPS vault template
 bash install.sh --vault ~/my-aios/vault/ops  # choose a different OPS vault path
 bash install.sh --skills-dir ~/.agents/skills # choose agent runtime skills path
@@ -61,6 +63,19 @@ bash install.sh --target both                # install universal + Hermes target
 bash install.sh --mode copy                  # default; best for friends / Windows / stable installs
 bash install.sh --mode symlink               # author/dev mode only; links individual first-party skills
 ```
+
+## Naming: what does `kit` mean?
+
+`aios-kit` 中的 `kit` 指“安装套件 / 分发套件”，不是说它只是一个随手工具包。
+
+更准确地说：
+
+```text
+AIOS = deployed instance + conventions + selected modules/skills
+aios-kit = AIOS distribution/install component
+```
+
+所以 `aios-kit` 是 AIOS 的一个核心组件：它负责安装、更新、装配和记录，不负责承载所有 live 私有数据。
 
 ## `AIOS_ROOT` and paths
 
@@ -88,7 +103,7 @@ Hermes skills    = ~/.hermes/skills/<category>/<skill> or ~/.hermes/skills/<skil
 ```text
 ~/aios/modules/aios-kit
 ~/aios/modules/aiops-vault-template
-~/aios/modules/lins-living-loop   # optional if installed from source locally
+~/aios/modules/lins-living-loop
 ```
 
 If this name feels too abstract later, it can be renamed, but for now it gives us a clean place for updateable source/template checkouts without mixing them into live vault data.
@@ -135,20 +150,23 @@ They are local migration choices for Lin's own machine or an advanced user who e
 Portable base skills in `skillpack.yaml`:
 
 - document/productivity: `docx`, `pptx`, `xlsx`, `pdf`;
-- discovery/authoring: `find-skills`, `skill-creator`, `awesome-mcp-servers-discovery`, `github-repo-search`;
-- first-party AIOS core skills:
+- discovery/authoring: `find-skills`, `skill-creator`, `awesome-mcp-servers-discovery`;
+- design/frontend: `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines`;
+- first-party AIOS-managed skills:
   - `aios-resource-resolver` from this repo;
+  - `github-repo-search` from this repo (Lin-customized version);
   - `lins-living-loop` from its independent repo `LinLin00000000/lins-living-loop`.
 
-For now, `lins-living-loop` is a default-installed core package. It does **not** need to physically live inside `aios-kit` to be part of the install flow.
+For now, `lins-living-loop` is a default-installed core package. It lives as an independent module checkout under `~/aios/modules/lins-living-loop` on installed machines, and it does **not** need to physically live inside `aios-kit` to be part of the install/update flow.
 
 ### Skill install/update strategy
 
 | Skill kind | Friend / Windows default | Lin's dev machine | Update path |
 |---|---|---|---|
-| external curated skills | copy/install via `npx skills` | copy/install via `npx skills` | rerun `aios skillpack sync --apply`; upstream handled by skills CLI |
-| first-party stable skills | copy into real agent skills dir | optional symlink per skill | rerun sync, or `dev-link` for source-backed editing |
+| external curated skills | copy/install via `npx skills` | copy/install via `npx skills` | `./aios update` or `./aios skillpack sync --apply`; upstream handled by skills CLI |
+| first-party stable skills | copy from `~/aios/modules/*` or `aios-kit/skills/*` into real agent skills dir | optional symlink per skill | `./aios update`; module git pull + skill sync |
 | active first-party development | copy unless user asks otherwise | symlink `~/.agents/skills/<skill>` -> Git worktree | edit repo, commit/push, rerun doctor |
+| OPS skills | installed by `aiops-vault-template` installer | symlink to `~/projects/aiops-vault-template` on Lin's machine | module update + template reinstall/symlink |
 
 Important: AIOS does **not** replace the whole `~/.agents/skills` directory. It only manages the skills recorded in its install state.
 
@@ -161,7 +179,7 @@ The OPS template also installs two operation skills into the real agent skills d
 - `aiops-vault`;
 - `aiops-service-operations`.
 
-So a default AIOS friend deployment currently installs 12 portable skills total: 10 from `skillpack.yaml` plus these 2 OPS skills.
+So a default AIOS friend deployment currently installs 16 portable skills total: 14 from `skillpack.yaml` plus these 2 OPS skills.
 
 It does **not** copy Lin's private live OPS vault into a friend's machine. A friend's vault starts from the reusable template and then gets filled with their own resources.
 
@@ -193,6 +211,8 @@ From this repo:
 ./aios init                            # create/update ~/aios instance layout
 ./aios status                          # show AIOS root, OPS vault, work, runtime skills, modules, project counts
 ./aios doctor                          # check instance + skillpack + local asset wiring
+./aios update                          # git-pull modules, reinstall/update managed skills, refresh OPS template
+./aios update --dry-run                # preview update actions
 python3 scripts/audit_public.py        # check tracked public files for obvious leaks
 ```
 
@@ -205,6 +225,9 @@ Skillpack:
 ./aios skillpack sync --apply          # install/update managed skills
 ./aios skillpack sync --prune --apply  # remove stale skills managed by this pack
 ./aios skillpack dev-link --apply      # dev only: symlink first-party skills one-by-one
+
+# Under the hood, external skills use commands like:
+npx --yes skills@latest add <repo-or-url> --skill <skill> -g -y --agent universal --copy
 ```
 
 For friend deployment:
@@ -258,14 +281,14 @@ python3 scripts/audit_public.py
 ./install.sh --dry-run
 ./aios doctor
 git status --short
-git diff -- README.md install.sh skillpack.yaml scripts/aios.py skills/aios-resource-resolver/SKILL.md
+git diff -- README.md install.sh skillpack.yaml scripts/aios.py skills/aios-resource-resolver/SKILL.md skills/github-repo-search/SKILL.md
 ```
 
 Commit and push kit changes:
 
 ```bash
 git add README.md install.sh skillpack.yaml scripts/aios.py docs registries skills manifests
-git commit -m "fix: keep agent skills directory independent"
+git commit -m "feat: add AIOS skill update flow"
 git push
 ```
 
@@ -273,11 +296,27 @@ If the changed skill lives in its own repo, commit that repo separately.
 
 ## How to update skills later
 
-To update the curated AIOS skill set on a machine:
+To update the AIOS modules and curated skill set on a machine:
 
 ```bash
 cd ~/aios/modules/aios-kit  # or ~/projects/aios-kit on Lin's machine
+./aios update
+./aios doctor
+```
+
+`aios update` does three things:
+
+1. runs `git pull --ff-only` for Git modules under `~/aios/modules/*`;
+2. re-runs the OPS vault template installer when `aiops-vault-template` is present;
+3. re-runs `aios skillpack sync --apply`, so external skills are refreshed through `npx skills` and first-party skills are copied/symlinked again according to the manifest.
+
+If you want to do it manually:
+
+```bash
+cd ~/aios/modules/aios-kit
 git pull --ff-only
+git -C ~/aios/modules/lins-living-loop pull --ff-only
+git -C ~/aios/modules/aiops-vault-template pull --ff-only
 ./aios skillpack sync --apply
 ./aios doctor
 ```
@@ -314,7 +353,7 @@ Decision rule:
 | Layer | Example path | Git truth source? | Purpose |
 |---|---|---:|---|
 | Distribution / assembly | `~/projects/aios-kit` or `~/aios/modules/aios-kit` | Yes | Installer, manifests, CLI, docs, reusable examples |
-| Independent module source | `~/projects/lins-living-loop`, `~/projects/aiops-vault-template` | Yes | Independently published core packages used by the distribution |
+| Independent module source | `~/projects/lins-living-loop`, `~/projects/aiops-vault-template` or installed `~/aios/modules/*` checkouts | Yes | Independently published core packages used by the distribution |
 | Deployed instance root | `~/aios` | No | One local AIOS instance boundary |
 | OPS vault / live facts | `~/aios/vault/ops` | No | Live operational facts, logs, secret locations, resource/project registry |
 | Work memory | `~/aios/work` | No | LLL/agent workdirs and recoverable task traces |
