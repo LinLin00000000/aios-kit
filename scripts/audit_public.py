@@ -44,6 +44,15 @@ def main() -> int:
             for m in re.finditer(r"[A-Za-z0-9_./+=-]{32,}", line):
                 candidate = m.group(0)
                 if entropy(candidate) >= 4.2 and not candidate.startswith("https://"):
+                    # Avoid path false positives without exempting token-like
+                    # strings that merely contain '/'. A candidate with slashes is
+                    # path-like only when it also has obvious path syntax.
+                    if "/" in candidate and (
+                        candidate.startswith(('./', '../', '~/'))
+                        or re.search(r"(^|/)[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+($|/)", candidate)
+                        or re.search(r"(^|/)(home|tmp|projects|modules|templates|vault|skills|scripts|docs|registries|aios|ai-ops)(/|$)", candidate)
+                    ):
+                        continue
                     findings.append((str(rel), i, "high-entropy-string", candidate[:120]))
     if findings:
         print("Potential public-audit findings:")

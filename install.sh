@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # One-command installer for aios-kit friend deployments.
-# Safe default: install the portable skillpack and create an AIOps vault from the public template.
+# Safe default: create a unified ~/aios instance, install the portable skillpack,
+# and create an OPS vault from the public aiops-vault-template.
 set -euo pipefail
 
 AIOS_KIT_REPO_URL="${AIOS_KIT_REPO_URL:-https://github.com/LinLin00000000/aios-kit.git}"
 AIOPS_TEMPLATE_REPO_URL="${AIOPS_TEMPLATE_REPO_URL:-https://github.com/LinLin00000000/aiops-vault-template.git}"
-KIT_DIR="${AIOS_KIT_DIR:-$HOME/.agents/skillpacks/aios-kit}"
-TEMPLATE_DIR="${AIOPS_TEMPLATE_DIR:-$HOME/.agents/templates/aiops-vault-template}"
-VAULT_PATH="${AIOPS_ROOT:-$HOME/ai-ops}"
+AIOS_ROOT="${AIOS_ROOT:-$HOME/aios}"
+KIT_DIR="${AIOS_KIT_DIR:-}"
+TEMPLATE_DIR="${AIOPS_TEMPLATE_DIR:-}"
+VAULT_PATH="${AIOPS_ROOT:-}"
+SKILLS_DIR="${AIOS_SKILLS_DIR:-}"
+KIT_DIR_EXPLICIT=$([ -n "${AIOS_KIT_DIR:-}" ] && echo 1 || echo 0)
+TEMPLATE_DIR_EXPLICIT=$([ -n "${AIOPS_TEMPLATE_DIR:-}" ] && echo 1 || echo 0)
+VAULT_PATH_EXPLICIT=$([ -n "${AIOPS_ROOT:-}" ] && echo 1 || echo 0)
+SKILLS_DIR_EXPLICIT=$([ -n "${AIOS_SKILLS_DIR:-}" ] && echo 1 || echo 0)
 WITH_AIOPS=1
 DRY_RUN=0
 TARGET="universal"
@@ -17,16 +24,21 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [options]
 
-Installs the portable aios-kit skillpack and, by default, an AIOps vault
-created from the public aiops-vault-template.
+Installs a portable AIOS instance rooted at ~/aios by default:
+- skills under ~/aios/skills;
+- OPS vault under ~/aios/vault/ops;
+- LLL work root under ~/aios/work;
+- reusable module checkouts under ~/aios/modules.
 
 Options:
-  --kit-dir PATH       Where to clone/update aios-kit (default: ~/.agents/skillpacks/aios-kit)
-  --vault PATH         Where to create/update the AIOps vault (default: $AIOPS_ROOT or ~/ai-ops)
+  --root PATH          AIOS instance root (default: $AIOS_ROOT or ~/aios)
+  --kit-dir PATH       Where to clone/update aios-kit (default: $AIOS_ROOT/modules/aios-kit)
+  --vault PATH         Where to create/update the OPS vault (default: $AIOPS_ROOT or $AIOS_ROOT/vault/ops)
+  --skills-dir PATH    Where to install universal skills (default: $AIOS_ROOT/skills)
   --target TARGET      Skill target for aios skillpack sync: universal|hermes|both (default: universal)
   --mode MODE          Skill install mode: copy|symlink (default: copy; use copy for friends)
-  --with-aiops         Install/update the AIOps vault template too (default)
-  --no-aiops           Only install the skillpack, do not create ~/ai-ops
+  --with-aiops         Install/update the OPS vault template too (default)
+  --no-aiops           Only install the instance + skillpack, do not create the OPS vault
   --dry-run            Print actions without changing files
   -h, --help           Show this help
 
@@ -39,6 +51,7 @@ EOF
 }
 
 log() { printf '\n==> %s\n' "$*"; }
+warn() { printf 'WARN: %s\n' "$*" >&2; }
 print_cmd() {
   printf '+'
   for arg in "$@"; do printf ' %q' "$arg"; done
@@ -59,8 +72,10 @@ need_cmd() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --kit-dir) KIT_DIR="$2"; shift 2 ;;
-    --vault) VAULT_PATH="$2"; shift 2 ;;
+    --root) AIOS_ROOT="$2"; shift 2 ;;
+    --kit-dir) KIT_DIR="$2"; KIT_DIR_EXPLICIT=1; shift 2 ;;
+    --vault) VAULT_PATH="$2"; VAULT_PATH_EXPLICIT=1; shift 2 ;;
+    --skills-dir) SKILLS_DIR="$2"; SKILLS_DIR_EXPLICIT=1; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
     --with-aiops) WITH_AIOPS=1; shift ;;
@@ -74,8 +89,13 @@ done
 case "$TARGET" in universal|hermes|both) ;; *) echo "invalid --target: $TARGET" >&2; exit 2 ;; esac
 case "$MODE" in copy|symlink) ;; *) echo "invalid --mode: $MODE" >&2; exit 2 ;; esac
 
+if [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then KIT_DIR="$AIOS_ROOT/modules/aios-kit"; fi
+if [ "$TEMPLATE_DIR_EXPLICIT" -eq 0 ]; then TEMPLATE_DIR="$AIOS_ROOT/modules/aiops-vault-template"; fi
+if [ "$VAULT_PATH_EXPLICIT" -eq 0 ]; then VAULT_PATH="$AIOS_ROOT/vault/ops"; fi
+if [ "$SKILLS_DIR_EXPLICIT" -eq 0 ]; then SKILLS_DIR="$AIOS_ROOT/skills"; fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || true)"
-if [ -n "$SCRIPT_DIR" ] && [ -x "$SCRIPT_DIR/aios" ] && [ -f "$SCRIPT_DIR/skillpack.yaml" ]; then
+if [ -n "$SCRIPT_DIR" ] && [ -x "$SCRIPT_DIR/aios" ] && [ -f "$SCRIPT_DIR/skillpack.yaml" ] && [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then
   KIT_DIR="$SCRIPT_DIR"
 fi
 
@@ -84,6 +104,13 @@ need_cmd git
 need_cmd python3
 need_cmd node
 need_cmd npx
+
+log "Preparing AIOS instance root at $AIOS_ROOT"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "+ mkdir -p $AIOS_ROOT/modules"
+else
+  mkdir -p "$AIOS_ROOT/modules"
+fi
 
 log "Preparing aios-kit at $KIT_DIR"
 if [ ! -f "$KIT_DIR/aios" ]; then
@@ -101,12 +128,19 @@ else
   fi
 fi
 
+log "Initializing AIOS instance layout"
+if [ "$DRY_RUN" -eq 1 ]; then
+  run_visible "$KIT_DIR/aios" --home "$HOME" init --root "$AIOS_ROOT" --ops "$VAULT_PATH" --skills-dir "$SKILLS_DIR" --dry-run
+else
+  "$KIT_DIR/aios" --home "$HOME" init --root "$AIOS_ROOT" --ops "$VAULT_PATH" --skills-dir "$SKILLS_DIR"
+fi
+
 log "Installing skillpack"
-run_visible "$KIT_DIR/aios" skillpack sync --apply --mode "$MODE" --target "$TARGET"
-run_visible "$KIT_DIR/aios" skillpack doctor --target "$TARGET"
+AIOS_ROOT="$AIOS_ROOT" AIOS_SKILLS_DIR="$SKILLS_DIR" run_visible "$KIT_DIR/aios" --home "$HOME" skillpack sync --apply --mode "$MODE" --target "$TARGET"
+AIOS_ROOT="$AIOS_ROOT" AIOS_SKILLS_DIR="$SKILLS_DIR" run_visible "$KIT_DIR/aios" --home "$HOME" skillpack doctor --target "$TARGET"
 
 if [ "$WITH_AIOPS" -eq 1 ]; then
-  log "Preparing AIOps vault template at $TEMPLATE_DIR"
+  log "Preparing OPS vault template at $TEMPLATE_DIR"
   if [ ! -f "$TEMPLATE_DIR/scripts/install.py" ]; then
     if [ "$DRY_RUN" -eq 1 ]; then
       echo "+ git clone $AIOPS_TEMPLATE_REPO_URL $TEMPLATE_DIR"
@@ -122,21 +156,22 @@ if [ "$WITH_AIOPS" -eq 1 ]; then
     fi
   fi
 
-  log "Installing AIOps vault at $VAULT_PATH"
+  log "Installing OPS vault at $VAULT_PATH"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "+ python3 $TEMPLATE_DIR/scripts/install.py --vault $VAULT_PATH --agent auto --skills-dir $HOME/.agents/skills"
-    echo "+ python3 $VAULT_PATH/scripts/aiops.py check"
+    echo "+ python3 $TEMPLATE_DIR/scripts/install.py --vault $VAULT_PATH --agent auto --skills-dir $SKILLS_DIR"
+    echo "+ AIOPS_ROOT=$VAULT_PATH python3 $VAULT_PATH/scripts/aiops.py check"
   else
-    python3 "$TEMPLATE_DIR/scripts/install.py" --vault "$VAULT_PATH" --agent auto --skills-dir "$HOME/.agents/skills"
-    python3 "$VAULT_PATH/scripts/aiops.py" check
+    python3 "$TEMPLATE_DIR/scripts/install.py" --vault "$VAULT_PATH" --agent auto --skills-dir "$SKILLS_DIR"
+    AIOPS_ROOT="$VAULT_PATH" python3 "$VAULT_PATH/scripts/aiops.py" check
   fi
 else
-  log "Skipping AIOps vault install (--no-aiops)"
+  log "Skipping OPS vault install (--no-aiops)"
 fi
 
 log "Done"
+echo "AIOS root: $AIOS_ROOT"
 echo "aios-kit: $KIT_DIR"
-echo "skills: $HOME/.agents/skills"
+echo "skills: $SKILLS_DIR"
 if [ "$WITH_AIOPS" -eq 1 ]; then
-  echo "ai-ops vault: $VAULT_PATH"
+  echo "OPS vault: $VAULT_PATH"
 fi

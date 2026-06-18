@@ -46,6 +46,48 @@ def resolve_repo_path(p: str | None, *, home: Path | None = None) -> Path | None
     return ROOT / path
 
 
+def aios_root(home: Path, raw: str | None = None) -> Path:
+    """Return the deployed AIOS instance root.
+
+    Product source lives in git repositories; deployed instance state, skills,
+    workdirs, logs, and caches live under this root by default.
+    """
+    value = raw or os.environ.get("AIOS_ROOT") or os.environ.get("AIOS_HOME") or "~/aios"
+    out = expand(value, home=home)
+    if out is None:
+        raise SystemExit("invalid AIOS root")
+    return out
+
+
+def instance_paths(home: Path, *, root: str | None = None, ops: str | None = None, skills_dir: str | None = None) -> dict[str, Path]:
+    root_path = aios_root(home, root)
+    ops_path = expand(ops, home=home) if ops else root_path / "vault" / "ops"
+    skills_path = expand(skills_dir, home=home) if skills_dir else expand(os.environ.get("AIOS_SKILLS_DIR"), home=home) if os.environ.get("AIOS_SKILLS_DIR") else root_path / "skills"
+    if ops_path is None or skills_path is None:
+        raise SystemExit("invalid AIOS instance path")
+    return {
+        "root": root_path,
+        "config": root_path / "config",
+        "vault": root_path / "vault",
+        "ops": ops_path,
+        "projects": ops_path / "projects",
+        "work": root_path / "work",
+        "skills": skills_path,
+        "modules": root_path / "modules",
+        "state": root_path / "state",
+        "logs": root_path / "logs",
+        "cache": root_path / "cache",
+    }
+
+
+def display_path(path: Path, home: Path | None = None) -> str:
+    home = home or Path.home()
+    try:
+        return "~/" + str(path.resolve().relative_to(home.resolve()))
+    except Exception:
+        return str(path)
+
+
 def parse_scalar(value: str) -> Any:
     value = value.strip()
     if value == "":
@@ -154,7 +196,8 @@ def enabled_items(manifest: dict[str, Any]) -> list[dict[str, Any]]:
 def target_dirs(target: str, home: Path) -> dict[str, Path]:
     hermes_home = Path(os.environ.get("HERMES_HOME", str(home / ".hermes"))).expanduser()
     all_dirs = {
-        "universal": home / ".agents" / "skills",
+        "universal": instance_paths(home)["skills"],
+        # Hermes profile skills remain profile-scoped unless explicitly bridged.
         "hermes": hermes_home / "skills",
     }
     if target == "both":
@@ -165,8 +208,11 @@ def target_dirs(target: str, home: Path) -> dict[str, Path]:
 
 
 def state_path(home: Path, manifest: dict[str, Any], state_dir: str | None = None) -> Path:
-    raw = state_dir or (manifest.get("defaults") or {}).get("state_dir") or "~/.agents/skillpacks/state/aios-kit"
-    return expand(raw, home=home) / "install-state.json"  # type: ignore[operator]
+    raw = state_dir or (manifest.get("defaults") or {}).get("state_dir")
+    base = expand(raw, home=home) if raw else instance_paths(home)["ops"] / "state" / "aios-kit"
+    if base is None:
+        raise SystemExit("invalid state dir")
+    return base / "install-state.json"
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -198,16 +244,20 @@ def run(cmd: list[str], *, apply: bool, attempts: int = 3) -> int:
 
 
 def copytree(src: Path, dst: Path, *, apply: bool) -> None:
+    marker = dst / ".aios-kit-managed"
     print(f"{'COPY' if apply else 'DRY copy'} {src} -> {dst}")
     if not apply:
         return
     if dst.exists() or dst.is_symlink():
+        if not marker.exists() and os.environ.get("AIOS_KIT_OVERWRITE_UNMANAGED") != "1":
+            raise SystemExit(f"refusing to overwrite unmanaged skill target: {dst}; move it aside or set AIOS_KIT_OVERWRITE_UNMANAGED=1")
         if dst.is_symlink() or dst.is_file():
             dst.unlink()
         else:
             shutil.rmtree(dst)
     ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache")
     shutil.copytree(src, dst, ignore=ignore)
+    (dst / ".aios-kit-managed").write_text("managed by aios-kit\n", encoding="utf-8")
 
 
 def symlink(src: Path, dst: Path, *, apply: bool) -> None:
@@ -327,7 +377,7 @@ def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode:
     name = str(item.get("skill") or item.get("id"))
     runtime_path = item.get("runtime_path")
     if runtime_path:
-        dst_candidate = expand(str(runtime_path), home=Path.home())
+        dst_candidate = expand(str(runtime_path), home=home)
         if dst_candidate is None:
             raise SystemExit(f"invalid runtime_path for {name}: {runtime_path}")
         dst = dst_candidate
@@ -442,6 +492,293 @@ def skillpack_sync(args: argparse.Namespace) -> None:
         print("dry-run only; no state written")
 
 
+def write_if_missing(path: Path, content: str, *, apply: bool) -> None:
+    print(f"{'WRITE' if apply else 'DRY write'} {path}")
+    if not apply:
+        return
+    if path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def mkdir(path: Path, *, apply: bool) -> None:
+    print(f"{'MKDIR' if apply else 'DRY mkdir'} {path}")
+    if apply:
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def compat_symlink(src: Path, dst: Path, *, apply: bool) -> bool:
+    print(f"{'LINK' if apply else 'DRY link'} {dst} -> {src}")
+    if not apply:
+        return True
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.is_symlink():
+        if dst.resolve() == src.resolve():
+            return True
+        print(f"WARN refusing to replace existing symlink {dst} -> {dst.resolve()}")
+        return False
+    if dst.exists():
+        print(f"WARN refusing to replace existing path: {dst}")
+        return False
+    dst.symlink_to(src, target_is_directory=True)
+    return True
+
+
+def init_instance(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    apply = not bool(getattr(args, "dry_run", False))
+    paths = instance_paths(home, root=args.root, ops=args.ops, skills_dir=args.skills_dir)
+    for key in ["root", "config", "vault", "ops", "projects", "work", "skills", "modules", "state", "logs", "cache"]:
+        mkdir(paths[key], apply=apply)
+    write_if_missing(paths["root"] / "README.md", "# AIOS instance\n\nThis directory is the local deployed AIOS instance root. Product source lives in repositories; this instance contains local vaults, workdirs, skills, module checkouts, logs, state, and cache.\n", apply=apply)
+    write_if_missing(paths["work"] / "README.md", "# AIOS work\n\nLLL and agent workdirs live here. Legacy `~/lll-work` may point here.\n", apply=apply)
+    write_if_missing(paths["skills"] / "README.md", "# AIOS skills\n\nRuntime skills installed for this AIOS instance. Legacy `~/.agents/skills` may point here.\n", apply=apply)
+    write_if_missing(paths["modules"] / "README.md", "# AIOS modules\n\nReusable module checkouts used by this AIOS distribution/instance.\n", apply=apply)
+    write_if_missing(paths["projects"] / "README.md", "# AIOS project registry\n\nMinimal project registry for the local AIOS instance. Facts here are private/live instance state, not public source.\n\n- `registry.jsonl`: one JSON object per project.\n- `aliases.yaml`: human aliases mapped to canonical project ids.\n", apply=apply)
+    instance_yaml = f"""version: 1
+instance_id: local-default
+root: {display_path(paths['root'], home)}
+paths:
+  vault: {display_path(paths['vault'], home)}
+  ops: {display_path(paths['ops'], home)}
+  work: {display_path(paths['work'], home)}
+  skills: {display_path(paths['skills'], home)}
+  modules: {display_path(paths['modules'], home)}
+  state: {display_path(paths['state'], home)}
+  logs: {display_path(paths['logs'], home)}
+  cache: {display_path(paths['cache'], home)}
+compat:
+  ai_ops: ~/ai-ops
+  lll_work: ~/lll-work
+"""
+    write_if_missing(paths["config"] / "instance.yaml", instance_yaml, apply=apply)
+    write_if_missing(paths["projects"] / "registry.jsonl", "", apply=apply)
+    write_if_missing(paths["projects"] / "aliases.yaml", "aliases: {}\n", apply=apply)
+    compat_symlink(paths["ops"], home / "ai-ops", apply=apply)
+    compat_symlink(paths["work"], home / "lll-work", apply=apply)
+    compat_symlink(paths["skills"], home / ".agents" / "skills", apply=apply)
+    print(f"AIOS root: {paths['root']}")
+
+
+def project_paths(home: Path) -> tuple[Path, Path]:
+    projects = instance_paths(home)["projects"]
+    return projects / "registry.jsonl", projects / "aliases.yaml"
+
+
+def read_projects(home: Path) -> list[dict[str, Any]]:
+    registry, _ = project_paths(home)
+    if not registry.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for lineno, raw in enumerate(registry.read_text(encoding="utf-8").splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            item = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise SystemExit(f"{registry}:{lineno}: invalid JSON: {e}")
+        if not isinstance(item, dict):
+            raise SystemExit(f"{registry}:{lineno}: expected JSON object")
+        item["_lineno"] = lineno
+        out.append(item)
+    return out
+
+
+def read_aliases(home: Path) -> dict[str, str]:
+    _, aliases_path = project_paths(home)
+    if not aliases_path.exists():
+        return {}
+    data = load_yaml_like(aliases_path)
+    aliases = data.get("aliases", {}) if isinstance(data, dict) else {}
+    if not isinstance(aliases, dict):
+        return {}
+    return {str(k).lower(): str(v) for k, v in aliases.items()}
+
+
+def write_aliases(home: Path, aliases: dict[str, str]) -> None:
+    _, aliases_path = project_paths(home)
+    aliases_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["aliases:"]
+    for key in sorted(aliases):
+        lines.append(f"  {key}: {aliases[key]}")
+    aliases_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def validate_projects(home: Path, *, verbose: bool = True) -> bool:
+    ok = True
+    projects = read_projects(home)
+    ids: set[str] = set()
+    valid_status = {"idea", "active", "paused", "archived"}
+    for item in projects:
+        pid = item.get("id")
+        if not isinstance(pid, str) or not pid:
+            print(f"project line {item.get('_lineno')}: missing id")
+            ok = False
+            continue
+        if pid in ids:
+            print(f"project {pid}: duplicate id")
+            ok = False
+        ids.add(pid)
+        if item.get("kind", "project") != "project":
+            print(f"project {pid}: kind must be project")
+            ok = False
+        if item.get("status", "active") not in valid_status:
+            print(f"project {pid}: invalid status {item.get('status')}")
+            ok = False
+    registry_aliases: dict[str, str] = {}
+    for item in projects:
+        pid = str(item.get("id", ""))
+        for alias in item.get("aliases", []) or []:
+            key = str(alias).lower()
+            if key in registry_aliases and registry_aliases[key] != pid:
+                print(f"registry alias {key}: used by both {registry_aliases[key]} and {pid}")
+                ok = False
+            registry_aliases[key] = pid
+    aliases = read_aliases(home)
+    for alias, pid in aliases.items():
+        if pid not in ids:
+            print(f"alias {alias}: points to missing project {pid}")
+            ok = False
+    if verbose:
+        print(f"projects: {len(projects)} entries, {len(aliases)} aliases, {'ok' if ok else 'problems'}")
+    return ok
+
+
+def resolve_project(home: Path, query: str) -> dict[str, Any] | None:
+    q = query.lower()
+    projects = read_projects(home)
+    by_id = {str(p.get("id")): p for p in projects if p.get("id")}
+    if query in by_id:
+        return by_id[query]
+    aliases = read_aliases(home)
+    if q in aliases and aliases[q] in by_id:
+        return by_id[aliases[q]]
+    matches = []
+    for p in projects:
+        vals = [str(p.get("name", "")).lower(), str(p.get("id", "")).lower()]
+        vals.extend(str(a).lower() for a in p.get("aliases", []) or [])
+        if q in vals:
+            matches.append(p)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise SystemExit("ambiguous project query: " + ", ".join(str(m.get("id")) for m in matches))
+    return None
+
+
+def project_list(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    projects = read_projects(home)
+    if args.status:
+        projects = [p for p in projects if p.get("status", "active") == args.status]
+    if args.json:
+        print(json.dumps([{k: v for k, v in p.items() if k != "_lineno"} for p in projects], ensure_ascii=False, indent=2))
+        return
+    if not projects:
+        print("no projects")
+        return
+    for p in projects:
+        print(f"- {p.get('id')} [{p.get('status','active')}] {p.get('name','')} {p.get('role_in_aios','')}")
+
+
+def project_get(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    p = resolve_project(home, args.query)
+    if not p:
+        raise SystemExit(f"project not found: {args.query}")
+    p = {k: v for k, v in p.items() if k != "_lineno"}
+    print(json.dumps(p, ensure_ascii=False, indent=2))
+
+
+def project_add(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    registry, _ = project_paths(home)
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    projects = read_projects(home)
+    if any(p.get("id") == args.id for p in projects):
+        raise SystemExit(f"project id already exists: {args.id}")
+    locations = []
+    if args.path:
+        locations.append({"kind": "local", "path": args.path})
+    if args.github:
+        locations.append({"kind": "github", "url": args.github})
+    item: dict[str, Any] = {
+        "id": args.id,
+        "kind": "project",
+        "name": args.name,
+        "aliases": args.alias or [],
+        "status": args.status,
+        "locations": locations,
+        "role_in_aios": args.role or "",
+        "notes": args.notes or "",
+        "updated_at": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    aliases = read_aliases(home)
+    for alias in args.alias or []:
+        key = alias.lower()
+        if key in aliases and aliases[key] != args.id:
+            raise SystemExit(f"alias already points elsewhere: {alias} -> {aliases[key]}")
+    with registry.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+    for alias in args.alias or []:
+        aliases[alias.lower()] = args.id
+    write_aliases(home, aliases)
+    print(f"added project: {args.id}")
+
+
+def project_alias(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    if not resolve_project(home, args.id):
+        raise SystemExit(f"project not found: {args.id}")
+    aliases = read_aliases(home)
+    key = args.alias.lower()
+    if key in aliases and aliases[key] != args.id and not args.force:
+        raise SystemExit(f"alias already exists: {args.alias} -> {aliases[key]}")
+    aliases[key] = args.id
+    write_aliases(home, aliases)
+    print(f"alias added: {args.alias} -> {args.id}")
+
+
+def project_validate(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    raise SystemExit(0 if validate_projects(home) else 1)
+
+
+def instance_doctor(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    paths = instance_paths(home)
+    ok = True
+    print("== instance ==")
+    for key in ["root", "config", "ops", "projects", "work", "skills", "modules", "state", "logs", "cache"]:
+        exists = paths[key].exists()
+        print(f"{key}: {paths[key]} {'exists' if exists else 'missing'}")
+        ok = ok and exists
+    for label, link, target in [("ai-ops", home / "ai-ops", paths["ops"]), ("lll-work", home / "lll-work", paths["work"]), ("agents-skills", home / ".agents" / "skills", paths["skills"] )]:
+        good = link.is_symlink() and link.resolve() == target.resolve()
+        if link.exists() or link.is_symlink():
+            print(f"compat {label}: {link} -> {link.resolve() if link.is_symlink() else 'not-symlink'} {'ok' if good else 'check'}")
+        else:
+            print(f"compat {label}: missing")
+    ok = validate_projects(home) and ok
+    raise SystemExit(0 if ok else 1)
+
+
+def status(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    paths = instance_paths(home)
+    projects = read_projects(home)
+    counts: dict[str, int] = {}
+    for p in projects:
+        counts[str(p.get("status", "active"))] = counts.get(str(p.get("status", "active")), 0) + 1
+    print(f"AIOS root: {paths['root']}")
+    print(f"OPS vault: {paths['ops']}")
+    print(f"Work root: {paths['work']}")
+    print(f"Skills: {paths['skills']}")
+    print(f"Modules: {paths['modules']}")
+    print(f"Projects: {len(projects)} {counts}")
+
+
 def assets_manifest_path() -> Path | None:
     for path in ASSET_FILES:
         if path.exists():
@@ -452,14 +789,15 @@ def assets_manifest_path() -> Path | None:
 def assets_doctor(args: argparse.Namespace) -> None:
     manifest_path = assets_manifest_path()
     print(f"assets manifest: {manifest_path}")
+    example_only = bool(manifest_path and manifest_path.name == "local-assets.example.json")
     assets = load_assets().get("assets", [])
     ok = True
     for a in assets:
         path = expand(a.get("canonical_path"))
         print(f"\n[{a.get('id')}] {a.get('kind')}\n  path: {path}")
         if not path or not path.exists():
-            print("  status: missing")
-            ok = False
+            print("  status: missing" + (" (example only)" if example_only else ""))
+            ok = ok and example_only
             continue
         if path.is_symlink():
             print(f"  symlink -> {path.resolve()}")
@@ -500,11 +838,15 @@ def assets_link(args: argparse.Namespace) -> None:
 
 
 def doctor(args: argparse.Namespace) -> None:
-    print("== skillpack ==")
     try:
-        skillpack_doctor(argparse.Namespace(home=args.home, target="both", state_dir=None))
+        instance_doctor(args)
     except SystemExit as e:
         code = int(e.code or 0)
+    print("== skillpack ==")
+    try:
+        skillpack_doctor(argparse.Namespace(home=args.home, target=args.target, state_dir=None))
+    except SystemExit as e:
+        code = max(code, int(e.code or 0))
     print("== assets ==")
     try:
         assets_doctor(args)
@@ -518,7 +860,45 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--home", help="override HOME for tests")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    init = sub.add_parser("init", help="initialize a unified ~/aios instance root")
+    init.add_argument("--root", help="AIOS instance root (default: ~/aios or $AIOS_ROOT)")
+    init.add_argument("--ops", help="OPS vault path (default: <root>/vault/ops)")
+    init.add_argument("--skills-dir", help="runtime skills dir (default: <root>/skills)")
+    init.add_argument("--dry-run", action="store_true")
+    init.set_defaults(func=init_instance)
+
+    st = sub.add_parser("status", help="show AIOS instance summary")
+    st.set_defaults(func=status)
+
+    proj = sub.add_parser("project", help="manage the minimal AIOS project registry")
+    psub = proj.add_subparsers(dest="project_cmd", required=True)
+    pl = psub.add_parser("list")
+    pl.add_argument("--status", choices=["idea", "active", "paused", "archived"])
+    pl.add_argument("--json", action="store_true")
+    pl.set_defaults(func=project_list)
+    pg = psub.add_parser("get")
+    pg.add_argument("query")
+    pg.set_defaults(func=project_get)
+    pa = psub.add_parser("add")
+    pa.add_argument("--id", required=True)
+    pa.add_argument("--name", required=True)
+    pa.add_argument("--path")
+    pa.add_argument("--github")
+    pa.add_argument("--status", default="active", choices=["idea", "active", "paused", "archived"])
+    pa.add_argument("--alias", action="append")
+    pa.add_argument("--role")
+    pa.add_argument("--notes")
+    pa.set_defaults(func=project_add)
+    pal = psub.add_parser("alias")
+    pal.add_argument("alias")
+    pal.add_argument("id")
+    pal.add_argument("--force", action="store_true")
+    pal.set_defaults(func=project_alias)
+    pv = psub.add_parser("validate")
+    pv.set_defaults(func=project_validate)
+
     d = sub.add_parser("doctor")
+    d.add_argument("--target", default="universal", choices=["universal", "hermes", "both"])
     d.set_defaults(func=doctor)
 
     sp = sub.add_parser("skillpack")

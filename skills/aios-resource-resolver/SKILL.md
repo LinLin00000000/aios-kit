@@ -22,7 +22,7 @@ Do not store large project/resource facts in this skill.
 ## Lookup order
 
 1. Locate the active AIOS registry root:
-   - preferred local/private: `~/ai-ops/projects/` or future `~/aios/registries/`;
+   - preferred local/private: `~/aios/vault/ops/projects/`, legacy-compatible `~/ai-ops/projects/`, or future `~/aios/vault/projects/` / `~/aios/registries/`;
    - public examples only: `registries/*.example.*` inside `aios-kit`.
 2. Read `registry.jsonl` and `aliases.yaml` if available.
 3. Match against `id`, `name`, `aliases`, GitHub repo name, local path basename, and notes.
