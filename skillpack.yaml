@@ -71,7 +71,7 @@ first_party:
     source: LinLin00000000/aios-kit
     skill: aios-resource-resolver
     enabled: true
-    default_mode: symlink
+    default_mode: copy
     targets: universal
     reason: Thin AIOS resource/context resolver skill. Facts live in registries, not in the skill.
   - id: lins-living-loop
@@ -79,7 +79,7 @@ first_party:
     source: LinLin00000000/lins-living-loop
     skill: lins-living-loop
     enabled: true
-    default_mode: symlink
+    default_mode: copy
     targets: universal
     reason: File-backed long-running workflow skill, maintained as an independent first-party project.
   - id: github-repo-search
@@ -87,6 +87,6 @@ first_party:
     source: LinLin00000000/aios-kit
     skill: github-repo-search
     enabled: true
-    default_mode: symlink
+    default_mode: copy
     targets: universal
     reason: Lin-customized GitHub project discovery and comparison skill; AIOS repo is the truth source.

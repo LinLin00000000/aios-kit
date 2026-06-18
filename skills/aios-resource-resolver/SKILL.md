@@ -52,9 +52,13 @@ cd ~/aios/modules/aios-kit  # friend/new-machine install
 ./aios doctor
 ./aios update
 ./aios update --dry-run
+./aios update modules
+./aios update modules lins-living-loop
+./aios update skills
+./aios update ops
 ```
 
-Skillpack commands:
+Skillpack commands are lower-level manifest reconciliation tools. Prefer `./aios update skills` for normal skill refreshes; use these when debugging or changing the pack itself:
 
 ```bash
 ./aios skillpack list

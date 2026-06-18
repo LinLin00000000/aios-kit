@@ -414,7 +414,10 @@ def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode:
         raise SystemExit(f"invalid first-party skill {name}: {src} ({msg})")
     dst_root.mkdir(parents=True, exist_ok=True) if apply else None
     if dst.exists() or dst.is_symlink():
-        if dst.resolve() == src.resolve() and mode == "symlink":
+        if dst.resolve() == src.resolve():
+            # Keep an existing dev symlink/worktree even when the public manifest
+            # default is copy. Public installs copy; author machines may opt into
+            # per-skill symlinks via `aios skillpack dev-link --apply`.
             print(f"OK existing worktree/link {dst} -> {src}")
         elif mode == "copy":
             copytree(src, dst, apply=apply)
@@ -796,53 +799,88 @@ def status(args: argparse.Namespace) -> None:
 
 
 
-def update(args: argparse.Namespace) -> None:
-    """Update AIOS module checkouts and selected runtime skills."""
+def update_modules(args: argparse.Namespace, *, paths: dict[str, Path] | None = None, apply: bool | None = None) -> int:
+    """Update one or more Git module checkouts under ~/aios/modules."""
     home = Path(args.home).expanduser() if args.home else Path.home()
-    paths = instance_paths(home)
-    apply = not bool(args.dry_run)
+    paths = paths or instance_paths(home)
+    apply = (not bool(args.dry_run)) if apply is None else apply
+    modules = paths["modules"]
+    selected = getattr(args, "modules", None) or getattr(args, "module", None) or []
+    if isinstance(selected, str):
+        selected = [selected]
     code = 0
 
     print("== modules ==")
-    modules = paths["modules"]
-    if modules.exists():
-        for child in sorted(modules.iterdir(), key=lambda x: x.name):
-            real = child.resolve() if child.exists() or child.is_symlink() else child
-            if (real / ".git").exists():
-                rc = run(["git", "-C", str(real), "pull", "--ff-only"], apply=apply)
-                code = max(code, rc)
-            else:
-                print(f"skip non-git module: {child}")
-    else:
+    if not modules.exists():
         print(f"modules dir missing: {modules}")
-        code = max(code, 1)
+        return 1
 
-    if not args.no_ops:
-        print("== ops vault template ==")
-        tpl = paths["modules"] / "aiops-vault-template"
-        script = tpl / "scripts" / "install.py"
-        if script.exists():
-            rc = run(["python3", str(script), "--vault", str(paths["ops"]), "--agent", "auto", "--skills-dir", str(paths["agent_skills"])], apply=apply)
+    children = [modules / name for name in selected] if selected else sorted(modules.iterdir(), key=lambda x: x.name)
+    for child in children:
+        real = child.resolve() if child.exists() or child.is_symlink() else child
+        if not child.exists() and not child.is_symlink():
+            print(f"missing module: {child}")
+            code = max(code, 1)
+            continue
+        if (real / ".git").exists():
+            rc = run(["git", "-C", str(real), "pull", "--ff-only"], apply=apply)
             code = max(code, rc)
         else:
-            print(f"skip ops template install; missing {script}")
+            print(f"skip non-git module: {child}")
+    return code
 
-    if not args.no_skills:
-        print("== skills ==")
-        skill_args = argparse.Namespace(
-            home=args.home,
-            apply=apply,
-            dry_run=not apply,
-            prune=args.prune,
-            mode=args.mode,
-            target=args.target,
-            state_dir=None,
-            first_party_only=False,
-        )
-        try:
-            skillpack_sync(skill_args)
-        except SystemExit as e:
-            code = max(code, int(e.code or 0))
+
+def update_ops(args: argparse.Namespace, *, paths: dict[str, Path] | None = None, apply: bool | None = None) -> int:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    paths = paths or instance_paths(home)
+    apply = (not bool(args.dry_run)) if apply is None else apply
+    print("== ops vault template ==")
+    tpl = paths["modules"] / "aiops-vault-template"
+    script = tpl / "scripts" / "install.py"
+    if script.exists():
+        return run(["python3", str(script), "--vault", str(paths["ops"]), "--agent", "auto", "--skills-dir", str(paths["agent_skills"])], apply=apply)
+    print(f"skip ops template install; missing {script}")
+    return 0
+
+
+def update_skills(args: argparse.Namespace, *, apply: bool | None = None) -> int:
+    apply = (not bool(args.dry_run)) if apply is None else apply
+    print("== skills ==")
+    skill_args = argparse.Namespace(
+        home=args.home,
+        apply=apply,
+        dry_run=not apply,
+        prune=getattr(args, "prune", False),
+        mode=getattr(args, "mode", None),
+        target=getattr(args, "target", "universal"),
+        state_dir=None,
+        first_party_only=False,
+    )
+    try:
+        skillpack_sync(skill_args)
+        return 0
+    except SystemExit as e:
+        if isinstance(e.code, int):
+            return int(e.code or 0)
+        if e.code:
+            print(e.code)
+        return 1
+
+
+def update(args: argparse.Namespace) -> None:
+    """Product-level update entrypoint. Defaults to all update phases."""
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    paths = instance_paths(home)
+    apply = not bool(args.dry_run)
+    subject = getattr(args, "subject", None) or "all"
+    code = 0
+
+    if subject in {"all", "modules"}:
+        code = max(code, update_modules(args, paths=paths, apply=apply))
+    if subject in {"all", "ops"} and not getattr(args, "no_ops", False):
+        code = max(code, update_ops(args, paths=paths, apply=apply))
+    if subject in {"all", "skills"} and not getattr(args, "no_skills", False):
+        code = max(code, update_skills(args, apply=apply))
 
     raise SystemExit(code)
 
@@ -939,13 +977,15 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("status", help="show AIOS instance summary")
     st.set_defaults(func=status)
 
-    upd = sub.add_parser("update", help="update AIOS module git checkouts and managed skills")
+    upd = sub.add_parser("update", help="update AIOS modules, skills, and OPS template")
+    upd.add_argument("subject", nargs="?", default="all", choices=["all", "modules", "skills", "ops"], help="what to update (default: all)")
+    upd.add_argument("modules", nargs="*", help="optional module names for `aios update modules <name>`")
     upd.add_argument("--dry-run", action="store_true")
     upd.add_argument("--target", default="universal", choices=["universal", "hermes", "both"])
     upd.add_argument("--mode", choices=["copy", "symlink"], help="override skill install mode for this update")
     upd.add_argument("--prune", action="store_true", help="prune stale skills managed by this pack")
-    upd.add_argument("--no-skills", action="store_true", help="only update module git checkouts")
-    upd.add_argument("--no-ops", action="store_true", help="skip re-running the OPS vault template installer")
+    upd.add_argument("--no-skills", action="store_true", help="with `update all`, skip managed skills")
+    upd.add_argument("--no-ops", action="store_true", help="with `update all`, skip re-running the OPS vault template installer")
     upd.set_defaults(func=update)
 
     proj = sub.add_parser("project", help="manage the minimal AIOS project registry")

@@ -14,11 +14,13 @@ TEMPLATE_DIR="${AIOPS_TEMPLATE_DIR:-}"
 LLL_DIR="${LLL_DIR:-${AIOS_LLL_DIR:-}}"
 VAULT_PATH="${AIOPS_ROOT:-}"
 SKILLS_DIR="${AIOS_AGENT_SKILLS_DIR:-${AIOS_SKILLS_DIR:-}}"
+GLOBAL_BIN_DIR="${AIOS_GLOBAL_BIN_DIR:-}"
 KIT_DIR_EXPLICIT=$([ -n "${AIOS_KIT_DIR:-}" ] && echo 1 || echo 0)
 TEMPLATE_DIR_EXPLICIT=$([ -n "${AIOPS_TEMPLATE_DIR:-}" ] && echo 1 || echo 0)
 LLL_DIR_EXPLICIT=$([ -n "${LLL_DIR:-}" ] && echo 1 || echo 0)
 VAULT_PATH_EXPLICIT=$([ -n "${AIOPS_ROOT:-}" ] && echo 1 || echo 0)
 SKILLS_DIR_EXPLICIT=$([ -n "${AIOS_AGENT_SKILLS_DIR:-${AIOS_SKILLS_DIR:-}}" ] && echo 1 || echo 0)
+GLOBAL_BIN_EXPLICIT=$([ -n "${AIOS_GLOBAL_BIN_DIR:-}" ] && echo 1 || echo 0)
 WITH_AIOPS=1
 DRY_RUN=0
 TARGET="universal"
@@ -40,6 +42,7 @@ Options:
   --lll-dir PATH       Where to clone/update lins-living-loop (default: $AIOS_ROOT/modules/lins-living-loop)
   --vault PATH         Where to create/update the OPS vault (default: $AIOPS_ROOT or $AIOS_ROOT/vault/ops)
   --skills-dir PATH    Agent runtime skills dir (default: ~/.agents/skills)
+  --global-bin DIR     Also link `aios` into DIR, e.g. ~/.local/bin; safe, refuses conflicts
   --target TARGET      Skill target for aios skillpack sync: universal|hermes|both (default: universal)
   --mode MODE          Skill install mode: copy|symlink (default: copy; use copy for friends)
   --with-aiops         Install/update the OPS vault template too (default)
@@ -82,6 +85,7 @@ while [ $# -gt 0 ]; do
     --lll-dir) LLL_DIR="$2"; LLL_DIR_EXPLICIT=1; shift 2 ;;
     --vault) VAULT_PATH="$2"; VAULT_PATH_EXPLICIT=1; shift 2 ;;
     --skills-dir) SKILLS_DIR="$2"; SKILLS_DIR_EXPLICIT=1; shift 2 ;;
+    --global-bin) GLOBAL_BIN_DIR="$2"; GLOBAL_BIN_EXPLICIT=1; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
     --with-aiops) WITH_AIOPS=1; shift ;;
@@ -100,6 +104,7 @@ if [ "$TEMPLATE_DIR_EXPLICIT" -eq 0 ]; then TEMPLATE_DIR="$AIOS_ROOT/modules/aio
 if [ "$LLL_DIR_EXPLICIT" -eq 0 ]; then LLL_DIR="$AIOS_ROOT/modules/lins-living-loop"; fi
 if [ "$VAULT_PATH_EXPLICIT" -eq 0 ]; then VAULT_PATH="$AIOS_ROOT/vault/ops"; fi
 if [ "$SKILLS_DIR_EXPLICIT" -eq 0 ]; then SKILLS_DIR="$HOME/.agents/skills"; fi
+AIOS_BIN_DIR="$AIOS_ROOT/bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || true)"
 if [ -n "$SCRIPT_DIR" ] && [ -x "$SCRIPT_DIR/aios" ] && [ -f "$SCRIPT_DIR/skillpack.yaml" ] && [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then
@@ -132,6 +137,33 @@ else
     run_visible git -C "$KIT_DIR" pull --ff-only
   else
     echo "using existing non-git kit dir: $KIT_DIR"
+  fi
+fi
+
+
+log "Installing aios command shim"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "+ mkdir -p $AIOS_BIN_DIR"
+  echo "+ ln -sfn $KIT_DIR/aios $AIOS_BIN_DIR/aios"
+else
+  mkdir -p "$AIOS_BIN_DIR"
+  ln -sfn "$KIT_DIR/aios" "$AIOS_BIN_DIR/aios"
+fi
+if [ -n "$GLOBAL_BIN_DIR" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "+ mkdir -p $GLOBAL_BIN_DIR"
+    echo "+ ln -s $KIT_DIR/aios $GLOBAL_BIN_DIR/aios"
+  else
+    mkdir -p "$GLOBAL_BIN_DIR"
+    if [ -e "$GLOBAL_BIN_DIR/aios" ] || [ -L "$GLOBAL_BIN_DIR/aios" ]; then
+      if [ -L "$GLOBAL_BIN_DIR/aios" ] && [ "$(readlink "$GLOBAL_BIN_DIR/aios")" = "$KIT_DIR/aios" ]; then
+        :
+      else
+        warn "refusing to replace existing $GLOBAL_BIN_DIR/aios; use ~/aios/bin/aios or remove it manually"
+      fi
+    else
+      ln -s "$KIT_DIR/aios" "$GLOBAL_BIN_DIR/aios"
+    fi
   fi
 fi
 
@@ -194,6 +226,7 @@ fi
 log "Done"
 echo "AIOS root: $AIOS_ROOT"
 echo "aios-kit: $KIT_DIR"
+echo "aios command: $AIOS_BIN_DIR/aios"
 echo "lins-living-loop: $LLL_DIR"
 echo "agent runtime skills: $SKILLS_DIR"
 if [ "$WITH_AIOPS" -eq 1 ]; then
