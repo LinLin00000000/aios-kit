@@ -1,0 +1,51 @@
+# AIOS Mihomo/Clash template
+# Put your own proxy provider/subscription or node definitions here.
+# Do not commit private subscription URLs or credentials.
+
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+
+external-controller: 127.0.0.1:9090
+secret: ""
+
+# TUN is enabled by default for server bootstrap; install.sh can override it via --no-proxy-tun.
+tun:
+  enable: true
+  stack: system
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+dns:
+  enable: true
+  listen: 127.0.0.1:1053
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+
+proxy-providers: {}
+proxies: []
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - DIRECT
+
+rules:
+  - GEOIP,LAN,DIRECT
+  - MATCH,PROXY

@@ -1,16 +1,48 @@
 # aios-kit
 
-**中文**：`aios-kit` 是一个轻量、可迁移的 Personal AIOS 安装与分发套件。它把精选 Agent skills、LLL 工作流、OPS vault 模板、项目注册表和本地实例目录组织成一个可以在新机器上快速部署的 AIOS 基础环境。
+`aios-kit` 是一个轻量、可迁移的 Personal AIOS 安装与分发套件。它以 Hermes Agent 为基础，把精选 Agent skills、LLL 工作流、OPS vault 模板、项目注册表和本地实例目录组织成一个可以在新机器上快速部署的 AIOS 基础环境。
 
-**English**: `aios-kit` is a lightweight, portable installation and distribution kit for a Personal AIOS. It assembles curated agent skills, the LLL workflow, an OPS vault template, a project registry, and a local instance layout into a deployable AIOS base environment.
+`aios-kit` is a lightweight, portable installation and distribution kit for a Personal AIOS. It is built around Hermes Agent and assembles curated agent skills, the LLL workflow, an OPS vault template, a project registry, and a local instance layout into a deployable base environment.
 
 ---
 
-## What it installs / 安装内容
+## 快速安装 / Quick install
 
-**中文**：默认安装会创建一个统一的本地 AIOS 实例根目录：
+一行安装命令会直接进入交互式安装流程，适合新手和首次部署：
 
-**English**: The default install creates a unified local AIOS instance root:
+The one-line command starts an interactive installer, suitable for first-time users:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
+```
+
+如果当前机器还没有代理、无法直连 GitHub，可以临时使用你信任的 GitHub raw 镜像。镜像只用于取回同一份安装脚本，安装后仍建议通过代理访问官方源：
+
+If the machine has no proxy yet and cannot reach GitHub directly, use a GitHub raw mirror you trust. The mirror is only for fetching the same installer; after proxy setup, official sources are preferred:
+
+```bash
+bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
+```
+
+安装器会询问安装路径、是否配置代理、是否安装开发环境、是否安装 Hermes 核心组件、是否安装 OPS vault，以及是否把 `aios` 加入 PATH。默认安装根目录是 `~/aios`，也可以在交互中输入其他路径。
+
+The installer asks for the install root, proxy setup, development environment, Hermes core components, OPS vault, and whether to add `aios` to PATH. The default install root is `~/aios`, but you can enter another valid path interactively.
+
+自动化部署可以使用非交互参数：
+
+For automated deployments, use non-interactive flags:
+
+```bash
+bash install.sh --non-interactive -y --root ~/aios --proxy auto --add-to-path yes --target universal --mode copy
+```
+
+---
+
+## 安装内容 / What it installs
+
+默认实例布局：
+
+Default instance layout:
 
 ```text
 ~/aios/
@@ -20,133 +52,122 @@
   work/                    # LLL / agent work directories
   skills/                  # AIOS skill metadata/cache, not the runtime skills dir
   modules/                 # updateable module checkouts
+  network/mihomo/          # optional Mihomo/Clash config template
   state/
   logs/
   cache/
 ```
 
-**中文**：Agent 真正加载的 skills 仍然安装在 Agent 自己的 runtime skills 目录，例如 `~/.agents/skills` 或 Hermes profile 的 `~/.hermes/skills`。`aios-kit` 只逐个安装它管理的 skills，不接管整个 skills 目录。
+Agent 真正加载的 skills 仍然安装在 Agent 自己的 runtime skills 目录，例如 `~/.agents/skills` 或 Hermes profile 的 `~/.hermes/skills`。`aios-kit` 只逐个安装它管理的 skills，不接管整个 skills 目录。
 
-**English**: Agent-loadable skills are still installed into the agent's real runtime skills directory, such as `~/.agents/skills` or a Hermes profile's `~/.hermes/skills`. `aios-kit` installs only the selected managed skills one by one; it does not take over the whole skills directory.
-
----
-
-## Quick install / 快速安装
-
-**中文**：一行安装：
-
-**English**: One-line install:
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
-```
-
-**中文**：更可审计的安装方式：
-
-**English**: More auditable install flow:
-
-```bash
-curl -fsSLo /tmp/aios-kit-install.sh https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh
-bash /tmp/aios-kit-install.sh
-```
-
-**中文**：从 Git 仓库安装：
-
-**English**: Clone-and-run install:
-
-```bash
-git clone https://github.com/LinLin00000000/aios-kit.git ~/aios/modules/aios-kit
-bash ~/aios/modules/aios-kit/install.sh
-```
-
-**中文**：安装后可通过以下路径调用 CLI：
-
-**English**: After installation, the CLI is available at:
-
-```bash
-~/aios/bin/aios status
-```
-
-**中文**：如果你希望直接运行全局命令 `aios`，可以把 `~/aios/bin` 加入 `PATH`：
-
-**English**: To run `aios` as a global command, add `~/aios/bin` to your `PATH`:
-
-```bash
-export PATH="$HOME/aios/bin:$PATH"
-aios status
-```
-
-**中文**：也可以在安装时安全地链接到已有 PATH 目录，例如 `~/.local/bin`。安装器会拒绝覆盖已有冲突文件。
-
-**English**: You can also link the command into an existing PATH directory such as `~/.local/bin`. The installer refuses to overwrite conflicting files.
-
-```bash
-bash install.sh --global-bin ~/.local/bin
-```
+Agent-loadable skills are still installed into the agent's real runtime skills directory, such as `~/.agents/skills` or a Hermes profile's `~/.hermes/skills`. `aios-kit` installs only selected managed skills one by one; it does not take over the whole skills directory.
 
 ---
 
-## Installer options / 安装选项
+## 新服务器部署流程 / New-server deployment flow
 
-**中文**：常用安装选项：
+安装器按保守、幂等的顺序执行：先检测，再决定是否执行。
 
-**English**: Common installer options:
+The installer is conservative and idempotent: it checks first, then acts only when needed.
+
+1. **网络探测 / Network check**  
+   默认在不使用代理环境变量的情况下测试外网连通性。如果直连可用，跳过代理；如果不可用，引导 Mihomo/Clash 配置。
+
+   By default it tests external connectivity without proxy environment variables. If direct access works, proxy setup is skipped; otherwise Mihomo/Clash setup is recommended.
+
+2. **代理配置 / Proxy setup**  
+   Mihomo 默认作为 AIOS 内置网络组件安装到 `~/aios/network/mihomo`，并生成 `aios-mihomo.service`。TUN 默认开启；如果关闭 TUN，安装器会写入 `proxy_on` / `proxy_off` / `proxy_test` / `proxy_restart` 等 shell helper，并默认在 shell 中自动 `proxy_on`。
+
+   Mihomo is installed as an AIOS network component under `~/aios/network/mihomo` and is wired as `aios-mihomo.service`. TUN is enabled by default. If TUN is disabled, the installer writes shell helpers such as `proxy_on`, `proxy_off`, `proxy_test`, and `proxy_restart`, and auto-enables proxy environment variables in shell sessions by default.
+
+   推荐两种输入方式：
+
+   Two input styles are recommended:
+
+   ```bash
+   # 机场/供应商订阅：生成 proxy-providers.airport
+   bash install.sh --proxy yes --proxy-subscription-url 'https://example.com/sub?token=...'
+
+   # 自建节点：提供只包含 proxies 列表或 proxies: 字段的本地 YAML 片段
+   bash install.sh --proxy yes --proxy-proxies-file ./my-proxies.yaml
+   ```
+
+   安装器会把订阅 URL 渲染成 `proxy-providers`，或把本地 YAML 片段合成为完整 `config.yaml`，并自动把节点名加入 `PROXY` 组。仓库中的 `templates/mihomo/config.yaml` 只作为公共安全底板，不包含私人订阅、UUID 或节点密钥。
+
+   The installer renders a subscription URL into `proxy-providers`, or merges a local YAML proxy snippet into a complete `config.yaml` and adds node names to the `PROXY` group. The repository template is only a public-safe base; it contains no private subscription URL, UUID, or node secret.
+
+3. **官方源恢复 / Official source reset**  
+   开启代理后，安装器会尽量把 npm、pip、Docker 等源恢复到官方默认方向。APT 源具有发行版差异，目前只提示并保守处理。
+
+   After proxy setup, the installer moves npm, pip, Docker, and similar sources toward official defaults where safe. APT sources are distro-specific and are handled conservatively.
+
+4. **开发环境 / Development environment**  
+   检测并安装 Python/UV、NVM + Node 24 LTS、Docker、Caddy。已存在则跳过，不重复安装。
+
+   It checks and installs Python/UV, NVM + Node 24 LTS, Docker, and Caddy. Existing components are skipped.
+
+5. **核心组件 / Core components**  
+   检测并安装 Hermes Agent；将 Hermes 的外部 skill 目录约定到 `~/.agents/skills`；安装 AIOS skillpack。DNS skill 会在确定来源后作为显式 skillpack 条目加入。
+
+   It checks and installs Hermes Agent, configures the external skill directory convention as `~/.agents/skills`, and installs the AIOS skillpack. The DNS skill will become an explicit skillpack entry once its source is finalized.
+
+6. **AIOps 记录 / AIOps records**  
+   OPS vault 安装后，Docker 和 Caddy 会作为 AIOS 运维资源记录入口写入维护日志或模板提供的资源档案。
+
+   After the OPS vault is installed, Docker and Caddy are recorded as AIOS operational resources via the maintenance log or the vault template's resource records.
+
+---
+
+## 安装选项 / Installer options
+
+常用选项：
+
+Common options:
 
 ```bash
-bash install.sh --dry-run                     # preview actions / 预览操作
-bash install.sh --root ~/my-aios              # choose instance root / 指定实例根目录
-bash install.sh --no-aiops                    # skip OPS vault template / 跳过 OPS vault 模板
-bash install.sh --vault ~/my-aios/vault/ops   # choose OPS vault path / 指定 OPS vault 路径
-bash install.sh --skills-dir ~/.agents/skills # choose runtime skills dir / 指定 runtime skills 目录
-bash install.sh --target universal            # default target / 默认目标
-bash install.sh --target hermes               # install for Hermes / 安装到 Hermes skills
-bash install.sh --target both                 # install to both targets / 两边都安装
-bash install.sh --mode copy                   # default; best for portable installs / 默认，最适合迁移
-bash install.sh --mode symlink                # dev mode for first-party skills / 开发模式
-bash install.sh --global-bin ~/.local/bin     # optional global command link / 可选全局命令链接
+bash install.sh --dry-run                                  # preview actions / 预览操作
+bash install.sh --root ~/my-aios                           # choose instance root / 指定实例根目录
+bash install.sh --proxy auto                               # direct test, proxy only if needed / 先测试直连
+bash install.sh --proxy yes --proxy-subscription-url URL    # provider subscription / 机场订阅
+bash install.sh --proxy yes --proxy-proxies-file nodes.yaml # self-hosted nodes / 自建节点片段
+bash install.sh --no-proxy-tun --proxy-auto-env yes         # env proxy helpers without TUN / 无 TUN 时自动 proxy_on
+bash install.sh --add-to-path yes                          # add ~/aios/bin to PATH / 加入 PATH
+bash install.sh --no-dev-env                               # skip Python/Node/Docker/Caddy phase / 跳过开发环境
+bash install.sh --no-core                                  # skip Hermes/core phase / 跳过核心组件
+bash install.sh --no-aiops                                 # skip OPS vault template / 跳过 OPS vault
+bash install.sh --target universal --mode copy             # portable skill install default / 默认 portable 模式
+bash install.sh --force                                    # overwrite locally modified managed skill copies / 强制覆盖托管 skill
+```
+
+查看完整帮助：
+
+Show full help:
+
+```bash
+bash install.sh -h
 ```
 
 ---
 
-## Common commands / 常用命令
+## 常用命令 / Common commands
 
-**中文**：安装后推荐直接使用 `aios`。如果没有配置 PATH，也可以使用 `~/aios/bin/aios` 或在仓库中运行 `./aios`。
+安装后推荐直接使用 `aios`。如果没有配置 PATH，也可以使用 `~/aios/bin/aios` 或在仓库中运行 `./aios`。
 
-**English**: After installation, use `aios` directly. If PATH is not configured, use `~/aios/bin/aios` or run `./aios` inside the repository.
+After installation, use `aios` directly. If PATH is not configured, use `~/aios/bin/aios` or run `./aios` inside the repository.
 
 ```bash
 aios status                 # show instance summary / 查看实例摘要
 aios doctor                 # validate wiring / 检查实例与 skillpack
 aios update                 # update modules, OPS template, and managed skills / 全量更新
 aios update --dry-run       # preview update / 预览更新
+aios update skills          # refresh managed runtime skills / 刷新托管 skills
+aios update modules         # update module Git checkouts / 更新模块
+aios update ops             # refresh OPS vault template / 刷新 OPS vault 模板
 ```
 
-**中文**：按类型更新：
+底层 skillpack 命令主要用于开发和调试。普通用户通常只需要 `aios update skills`。
 
-**English**: Update by subject:
-
-```bash
-aios update modules                         # update all module Git checkouts / 更新全部模块
-aios update modules lins-living-loop        # update one module / 只更新某个模块
-aios update skills                          # refresh managed runtime skills / 刷新托管 skills
-aios update ops                             # refresh OPS vault template / 刷新 OPS vault 模板
-```
-
-**中文**：项目注册表命令：
-
-**English**: Project registry commands:
-
-```bash
-aios project list
-aios project add --id aios-kit --name "AIOS Kit" --path ~/aios/modules/aios-kit --github https://github.com/LinLin00000000/aios-kit --alias kit --role distribution-hub
-aios project get aios-kit
-aios project alias kit aios-kit
-aios project validate
-```
-
-**中文**：底层 skillpack 命令适合开发者或调试使用。普通用户通常只需要 `aios update skills`。
-
-**English**: Low-level skillpack commands are mainly for developers and debugging. Most users should use `aios update skills`.
+Low-level skillpack commands are mainly for development and debugging. Most users should use `aios update skills`.
 
 ```bash
 aios skillpack list
@@ -159,11 +180,35 @@ aios skillpack dev-link --apply       # dev only: symlink first-party skills one
 
 ---
 
-## Modules and skills / 模块与 skills
+## Skillpack 更新语义 / Skillpack update semantics
 
-**中文**：`~/aios/modules` 保存可更新的模块源码或模板 checkout，例如：
+`npx skills update` 会根据 lock 文件记录的 upstream skill hash 判断是否有新版本，然后重新执行 `skills add` 刷新安装。它适合管理来自上游的技能，但不应假设用户本地改动一定会被自动合并。
 
-**English**: `~/aios/modules` stores updateable module source/template checkouts, for example:
+`npx skills update` uses lock-file upstream hashes to detect newer skill versions and then reruns `skills add` to refresh installations. It is useful for upstream-managed skills, but local user edits should not be assumed to merge automatically.
+
+`aios-kit` 的策略更保守：
+
+`aios-kit` uses a more conservative policy:
+
+- 每个托管 skill 在 state 中记录安装路径和本地内容 hash。
+- 更新前如果发现 runtime skill 已被用户本地改动，默认跳过并提示。
+- 只有显式传入 `--force` 时才覆盖本地改动。
+- 第一方和第三方 skill 使用同一套保护语义。
+- stale skill 只在 `--prune --apply` 时移除。
+
+- Each managed skill records its installed path and local content hash in state.
+- If a runtime skill has local edits, updates skip it by default and print a warning.
+- Local edits are overwritten only with `--force`.
+- First-party and third-party skills share the same protection semantics.
+- Stale skills are removed only with `--prune --apply`.
+
+---
+
+## 模块与 skills / Modules and skills
+
+`~/aios/modules` 保存可更新的模块源码或模板 checkout，例如：
+
+`~/aios/modules` stores updateable module source/template checkouts, for example:
 
 ```text
 ~/aios/modules/aios-kit
@@ -171,43 +216,43 @@ aios skillpack dev-link --apply       # dev only: symlink first-party skills one
 ~/aios/modules/aiops-vault-template
 ```
 
-**中文**：runtime skills 是 Agent 实际加载的能力，通常位于：
+runtime skills 是 Agent 实际加载的能力，通常位于：
 
-**English**: Runtime skills are the capabilities the agent actually loads, usually under:
+Runtime skills are the capabilities the agent actually loads, usually under:
 
 ```text
 ~/.agents/skills/<skill>
 ~/.hermes/skills/<skill>
 ```
 
-**中文**：默认 portable 安装使用 copy，更适合朋友机器、Windows 和稳定环境。first-party 开发可以使用逐个 symlink，让修改直接落在 Git worktree 中。
+默认 portable 安装使用 copy，更适合朋友机器、Windows 和稳定环境。first-party 开发可以使用逐个 symlink，让修改直接落在 Git worktree 中。
 
-**English**: Portable installs use copy mode by default, which is safer for friends' machines, Windows, and stable environments. First-party development can use per-skill symlinks so edits land directly in Git worktrees.
-
----
-
-## Included skills / 内置 skill set
-
-**中文**：`skillpack.yaml` 中的 portable base pack 包括：
-
-**English**: The portable base pack in `skillpack.yaml` includes:
-
-- **Documents / 文档**: `docx`, `pptx`, `xlsx`, `pdf`
-- **Skill discovery and authoring / skill 发现与创作**: `find-skills`, `skill-creator`, `awesome-mcp-servers-discovery`
-- **Design and frontend / 设计与前端**: `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines`
-- **AIOS first-party / AIOS 第一方**: `aios-resource-resolver`, `github-repo-search`, `lins-living-loop`
-
-**中文**：OPS vault 模板还会安装两个 operation skills：`aiops-vault` 和 `aiops-service-operations`。
-
-**English**: The OPS vault template also installs two operation skills: `aiops-vault` and `aiops-service-operations`.
+Portable installs use copy mode by default, which is safer for friends' machines, Windows, and stable environments. First-party development can use per-skill symlinks so edits land directly in Git worktrees.
 
 ---
 
-## OPS vault / 运维资料库
+## 内置 skill set / Included skills
 
-**中文**：`aios-kit` 会从公开模板 `aiops-vault-template` 初始化一个新的 OPS vault：
+`skillpack.yaml` 中的 portable base pack 包括：
 
-**English**: `aios-kit` initializes a new OPS vault from the public `aiops-vault-template`:
+The portable base pack in `skillpack.yaml` includes:
+
+- **文档 / Documents**: `docx`, `pptx`, `xlsx`, `pdf`
+- **skill 发现与创作 / Skill discovery and authoring**: `find-skills`, `skill-creator`, `awesome-mcp-servers-discovery`
+- **设计与前端 / Design and frontend**: `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines`
+- **AIOS 第一方 / AIOS first-party**: `aios-resource-resolver`, `github-repo-search`, `lins-living-loop`
+
+OPS vault 模板还会安装两个 operation skills：`aiops-vault` 和 `aiops-service-operations`。
+
+The OPS vault template also installs two operation skills: `aiops-vault` and `aiops-service-operations`.
+
+---
+
+## 运维资料库 / OPS vault
+
+`aios-kit` 会从公开模板 `aiops-vault-template` 初始化一个新的 OPS vault：
+
+`aios-kit` initializes a new OPS vault from the public `aiops-vault-template`:
 
 ```text
 ~/aios/vault/ops/
@@ -219,17 +264,17 @@ aios skillpack dev-link --apply       # dev only: symlink first-party skills one
   scripts/aiops.py
 ```
 
-**中文**：它不会复制维护者的私人 live vault。新机器会从模板开始，然后记录自己的资源、服务和维护日志。
+它不会复制维护者的私人 live vault。新机器会从模板开始，然后记录自己的资源、服务和维护日志。
 
-**English**: It does not copy the maintainer's private live vault. A new machine starts from the template and records its own resources, services, and maintenance history.
+It does not copy the maintainer's private live vault. A new machine starts from the template and records its own resources, services, and maintenance history.
 
 ---
 
-## Project registry / 项目注册表
+## 项目注册表 / Project registry
 
-**中文**：当前实现的是最小项目注册表，而不是完整 Project Graph。它适合记录本机 AIOS 需要识别的项目、路径、GitHub URL、别名和角色。
+当前实现的是最小项目注册表，而不是完整 Project Graph。它适合记录本机 AIOS 需要识别的项目、路径、GitHub URL、别名和角色。
 
-**English**: The current implementation is a minimal project registry, not a full Project Graph. It records projects, paths, GitHub URLs, aliases, and roles that the local AIOS instance needs to resolve.
+The current implementation is a minimal project registry, not a full Project Graph. It records projects, paths, GitHub URLs, aliases, and roles that the local AIOS instance needs to resolve.
 
 ```text
 ~/aios/vault/ops/projects/
@@ -239,40 +284,36 @@ aios skillpack dev-link --apply       # dev only: symlink first-party skills one
 
 ---
 
-## Boundaries / 边界
+## 设计边界 / Boundaries
 
-**中文**：几个重要边界：
-
-**English**: Important boundaries:
-
-- **中文**：`~/aios` 是本机部署实例，不应该整体提交到公开仓库。  
-  **English**: `~/aios` is a local deployed instance and should not be committed wholesale.
-- **中文**：`~/aios/vault/ops` 是 live operational vault，不应该把私人事实或密钥写进本仓库。  
-  **English**: `~/aios/vault/ops` is a live operational vault; private facts and secrets should not be committed here.
-- **中文**：`~/.agents/skills` 和 `~/.hermes/skills` 是 Agent runtime 目录，`aios-kit` 不接管整个目录。  
-  **English**: `~/.agents/skills` and `~/.hermes/skills` are runtime directories; `aios-kit` does not take them over.
-- **中文**：机器专属、本地专属、私有基础设施相关内容应放在 local overlay，而不是 portable base pack。  
-  **English**: Machine-specific, local-only, or private-infrastructure-specific assets belong in local overlays, not the portable base pack.
+- `~/aios` 是本机部署实例，不应该整体提交到公开仓库。  
+  `~/aios` is a local deployed instance and should not be committed wholesale.
+- `~/aios/vault/ops` 是 live operational vault，不应该把私人事实或密钥写进本仓库。  
+  `~/aios/vault/ops` is a live operational vault; private facts and secrets should not be committed here.
+- `~/.agents/skills` 和 `~/.hermes/skills` 是 Agent runtime 目录，`aios-kit` 不接管整个目录。  
+  `~/.agents/skills` and `~/.hermes/skills` are runtime directories; `aios-kit` does not take them over.
+- 机器专属、本地专属、私有基础设施相关内容应放在 local overlay，而不是 portable base pack。  
+  Machine-specific, local-only, or private-infrastructure-specific assets belong in local overlays, not the portable base pack.
 
 ---
 
-## Development / 开发
+## 开发 / Development
 
-**中文**：开发、贡献、新增 module/skill、本机 overlay 的规则见：
+开发、贡献、新增 module/skill、本机 overlay 的规则见：
 
-**English**: Development, contribution, module/skill addition, and local overlay rules are documented in:
+Development, contribution, module/skill addition, and local overlay rules are documented in:
 
 - [`docs/development.md`](docs/development.md)
 - [`docs/security-and-privacy.md`](docs/security-and-privacy.md)
 - [`docs/aios-resource-architecture.md`](docs/aios-resource-architecture.md)
 
-**中文**：发布前建议运行：
+发布前建议运行：
 
-**English**: Before publishing, run:
+Before publishing, run:
 
 ```bash
 python3 scripts/audit_public.py
-bash install.sh --dry-run
+bash install.sh --dry-run --non-interactive --no-dev-env --no-core --no-aiops
 aios update --dry-run
 aios doctor
 git status --short

@@ -253,14 +253,20 @@ def run(cmd: list[str], *, apply: bool, attempts: int = 3) -> int:
     return rc
 
 
-def copytree(src: Path, dst: Path, *, apply: bool) -> None:
+def copytree(src: Path, dst: Path, *, apply: bool, old_entry: dict[str, Any] | None = None, force: bool = False) -> str | None:
     marker = dst / ".aios-kit-managed"
     print(f"{'COPY' if apply else 'DRY copy'} {src} -> {dst}")
     if not apply:
-        return
+        return hash_dir(src)
     if dst.exists() or dst.is_symlink():
         if not marker.exists() and os.environ.get("AIOS_KIT_OVERWRITE_UNMANAGED") != "1":
             raise SystemExit(f"refusing to overwrite unmanaged skill target: {dst}; move it aside or set AIOS_KIT_OVERWRITE_UNMANAGED=1")
+        changed, reason = local_modified(dst, old_entry)
+        if changed and not force:
+            raise SystemExit(
+                f"refusing to overwrite locally modified managed skill: {dst} ({reason}); "
+                "review your edits or rerun with --force"
+            )
         if dst.is_symlink() or dst.is_file():
             dst.unlink()
         else:
@@ -268,6 +274,7 @@ def copytree(src: Path, dst: Path, *, apply: bool) -> None:
     ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache")
     shutil.copytree(src, dst, ignore=ignore)
     (dst / ".aios-kit-managed").write_text("managed by aios-kit\n", encoding="utf-8")
+    return hash_dir(dst)
 
 
 def symlink(src: Path, dst: Path, *, apply: bool) -> None:
@@ -301,6 +308,35 @@ def validate_skill_dir(path: Path) -> tuple[bool, str]:
     if not (path / "SKILL.md").exists():
         return False, "missing SKILL.md"
     return True, "ok"
+
+
+def hash_dir(path: Path) -> str | None:
+    """Stable content hash for local modification detection."""
+    if not path.exists() or not path.is_dir():
+        return None
+    import hashlib
+
+    h = hashlib.sha256()
+    for file in sorted(x for x in path.rglob("*") if x.is_file() and ".git" not in x.parts and "__pycache__" not in x.parts):
+        if file.name == ".aios-kit-managed":
+            continue
+        rel = file.relative_to(path).as_posix()
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        h.update(file.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def local_modified(dst: Path, old_entry: dict[str, Any] | None) -> tuple[bool, str]:
+    """Return whether a previously managed copy differs from the recorded hash."""
+    if not old_entry or not old_entry.get("installed_hash"):
+        return False, "no previous hash"
+    current = hash_dir(dst)
+    if not current:
+        return False, "missing current hash"
+    expected = str(old_entry.get("installed_hash"))
+    return current != expected, f"current={current[:12]} expected={expected[:12]}"
 
 
 def skillpack_doctor(args: argparse.Namespace) -> None:
@@ -355,7 +391,7 @@ def github_source_url(source: str) -> str:
     return f"https://github.com/{source}.git"
 
 
-def install_first_party_from_remote(source: str, name: str, dst: Path, *, apply: bool, state_entries: list[dict[str, Any]], item: dict[str, Any], target: str, mode: str) -> None:
+def install_first_party_from_remote(source: str, name: str, dst: Path, *, apply: bool, state_entries: list[dict[str, Any]], item: dict[str, Any], target: str, mode: str, old_entry: dict[str, Any] | None = None, force: bool = False) -> None:
     """Fallback installer for independent first-party skill repos.
 
     `npx skills add` is preferred because it understands skill repositories.
@@ -375,11 +411,11 @@ def install_first_party_from_remote(source: str, name: str, dst: Path, *, apply:
         src = next((p for p in candidates if validate_skill_dir(p)[0]), None)
         if src is None:
             raise SystemExit(f"remote source cloned but no skill found for {name}: {url}")
-        copytree(src, dst, apply=True)
-    state_entries.append({"kind": "first_party", "id": item.get("id"), "skill": name, "target": target, "mode": f"{mode}-remote-copy", "source": source, "installed_path": str(dst)})
+        installed_hash = copytree(src, dst, apply=True, old_entry=old_entry, force=force)
+    state_entries.append({"kind": "first_party", "id": item.get("id"), "skill": name, "target": target, "mode": f"{mode}-remote-copy", "source": source, "installed_path": str(dst), "installed_hash": installed_hash})
 
 
-def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode: str, apply: bool, home: Path, state_entries: list[dict[str, Any]]) -> None:
+def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode: str, apply: bool, home: Path, state_entries: list[dict[str, Any]], old_entry: dict[str, Any] | None = None, force: bool = False) -> None:
     # `home` is the target HOME (useful for temp-home tests or friend installs).
     # Source paths in this repo's manifest describe this author's local source layout,
     # so resolve `~/...` against the real process HOME, not the simulated target HOME.
@@ -393,6 +429,7 @@ def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode:
         dst = dst_candidate
     else:
         dst = dst_root / name
+    installed_hash: str | None = None
     if not src or not src.exists():
         source = item.get("source")
         if source and source not in {"local-only", "local-hermes"}:
@@ -403,10 +440,10 @@ def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode:
             if apply:
                 runtime_ok, runtime_msg = validate_skill_dir(dst)
                 if rc == 0 and runtime_ok:
-                    state_entries.append({"kind": "first_party", "id": item.get("id"), "skill": name, "target": target, "mode": mode, "source": source, "installed_path": str(dst)})
+                    state_entries.append({"kind": "first_party", "id": item.get("id"), "skill": name, "target": target, "mode": mode, "source": source, "installed_path": str(dst), "installed_hash": hash_dir(dst)})
                     return
                 print(f"WARN npx install did not produce valid runtime skill {dst}: rc={rc}, {runtime_msg}")
-                install_first_party_from_remote(str(source), name, dst, apply=apply, state_entries=state_entries, item=item, target=target, mode=mode)
+                install_first_party_from_remote(str(source), name, dst, apply=apply, state_entries=state_entries, item=item, target=target, mode=mode, old_entry=old_entry, force=force)
             return
         raise SystemExit(f"first-party source missing for {name}: {src}")
     valid, msg = validate_skill_dir(src)
@@ -420,15 +457,17 @@ def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode:
             # per-skill symlinks via `aios skillpack dev-link --apply`.
             print(f"OK existing worktree/link {dst} -> {src}")
         elif mode == "copy":
-            copytree(src, dst, apply=apply)
+            installed_hash = copytree(src, dst, apply=apply, old_entry=old_entry, force=force)
         else:
             raise SystemExit(f"refusing to replace existing non-matching target {dst}; move it or use copy mode")
     else:
         if mode == "symlink":
             symlink(src, dst, apply=apply)
         else:
-            copytree(src, dst, apply=apply)
-    state_entries.append({"kind": "first_party", "id": item.get("id"), "skill": name, "target": target, "mode": mode, "source_path": str(src), "installed_path": str(dst)})
+            installed_hash = copytree(src, dst, apply=apply, old_entry=old_entry, force=force)
+    if mode == "symlink" or (dst.exists() and dst.resolve() == src.resolve()):
+        installed_hash = hash_dir(src)
+    state_entries.append({"kind": "first_party", "id": item.get("id"), "skill": name, "target": target, "mode": mode, "source_path": str(src), "installed_path": str(dst), "installed_hash": installed_hash})
 
 
 def skillpack_sync(args: argparse.Namespace) -> None:
@@ -439,6 +478,7 @@ def skillpack_sync(args: argparse.Namespace) -> None:
     sp = state_path(home, manifest, args.state_dir)
     state = load_state(sp)
     old_entries = state.get("managed", [])
+    old_by_key = {(e.get("target"), e.get("skill")): e for e in old_entries}
     new_entries: list[dict[str, Any]] = []
     if getattr(args, "first_party_only", False):
         # dev-link updates local/first-party entries but preserves external entries
@@ -468,16 +508,24 @@ def skillpack_sync(args: argparse.Namespace) -> None:
             skill_name = item.get("skill") or item.get("id")
             current_skills.add((target, skill_name))
             mode = args.mode or item.get("default_mode") or mode_default
+            old_entry = old_by_key.get((target, skill_name))
+            force = bool(getattr(args, "force", False))
             if item["kind"] == "external":
+                dst = dst_root / str(skill_name)
+                changed, reason = local_modified(dst, old_entry)
+                if changed and not force:
+                    print(f"SKIP locally modified external skill {target}:{skill_name} at {dst} ({reason}); rerun with --force to overwrite")
+                    new_entries.append(old_entry or {"kind": "external", "id": item.get("id"), "skill": skill_name, "target": target, "mode": mode, "source": item.get("source"), "installed_path": str(dst), "local_modified": True})
+                    continue
                 cmd = ["npx", "--yes", "skills@latest", "add", item["source"], "--skill", skill_name, "-g", "-y", "--agent", target]
                 if mode == "copy":
                     cmd.append("--copy")
                 rc = run(cmd, apply=apply)
                 if rc:
                     raise SystemExit(rc)
-                new_entries.append({"kind": "external", "id": item.get("id"), "skill": skill_name, "target": target, "mode": mode, "source": item.get("source"), "installed_path": str(dst_root / skill_name)})
+                new_entries.append({"kind": "external", "id": item.get("id"), "skill": skill_name, "target": target, "mode": mode, "source": item.get("source"), "installed_path": str(dst), "installed_hash": hash_dir(dst)})
             else:
-                install_first_party(item, target, dst_root, mode, apply, home, new_entries)
+                install_first_party(item, target, dst_root, mode, apply, home, new_entries, old_entry=old_entry, force=force)
 
     old_entries = state.get("managed", [])
     stale = [e for e in old_entries if (e.get("target"), e.get("skill")) not in current_skills]
@@ -851,6 +899,7 @@ def update_skills(args: argparse.Namespace, *, apply: bool | None = None) -> int
         apply=apply,
         dry_run=not apply,
         prune=getattr(args, "prune", False),
+        force=getattr(args, "force", False),
         mode=getattr(args, "mode", None),
         target=getattr(args, "target", "universal"),
         state_dir=None,
@@ -984,6 +1033,7 @@ def build_parser() -> argparse.ArgumentParser:
     upd.add_argument("--target", default="universal", choices=["universal", "hermes", "both"])
     upd.add_argument("--mode", choices=["copy", "symlink"], help="override skill install mode for this update")
     upd.add_argument("--prune", action="store_true", help="prune stale skills managed by this pack")
+    upd.add_argument("--force", action="store_true", help="overwrite locally modified managed skill copies")
     upd.add_argument("--no-skills", action="store_true", help="with `update all`, skip managed skills")
     upd.add_argument("--no-ops", action="store_true", help="with `update all`, skip re-running the OPS vault template installer")
     upd.set_defaults(func=update)
@@ -1032,6 +1082,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--dry-run", action="store_true", help="explicit no-op; default")
     sync.add_argument("--prune", action="store_true")
     sync.add_argument("--mode", choices=["copy", "symlink"])
+    sync.add_argument("--force", action="store_true", help="overwrite locally modified managed skill copies")
     sync.add_argument("--target", default="default", choices=["default", "universal", "hermes", "both"])
     sync.add_argument("--state-dir")
     sync.set_defaults(func=skillpack_sync)
@@ -1039,6 +1090,7 @@ def build_parser() -> argparse.ArgumentParser:
     dev.add_argument("--apply", action="store_true")
     dev.add_argument("--dry-run", action="store_true")
     dev.add_argument("--target", default="default", choices=["default", "universal", "hermes", "both"])
+    dev.add_argument("--force", action="store_true", help="overwrite locally modified managed skill copies")
     dev.add_argument("--state-dir")
     dev.set_defaults(func=lambda a: skillpack_sync(argparse.Namespace(**{**vars(a), "mode": "symlink", "prune": False, "first_party_only": True})))
 
@@ -1061,3 +1113,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

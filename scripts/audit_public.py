@@ -43,6 +43,8 @@ def main() -> int:
                     findings.append((str(rel), i, name, line.strip()[:220]))
             for m in re.finditer(r"[A-Za-z0-9_./+=-]{32,}", line):
                 candidate = m.group(0)
+                if candidate.startswith("CAP_") or candidate.startswith("AmbientCapabilities=CAP_") or candidate.startswith("CapabilityBoundingSet=CAP_"):
+                    continue
                 if entropy(candidate) >= 4.2 and not candidate.startswith("https://"):
                     # Avoid path false positives without exempting token-like
                     # strings that merely contain '/'. A candidate with slashes is
