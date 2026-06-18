@@ -62,8 +62,17 @@ def aios_root(home: Path, raw: str | None = None) -> Path:
 def instance_paths(home: Path, *, root: str | None = None, ops: str | None = None, skills_dir: str | None = None) -> dict[str, Path]:
     root_path = aios_root(home, root)
     ops_path = expand(ops, home=home) if ops else root_path / "vault" / "ops"
-    skills_path = expand(skills_dir, home=home) if skills_dir else expand(os.environ.get("AIOS_SKILLS_DIR"), home=home) if os.environ.get("AIOS_SKILLS_DIR") else root_path / "skills"
-    if ops_path is None or skills_path is None:
+    # The AIOS instance has a skills metadata/cache directory, but it must not
+    # take over an agent's real skills directory. Universal skills are installed
+    # one-by-one into the real agent target, defaulting to ~/.agents/skills.
+    agent_skills_path = (
+        expand(skills_dir, home=home)
+        if skills_dir
+        else expand(os.environ.get("AIOS_AGENT_SKILLS_DIR") or os.environ.get("AIOS_SKILLS_DIR"), home=home)
+        if (os.environ.get("AIOS_AGENT_SKILLS_DIR") or os.environ.get("AIOS_SKILLS_DIR"))
+        else home / ".agents" / "skills"
+    )
+    if ops_path is None or agent_skills_path is None:
         raise SystemExit("invalid AIOS instance path")
     return {
         "root": root_path,
@@ -72,7 +81,8 @@ def instance_paths(home: Path, *, root: str | None = None, ops: str | None = Non
         "ops": ops_path,
         "projects": ops_path / "projects",
         "work": root_path / "work",
-        "skills": skills_path,
+        "skills": root_path / "skills",
+        "agent_skills": agent_skills_path,
         "modules": root_path / "modules",
         "state": root_path / "state",
         "logs": root_path / "logs",
@@ -196,8 +206,8 @@ def enabled_items(manifest: dict[str, Any]) -> list[dict[str, Any]]:
 def target_dirs(target: str, home: Path) -> dict[str, Path]:
     hermes_home = Path(os.environ.get("HERMES_HOME", str(home / ".hermes"))).expanduser()
     all_dirs = {
-        "universal": instance_paths(home)["skills"],
-        # Hermes profile skills remain profile-scoped unless explicitly bridged.
+        "universal": instance_paths(home)["agent_skills"],
+        # Hermes profile skills remain profile-scoped unless explicitly targeted.
         "hermes": hermes_home / "skills",
     }
     if target == "both":
@@ -529,12 +539,13 @@ def init_instance(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     apply = not bool(getattr(args, "dry_run", False))
     paths = instance_paths(home, root=args.root, ops=args.ops, skills_dir=args.skills_dir)
-    for key in ["root", "config", "vault", "ops", "projects", "work", "skills", "modules", "state", "logs", "cache"]:
+    for key in ["root", "config", "vault", "ops", "projects", "work", "skills", "agent_skills", "modules", "state", "logs", "cache"]:
         mkdir(paths[key], apply=apply)
     write_if_missing(paths["root"] / "README.md", "# AIOS instance\n\nThis directory is the local deployed AIOS instance root. Product source lives in repositories; this instance contains local vaults, workdirs, skills, module checkouts, logs, state, and cache.\n", apply=apply)
-    write_if_missing(paths["work"] / "README.md", "# AIOS work\n\nLLL and agent workdirs live here. Legacy `~/lll-work` may point here.\n", apply=apply)
-    write_if_missing(paths["skills"] / "README.md", "# AIOS skills\n\nRuntime skills installed for this AIOS instance. Legacy `~/.agents/skills` may point here.\n", apply=apply)
-    write_if_missing(paths["modules"] / "README.md", "# AIOS modules\n\nReusable module checkouts used by this AIOS distribution/instance.\n", apply=apply)
+    write_if_missing(paths["work"] / "README.md", "# AIOS work\n\nLLL and agent workdirs live here for this AIOS instance. Public installs do not create legacy path symlinks by default.\n", apply=apply)
+    write_if_missing(paths["skills"] / "README.md", "# AIOS skills\n\nAIOS skill metadata/cache area. Agent-loadable skills are installed one-by-one into the real agent skills directory, defaulting to `~/.agents/skills`.\n", apply=apply)
+    write_if_missing(paths["agent_skills"] / "README.aios-kit.md", "# Agent skills managed by aios-kit\n\nAIOS installs or links only the skills listed in its skillpack. Existing unrelated skills in this directory are left alone.\n", apply=apply)
+    write_if_missing(paths["modules"] / "README.md", "# AIOS modules\n\nReusable module checkouts used by this AIOS distribution/instance, such as aios-kit and templates.\n", apply=apply)
     write_if_missing(paths["projects"] / "README.md", "# AIOS project registry\n\nMinimal project registry for the local AIOS instance. Facts here are private/live instance state, not public source.\n\n- `registry.jsonl`: one JSON object per project.\n- `aliases.yaml`: human aliases mapped to canonical project ids.\n", apply=apply)
     instance_yaml = f"""version: 1
 instance_id: local-default
@@ -544,20 +555,23 @@ paths:
   ops: {display_path(paths['ops'], home)}
   work: {display_path(paths['work'], home)}
   skills: {display_path(paths['skills'], home)}
+  agent_skills: {display_path(paths['agent_skills'], home)}
   modules: {display_path(paths['modules'], home)}
   state: {display_path(paths['state'], home)}
   logs: {display_path(paths['logs'], home)}
   cache: {display_path(paths['cache'], home)}
 compat:
-  ai_ops: ~/ai-ops
-  lll_work: ~/lll-work
+  default: none
+  note: legacy symlinks are local migration choices, not public install defaults
 """
     write_if_missing(paths["config"] / "instance.yaml", instance_yaml, apply=apply)
     write_if_missing(paths["projects"] / "registry.jsonl", "", apply=apply)
     write_if_missing(paths["projects"] / "aliases.yaml", "aliases: {}\n", apply=apply)
-    compat_symlink(paths["ops"], home / "ai-ops", apply=apply)
-    compat_symlink(paths["work"], home / "lll-work", apply=apply)
-    compat_symlink(paths["skills"], home / ".agents" / "skills", apply=apply)
+    if getattr(args, "compat_links", False):
+        compat_symlink(paths["ops"], home / "ai-ops", apply=apply)
+        compat_symlink(paths["work"], home / "lll-work", apply=apply)
+        # Never symlink the whole agent skills directory. Skills are installed
+        # one-by-one by skillpack sync so existing user skills are preserved.
     print(f"AIOS root: {paths['root']}")
 
 
@@ -750,16 +764,16 @@ def instance_doctor(args: argparse.Namespace) -> None:
     paths = instance_paths(home)
     ok = True
     print("== instance ==")
-    for key in ["root", "config", "ops", "projects", "work", "skills", "modules", "state", "logs", "cache"]:
+    for key in ["root", "config", "ops", "projects", "work", "skills", "agent_skills", "modules", "state", "logs", "cache"]:
         exists = paths[key].exists()
         print(f"{key}: {paths[key]} {'exists' if exists else 'missing'}")
         ok = ok and exists
-    for label, link, target in [("ai-ops", home / "ai-ops", paths["ops"]), ("lll-work", home / "lll-work", paths["work"]), ("agents-skills", home / ".agents" / "skills", paths["skills"] )]:
+    for label, link, target in [("ai-ops", home / "ai-ops", paths["ops"]), ("lll-work", home / "lll-work", paths["work"] )]:
         good = link.is_symlink() and link.resolve() == target.resolve()
         if link.exists() or link.is_symlink():
-            print(f"compat {label}: {link} -> {link.resolve() if link.is_symlink() else 'not-symlink'} {'ok' if good else 'check'}")
+            print(f"local compat {label}: {link} -> {link.resolve() if link.is_symlink() else 'not-symlink'} {'ok' if good else 'local-only/check'}")
         else:
-            print(f"compat {label}: missing")
+            print(f"local compat {label}: not configured")
     ok = validate_projects(home) and ok
     raise SystemExit(0 if ok else 1)
 
@@ -774,7 +788,8 @@ def status(args: argparse.Namespace) -> None:
     print(f"AIOS root: {paths['root']}")
     print(f"OPS vault: {paths['ops']}")
     print(f"Work root: {paths['work']}")
-    print(f"Skills: {paths['skills']}")
+    print(f"AIOS skills metadata/cache: {paths['skills']}")
+    print(f"Agent runtime skills: {paths['agent_skills']}")
     print(f"Modules: {paths['modules']}")
     print(f"Projects: {len(projects)} {counts}")
 
@@ -863,7 +878,8 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="initialize a unified ~/aios instance root")
     init.add_argument("--root", help="AIOS instance root (default: ~/aios or $AIOS_ROOT)")
     init.add_argument("--ops", help="OPS vault path (default: <root>/vault/ops)")
-    init.add_argument("--skills-dir", help="runtime skills dir (default: <root>/skills)")
+    init.add_argument("--skills-dir", help="agent runtime skills dir (default: ~/.agents/skills; installs skills one-by-one)")
+    init.add_argument("--compat-links", action="store_true", help="local migration only: create ~/ai-ops and ~/lll-work symlinks when safe; never links the whole skills dir")
     init.add_argument("--dry-run", action="store_true")
     init.set_defaults(func=init_instance)
 
