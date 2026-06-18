@@ -1,51 +1,91 @@
-# AIOS Mihomo/Clash template
-# Put your own proxy provider/subscription or node definitions here.
-# Do not commit private subscription URLs or credentials.
+# doc: https://wiki.metacubex.one/config/general/
+# AIOS Mihomo/Clash template. Public-safe: do not commit subscription URLs,
+# UUIDs, private nodes, or provider credentials.
 
 mixed-port: 7890
-allow-lan: false
+allow-lan: true
+bind-address: "*"
 mode: rule
 log-level: info
-ipv6: false
-
-external-controller: 127.0.0.1:9090
-secret: ""
-
-# TUN is enabled by default for server bootstrap; install.sh can override it via --no-proxy-tun.
-tun:
-  enable: true
-  stack: system
-  auto-route: true
-  auto-detect-interface: true
-  dns-hijack:
-    - any:53
+unified-delay: true
+tcp-concurrent: true
+external-controller: "127.0.0.1:9090"
+external-ui: ./ui
+external-ui-url: "https://cdn.gh-proxy.org/https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip"
 
 profile:
   store-selected: true
   store-fake-ip: true
 
+tun:
+  enable: true
+  stack: mixed
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+  auto-route: true
+  auto-detect-interface: true
+  strict-route: false
+  endpoint-independent-nat: true
+
+geodata-mode: true
+geo-auto-update: true
+geo-update-interval: 24
+geox-url:
+  geosite: "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/geosite.dat"
+  geoip: "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/geoip.dat"
+  mmdb: "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/Country.mmdb"
+  asn: "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/Country-ASN.mmdb"
+
+# https://www.aloxaf.com/2025/04/how_to_use_geosite
 dns:
   enable: true
-  listen: 127.0.0.1:1053
   ipv6: false
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
-  default-nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-  nameserver:
-    - https://dns.google/dns-query
-    - https://cloudflare-dns.com/dns-query
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+    - "geosite:fakeip-filter"
+    - "tailscale.com"
+    - "*.tailscale.com"
+    - "*.ts.net"
+  respect-rules: true
+  default-nameserver: [223.5.5.5, 119.29.29.29]
+  proxy-server-nameserver: [223.5.5.5, 119.29.29.29]
+  direct-nameserver: ["https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"]
+  nameserver: ["https://8.8.8.8/dns-query", "https://1.1.1.1/dns-query"]
 
 proxy-providers: {}
 proxies: []
 
 proxy-groups:
-  - name: PROXY
-    type: select
-    proxies:
-      - DIRECT
+  - { name: AI, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: [DIRECT], url: http://www.gstatic.com/generate_204, exclude-filter: "(?i)香港|hk|hong|港|澳门|macao|macau|澳|台湾|台|tw|taiwan|剩余|到期|距离" }
+  - { name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: [DIRECT], url: http://www.gstatic.com/generate_204 }
+  - { name: PROXY, type: select, proxies: [Auto, DIRECT] }
+  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }
 
 rules:
-  - GEOIP,LAN,DIRECT
+  - DOMAIN-SUFFIX,tailscale.com,DIRECT
+  - DOMAIN-SUFFIX,ts.net,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - GEOSITE,private,DIRECT
+  - GEOSITE,ads,REJECT
+  - GEOSITE,trackerslist,REJECT
+  - GEOSITE,microsoft-cn,DIRECT
+  - GEOSITE,apple-cn,DIRECT
+  - GEOSITE,google-cn,DIRECT
+  - GEOSITE,games-cn,DIRECT
+  - GEOSITE,ai,AI
+  - GEOSITE,networktest,DIRECT
+  - GEOSITE,tld-proxy,PROXY
+  - GEOSITE,proxy,PROXY
+  - GEOSITE,cn,DIRECT
+  - GEOIP,private,DIRECT,no-resolve
+  - GEOIP,cn,DIRECT
+  - GEOIP,telegram,PROXY,no-resolve
   - MATCH,PROXY

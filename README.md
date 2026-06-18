@@ -2,7 +2,11 @@
 
 `aios-kit` 是一个轻量、可迁移的 Personal AIOS 安装与分发套件。它以 Hermes Agent 为基础，把精选 Agent skills、LLL 工作流、OPS vault 模板、项目注册表和本地实例目录组织成一个可以在新机器上快速部署的 AIOS 基础环境。
 
+当前安装器主要在 Ubuntu/Debian 系云服务器上验证过；其他 Linux 发行版还没有完整测试，建议先使用 `--dry-run` 或容器环境试跑。
+
 `aios-kit` is a lightweight, portable installation and distribution kit for a Personal AIOS. It is built around Hermes Agent and assembles curated agent skills, the LLL workflow, an OPS vault template, a project registry, and a local instance layout into a deployable base environment.
+
+The installer is currently tested mainly on Ubuntu/Debian-like cloud servers. Other Linux distributions have not been fully validated yet; use `--dry-run` or a container first.
 
 ---
 
@@ -21,12 +25,12 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/
 If the machine has no proxy yet and cannot reach GitHub directly, use a GitHub raw mirror you trust. The mirror is only for fetching the same installer; after proxy setup, official sources are preferred:
 
 ```bash
-bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
+bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
 ```
 
-安装器会询问安装路径、是否配置代理、是否安装开发环境、是否安装 Hermes 核心组件、是否安装 OPS vault，以及是否把 `aios` 加入 PATH。默认安装根目录是 `~/aios`，也可以在交互中输入其他路径。
+安装器会询问安装路径、是否配置代理、是否安装开发环境、是否安装 Hermes 核心组件、是否安装 OPS vault，以及是否把 `aios` 加入 PATH。默认安装根目录是 `~/aios`，TUN 默认开启，开发环境/核心组件/OPS vault 默认安装。非交互参数基本对应这些交互选择；更细的参数，例如订阅 URL、节点 YAML、GitHub 镜像、安装目标和 copy/symlink 模式，用于自动化部署时直接指定。
 
-The installer asks for the install root, proxy setup, development environment, Hermes core components, OPS vault, and whether to add `aios` to PATH. The default install root is `~/aios`, but you can enter another valid path interactively.
+The installer asks for the install root, proxy setup, development environment, Hermes core components, OPS vault, and whether to add `aios` to PATH. Defaults: install root `~/aios`, TUN enabled, development environment/core components/OPS vault enabled. Non-interactive flags map to these choices; more detailed flags such as subscription URL, proxy YAML, GitHub mirror, skill target, and copy/symlink mode are supplied directly for automation.
 
 自动化部署可以使用非交互参数：
 
@@ -71,14 +75,14 @@ Agent-loadable skills are still installed into the agent's real runtime skills d
 The installer is conservative and idempotent: it checks first, then acts only when needed.
 
 1. **网络探测 / Network check**  
-   默认在不使用代理环境变量的情况下测试外网连通性。如果直连可用，跳过代理；如果不可用，引导 Mihomo/Clash 配置。
+   默认在不使用代理环境变量的情况下测试外网连通性。如果直连可用，跳过代理；如果不可用，交互式安装会询问是否安装 Mihomo/Clash，默认安装。非交互模式下 `--proxy auto` 会在直连失败时自动进入 Mihomo 安装，除非显式 `--proxy no`。
 
-   By default it tests external connectivity without proxy environment variables. If direct access works, proxy setup is skipped; otherwise Mihomo/Clash setup is recommended.
+   By default it tests external connectivity without proxy environment variables. If direct access works, proxy setup is skipped. If direct access fails, interactive mode asks whether to install Mihomo/Clash, defaulting to yes. In non-interactive mode, `--proxy auto` installs Mihomo when direct access fails unless `--proxy no` is set.
 
 2. **代理配置 / Proxy setup**  
-   Mihomo 默认作为 AIOS 内置网络组件安装到 `~/aios/network/mihomo`，并生成 `aios-mihomo.service`。TUN 默认开启；如果关闭 TUN，安装器会写入 `proxy_on` / `proxy_off` / `proxy_test` / `proxy_restart` 等 shell helper，并默认在 shell 中自动 `proxy_on`。
+   Mihomo 默认作为 AIOS 内置网络组件安装到 `~/aios/network/mihomo`，并生成 systemd unit：`/etc/systemd/system/aios-mihomo.service`。TUN 默认开启；如果关闭 TUN，安装器会写入 `proxy_on` / `proxy_off` / `proxy_test` / `proxy_restart` 等 shell helper，并默认在 shell 中自动 `proxy_on`。Mihomo 内核在安装时下载；默认根据 `--mihomo-version` 组合 GitHub release `.gz` URL，也可以用 `--mihomo-url` 指定完整下载地址。使用 `--github-mirror` 时，GitHub release、UI/geodata 等 URL 会加镜像前缀。
 
-   Mihomo is installed as an AIOS network component under `~/aios/network/mihomo` and is wired as `aios-mihomo.service`. TUN is enabled by default. If TUN is disabled, the installer writes shell helpers such as `proxy_on`, `proxy_off`, `proxy_test`, and `proxy_restart`, and auto-enables proxy environment variables in shell sessions by default.
+   Mihomo is installed as an AIOS network component under `~/aios/network/mihomo` and wired through `/etc/systemd/system/aios-mihomo.service`. TUN is enabled by default. If TUN is disabled, the installer writes shell helpers such as `proxy_on`, `proxy_off`, `proxy_test`, and `proxy_restart`, and auto-enables proxy environment variables in shell sessions by default. The Mihomo core is downloaded at install time. By default the installer derives a GitHub release `.gz` URL from `--mihomo-version`; pass `--mihomo-url` to override it. With `--github-mirror`, GitHub release, UI, and geodata URLs are prefixed through the mirror.
 
    推荐两种输入方式：
 
@@ -97,9 +101,9 @@ The installer is conservative and idempotent: it checks first, then acts only wh
    The installer renders a subscription URL into `proxy-providers`, or merges a local YAML proxy snippet into a complete `config.yaml` and adds node names to the `PROXY` group. The repository template is only a public-safe base; it contains no private subscription URL, UUID, or node secret.
 
 3. **官方源恢复 / Official source reset**  
-   开启代理后，安装器会尽量把 npm、pip、Docker 等源恢复到官方默认方向。APT 源具有发行版差异，目前只提示并保守处理。
+   开启代理后，安装器会尽量把 npm、pip、Docker 等源恢复到官方默认方向。当前不会自动重写 apt 镜像源：apt source 与 Ubuntu/Debian 版本、云厂商初始化策略强相关，暂时只提示并保守处理；后续可以加入明确的 Ubuntu OS profile。
 
-   After proxy setup, the installer moves npm, pip, Docker, and similar sources toward official defaults where safe. APT sources are distro-specific and are handled conservatively.
+   After proxy setup, the installer moves npm, pip, Docker, and similar sources toward official defaults where safe. It does not rewrite apt mirrors yet: apt sources depend on Ubuntu/Debian release and cloud-vendor initialization, so they are currently handled conservatively. A dedicated Ubuntu OS profile can be added later.
 
 4. **开发环境 / Development environment**  
    检测并安装 Python/UV、NVM + Node 24 LTS、Docker、Caddy。已存在则跳过，不重复安装。
@@ -107,9 +111,9 @@ The installer is conservative and idempotent: it checks first, then acts only wh
    It checks and installs Python/UV, NVM + Node 24 LTS, Docker, and Caddy. Existing components are skipped.
 
 5. **核心组件 / Core components**  
-   检测并安装 Hermes Agent；将 Hermes 的外部 skill 目录约定到 `~/.agents/skills`；安装 AIOS skillpack。DNS skill 会在确定来源后作为显式 skillpack 条目加入。
+   检测并安装 Hermes Agent；将 Hermes 的外部 skill 目录约定到 `~/.agents/skills`；安装 AIOS skillpack。
 
-   It checks and installs Hermes Agent, configures the external skill directory convention as `~/.agents/skills`, and installs the AIOS skillpack. The DNS skill will become an explicit skillpack entry once its source is finalized.
+   It checks and installs Hermes Agent, configures the external skill directory convention as `~/.agents/skills`, and installs the AIOS skillpack.
 
 6. **AIOps 记录 / AIOps records**  
    OPS vault 安装后，Docker 和 Caddy 会作为 AIOS 运维资源记录入口写入维护日志或模板提供的资源档案。
@@ -128,8 +132,10 @@ Common options:
 bash install.sh --dry-run                                  # preview actions / 预览操作
 bash install.sh --root ~/my-aios                           # choose instance root / 指定实例根目录
 bash install.sh --proxy auto                               # direct test, proxy only if needed / 先测试直连
+bash install.sh --github-mirror https://gh-proxy.com/       # mirror GitHub/raw release URLs / GitHub 镜像前缀
 bash install.sh --proxy yes --proxy-subscription-url URL    # provider subscription / 机场订阅
 bash install.sh --proxy yes --proxy-proxies-file nodes.yaml # self-hosted nodes / 自建节点片段
+bash install.sh --mihomo-version v1.19.27                   # choose Mihomo core release / 指定 Mihomo 内核版本
 bash install.sh --no-proxy-tun --proxy-auto-env yes         # env proxy helpers without TUN / 无 TUN 时自动 proxy_on
 bash install.sh --add-to-path yes                          # add ~/aios/bin to PATH / 加入 PATH
 bash install.sh --no-dev-env                               # skip Python/Node/Docker/Caddy phase / 跳过开发环境

@@ -11,7 +11,7 @@ PATTERNS = [
     ("windows-drive", re.compile(r"(?<![A-Za-z])[A-Za-z]:[/\\][^\s`'\"]+")),
     ("private-key", re.compile(r"BEGIN [A-Z ]*PRIVATE KEY")),
     ("token-assignment", re.compile(r"(?i)(token|password|secret|api[_-]?key)\s*[:=]\s*['\"]?[^\s,'\"]{8,}")),
-    ("tailscale-ip", re.compile(r"\b100\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")),
+    ("tailscale-ip", re.compile(r"\b100\.(?!64\.0\.0/10)\d{1,3}\.\d{1,3}\.\d{1,3}\b")),
 ]
 ALLOW = [
     ("relative-doc", re.compile(r"~/")),

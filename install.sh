@@ -4,16 +4,19 @@
 # flags for non-interactive automation.
 set -euo pipefail
 
+AIOS_GITHUB_MIRROR_PREFIX="${AIOS_GITHUB_MIRROR_PREFIX:-}"
 AIOS_KIT_REPO_URL="${AIOS_KIT_REPO_URL:-https://github.com/LinLin00000000/aios-kit.git}"
 AIOPS_TEMPLATE_REPO_URL="${AIOPS_TEMPLATE_REPO_URL:-https://github.com/LinLin00000000/aiops-vault-template.git}"
 LLL_REPO_URL="${LLL_REPO_URL:-https://github.com/LinLin00000000/lins-living-loop.git}"
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh}"
 MIHOMO_DOWNLOAD_URL="${MIHOMO_DOWNLOAD_URL:-}"
-MIHOMO_VERSION="${MIHOMO_VERSION:-latest}"
+MIHOMO_VERSION="${MIHOMO_VERSION:-v1.19.27}"
 MIHOMO_RELEASE_BASE_URL="${MIHOMO_RELEASE_BASE_URL:-https://github.com/MetaCubeX/mihomo/releases/download}"
 PROXY_SUBSCRIPTION_URL="${PROXY_SUBSCRIPTION_URL:-}"
 PROXY_PROXIES_FILE="${PROXY_PROXIES_FILE:-}"
 PROXY_AUTO_ENV="${PROXY_AUTO_ENV:-auto}"
+MIHOMO_EXTERNAL_UI_URL="${MIHOMO_EXTERNAL_UI_URL:-https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip}"
+MIHOMO_GEO_BASE_URL="${MIHOMO_GEO_BASE_URL:-https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata}"
 
 AIOS_ROOT="${AIOS_ROOT:-$HOME/aios}"
 KIT_DIR="${AIOS_KIT_DIR:-}"
@@ -33,7 +36,6 @@ WITH_AIOPS=1
 WITH_DEV_ENV=1
 WITH_CORE=1
 WITH_HERMES=1
-WITH_DNS_SKILL=1
 WITH_PROXY="auto"
 PROXY_TUN=1
 RESET_SOURCES=1
@@ -60,6 +62,7 @@ Core options:
   --skills-dir PATH        Agent runtime skills dir (default: ~/.agents/skills)
   --global-bin DIR         Link `aios` into DIR, e.g. ~/.local/bin; refuses conflicts
   --add-to-path yes|no|ask Add ~/aios/bin to shell PATH block (default: ask in interactive)
+  --github-mirror PREFIX    Prefix GitHub/raw release URLs, e.g. https://gh-proxy.com/
 
 Network/proxy:
   --proxy auto|yes|no      auto: test direct external network first (default)
@@ -68,14 +71,15 @@ Network/proxy:
   --proxy-subscription-url URL  Provider subscription URL; rendered as proxy-providers
   --proxy-proxies-file PATH     Local YAML snippet with proxies: or a proxy list
   --proxy-auto-env auto|yes|no  Auto-run proxy_on in shell helpers (default: auto; yes when TUN is off)
-  --mihomo-url URL         Optional Mihomo .gz binary URL; otherwise latest release is selected
+  --mihomo-url URL         Optional Mihomo .gz binary URL; otherwise release asset URL is derived
+  --mihomo-version VERSION  Mihomo version tag for derived URL (default: v1.19.27; use latest to query GitHub API)
   --reset-sources          Restore apt/npm/pip/Docker source config toward official defaults (default)
   --no-reset-sources       Do not touch source config
 
 Install phases:
   --with-dev-env           Install/check Python+UV, NVM+Node 24 LTS, Docker, Caddy (default)
   --no-dev-env             Skip development/runtime packages
-  --with-core              Install/check Hermes, DNS skill, skill dirs (default)
+  --with-core              Install/check Hermes and skill dirs (default)
   --no-core                Skip Hermes/core component phase
   --with-aiops             Install/update OPS vault template too (default)
   --no-aiops               Skip OPS vault template
@@ -106,6 +110,17 @@ print_cmd() { printf '+'; for arg in "$@"; do printf ' %q' "$arg"; done; printf 
 run_visible() { print_cmd "$@"; if [ "$DRY_RUN" -eq 0 ]; then command "$@"; fi; }
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 need_cmd() { if ! have_cmd "$1"; then echo "missing required command: $1" >&2; exit 1; fi; }
+
+mirror_url() {
+  url="$1"
+  prefix="$AIOS_GITHUB_MIRROR_PREFIX"
+  [ -n "$prefix" ] || { printf '%s\n' "$url"; return 0; }
+  case "$url" in
+    https://github.com/*|https://raw.githubusercontent.com/*)
+      case "$prefix" in */) printf '%s%s\n' "$prefix" "$url" ;; *) printf '%s/%s\n' "$prefix" "$url" ;; esac ;;
+    *) printf '%s\n' "$url" ;;
+  esac
+}
 
 is_interactive() {
   [ "$INTERACTIVE" = "yes" ] && return 0
@@ -184,6 +199,7 @@ while [ $# -gt 0 ]; do
     --skills-dir) SKILLS_DIR="$2"; SKILLS_DIR_EXPLICIT=1; shift 2 ;;
     --global-bin) GLOBAL_BIN_DIR="$2"; GLOBAL_BIN_EXPLICIT=1; shift 2 ;;
     --add-to-path) ADD_TO_PATH="$2"; shift 2 ;;
+    --github-mirror) AIOS_GITHUB_MIRROR_PREFIX="$2"; shift 2 ;;
     --proxy) WITH_PROXY="$2"; shift 2 ;;
     --proxy-tun) PROXY_TUN=1; shift ;;
     --no-proxy-tun) PROXY_TUN=0; shift ;;
@@ -191,6 +207,7 @@ while [ $# -gt 0 ]; do
     --proxy-proxies-file) PROXY_PROXIES_FILE="$2"; shift 2 ;;
     --proxy-auto-env) PROXY_AUTO_ENV="$2"; shift 2 ;;
     --mihomo-url) MIHOMO_DOWNLOAD_URL="$2"; shift 2 ;;
+    --mihomo-version) MIHOMO_VERSION="$2"; shift 2 ;;
     --reset-sources) RESET_SOURCES=1; shift ;;
     --no-reset-sources) RESET_SOURCES=0; shift ;;
     --with-dev-env) WITH_DEV_ENV=1; shift ;;
@@ -299,32 +316,30 @@ install_mihomo() {
     echo "+ generate $config_path from template"
   else
     mkdir -p "$mihomo_dir" "$provider_dir"
-    python3 - "$KIT_DIR/templates/mihomo/config.yaml" "$config_path" "$PROXY_TUN" "$PROXY_SUBSCRIPTION_URL" "$PROXY_PROXIES_FILE" <<'PY'
+    python3 - "$KIT_DIR/templates/mihomo/config.yaml" "$config_path" "$PROXY_TUN" "$PROXY_SUBSCRIPTION_URL" "$PROXY_PROXIES_FILE" "$AIOS_GITHUB_MIRROR_PREFIX" <<'PY'
 import re, sys
 from pathlib import Path
-src, dst, tun, sub_url, proxies_file = sys.argv[1:6]
+src, dst, tun, sub_url, proxies_file, mirror_prefix = sys.argv[1:7]
 base = Path(src).read_text(encoding='utf-8')
 base = re.sub(r'tun:\n  enable: (true|false)', 'tun:\n  enable: ' + ('true' if tun == '1' else 'false'), base)
+if mirror_prefix:
+    prefix = mirror_prefix.rstrip('/')
+    base = re.sub(r'https://[^/]+/https://github\.com/', prefix + '/https://github.com/', base)
+
+def repl_url(match):
+    url = match.group(1)
+    prefix = mirror_prefix.rstrip('/')
+    if prefix and (url.startswith('https://github.com/') or url.startswith('https://raw.githubusercontent.com/')):
+        return '"' + prefix + '/' + url + '"'
+    return match.group(0)
+base = re.sub(r'"(https://github\.com/[^"]+)"', repl_url, base)
+
 if sub_url:
+    provider_names = ['airport']
     providers = (
         'proxy-providers:\n'
-        '  airport:\n'
-        '    type: http\n'
-        f'    url: "{sub_url}"\n'
-        '    interval: 3600\n'
-        '    path: ./providers/airport.yaml\n'
-        '    health-check:\n'
-        '      enable: true\n'
-        '      interval: 600\n'
-        '      url: https://www.gstatic.com/generate_204\n'
+        '  airport: { type: http, url: "' + sub_url + '", interval: 86400, path: ./providers/airport.yaml }\n'
         'proxies: []\n\n'
-        'proxy-groups:\n'
-        '  - name: PROXY\n'
-        '    type: select\n'
-        '    proxies:\n'
-        '      - DIRECT\n'
-        '    use:\n'
-        '      - airport\n'
     )
 elif proxies_file:
     raw = Path(proxies_file).read_text(encoding='utf-8').rstrip() + '\n'
@@ -333,31 +348,59 @@ elif proxies_file:
     else:
         indented = ''.join(('  ' + line if line.strip() else line) + '\n' for line in raw.splitlines())
         proxies_block = 'proxies:\n' + indented
-    names=[]
+    provider_names = []
+    node_names=[]
     for m in re.finditer(r'^\s*-\s*name\s*:\s*["\']?([^"\'\n#]+)', raw, re.M):
         name=m.group(1).strip()
-        if name and name not in names:
-            names.append(name)
-    group_names = '\n'.join(f'      - "{n}"' for n in names) or '      - DIRECT'
-    providers = (
-        'proxy-providers: {}\n' + proxies_block +
+        if name and name not in node_names:
+            node_names.append(name)
+    providers = 'proxy-providers: {}\n' + proxies_block + '\n'
+else:
+    provider_names=[]
+    node_names=[]
+    providers = 'proxy-providers: {}\nproxies: []\n\n'
+
+def flow_seq(items, fallback='DIRECT'):
+    items=[x for x in items if x]
+    if not items:
+        items=[fallback]
+    return '[' + ', '.join(items) + ']'
+
+def flow_seq_prepend(prefix_items, items):
+    merged=[]
+    for x in list(prefix_items) + list(items):
+        if x and x not in merged:
+            merged.append(x)
+    return '[' + ', '.join(merged) + ']'
+
+if sub_url:
+    use = flow_seq(provider_names)
+    groups = (
         'proxy-groups:\n'
-        '  - name: PROXY\n'
-        '    type: select\n'
-        '    proxies:\n'
-        '      - DIRECT\n' + group_names + '\n'
+        f'  - {{ name: AI, type: url-test, interval: 300, tolerance: 100, lazy: true, use: {use}, url: http://www.gstatic.com/generate_204, exclude-filter: "(?i)香港|hk|hong|港|澳门|macao|macau|澳|台湾|台|tw|taiwan|剩余|到期|距离" }}\n'
+        f'  - {{ name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, use: {use}, url: http://www.gstatic.com/generate_204 }}\n'
+        f'  - {{ name: PROXY, type: select, proxies: [Auto, DIRECT], use: {use} }}\n'
+        '  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }\n'
+    )
+elif proxies_file:
+    nodes = flow_seq(node_names)
+    proxy_select = flow_seq_prepend(['Auto', 'DIRECT'], node_names)
+    groups = (
+        'proxy-groups:\n'
+        f'  - {{ name: AI, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: {nodes}, url: http://www.gstatic.com/generate_204, exclude-filter: "(?i)香港|hk|hong|港|澳门|macao|macau|澳|台湾|台|tw|taiwan|剩余|到期|距离" }}\n'
+        f'  - {{ name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: {nodes}, url: http://www.gstatic.com/generate_204 }}\n'
+        f'  - {{ name: PROXY, type: select, proxies: {proxy_select} }}\n'
+        '  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }\n'
     )
 else:
-    providers = (
-        'proxy-providers: {}\n'
-        'proxies: []\n\n'
+    groups = (
         'proxy-groups:\n'
-        '  - name: PROXY\n'
-        '    type: select\n'
-        '    proxies:\n'
-        '      - DIRECT\n'
+        '  - { name: AI, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: [DIRECT], url: http://www.gstatic.com/generate_204, exclude-filter: "(?i)香港|hk|hong|港|澳门|macao|macau|澳|台湾|台|tw|taiwan|剩余|到期|距离" }\n'
+        '  - { name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: [DIRECT], url: http://www.gstatic.com/generate_204 }\n'
+        '  - { name: PROXY, type: select, proxies: [Auto, DIRECT] }\n'
+        '  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }\n'
     )
-base = re.sub(r'proxy-providers: \{\}\nproxies: \[\]\n\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - DIRECT\n', providers, base)
+base = re.sub(r'proxy-providers: \{\}\nproxies: \[\]\n\nproxy-groups:\n(?s:.*?)\nrules:', providers + groups + '\nrules:', base)
 Path(dst).write_text(base, encoding='utf-8')
 PY
   fi
@@ -390,7 +433,7 @@ PY
           tag="$MIHOMO_VERSION"
         fi
         if [ -n "$tag" ]; then
-          url="$MIHOMO_RELEASE_BASE_URL/$tag/mihomo-linux-$mihomo_arch-${tag}.gz"
+          url="$(mirror_url "$MIHOMO_RELEASE_BASE_URL/$tag/mihomo-linux-$mihomo_arch-${tag}.gz")"
         fi
       fi
       if [ -n "$url" ]; then
@@ -488,7 +531,8 @@ install_dev_env() {
   if [ -s "$HOME/.nvm/nvm.sh" ]; then
     echo "OK nvm already installed: $HOME/.nvm/nvm.sh"
   else
-    run_visible sh -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash'
+    nvm_install_url="$(mirror_url https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh)"
+    run_visible sh -c "curl -fsSL '$nvm_install_url' | bash"
   fi
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "+ . $HOME/.nvm/nvm.sh && nvm install 24 && nvm alias default 24"
@@ -519,16 +563,14 @@ install_hermes_core() {
   if have_cmd hermes; then
     echo "OK hermes already installed: $(command -v hermes)"
   else
-    run_visible sh -c "curl -fsSL $HERMES_INSTALL_URL | bash"
+    hermes_install_url="$(mirror_url "$HERMES_INSTALL_URL")"
+    run_visible sh -c "curl -fsSL '$hermes_install_url' | bash"
   fi
   # Hermes external skill directory convention: universal skills live in ~/.agents/skills.
   if have_cmd hermes; then
     run_visible hermes config set skills.external_dirs "$HOME/.agents/skills" || warn "Hermes external_dirs config may differ by version; check hermes config edit"
   else
     echo "Hermes not on PATH yet; after install, set external skill dir to $HOME/.agents/skills"
-  fi
-  if [ "$WITH_DNS_SKILL" -eq 1 ]; then
-    echo "DNS skill install hook: pending skill source selection; keep as explicit AIOS skillpack entry once source is decided."
   fi
 }
 
@@ -554,8 +596,11 @@ if [ "$WITH_PROXY" = "auto" ]; then
     echo "Direct external network works; skipping proxy setup."
     WITH_PROXY="no"
   else
-    echo "Direct external network failed; proxy setup is recommended."
+    echo "Direct external network failed; Mihomo/Clash proxy setup is recommended."
     WITH_PROXY="yes"
+    if is_interactive; then
+      ask_choice WITH_PROXY "Install Mihomo proxy now?" "yes" "yes no"
+    fi
   fi
 fi
 
@@ -564,7 +609,7 @@ if [ "$DRY_RUN" -eq 1 ]; then echo "+ mkdir -p $AIOS_ROOT/modules"; else mkdir -
 
 log "Preparing aios-kit at $KIT_DIR"
 if [ ! -f "$KIT_DIR/aios" ]; then
-  if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $AIOS_KIT_REPO_URL $KIT_DIR"; else mkdir -p "$(dirname "$KIT_DIR")"; git clone "$AIOS_KIT_REPO_URL" "$KIT_DIR"; fi
+  if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $(mirror_url "$AIOS_KIT_REPO_URL") $KIT_DIR"; else mkdir -p "$(dirname "$KIT_DIR")"; git clone "$(mirror_url "$AIOS_KIT_REPO_URL")" "$KIT_DIR"; fi
 else
   if [ -d "$KIT_DIR/.git" ]; then run_visible git -C "$KIT_DIR" pull --ff-only; else echo "using existing non-git kit dir: $KIT_DIR"; fi
 fi
@@ -619,7 +664,7 @@ run_visible "${init_args[@]}"
 
 log "Preparing lins-living-loop module at $LLL_DIR"
 if [ ! -f "$LLL_DIR/SKILL.md" ]; then
-  if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $LLL_REPO_URL $LLL_DIR"; else mkdir -p "$(dirname "$LLL_DIR")"; git clone "$LLL_REPO_URL" "$LLL_DIR"; fi
+  if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $(mirror_url "$LLL_REPO_URL") $LLL_DIR"; else mkdir -p "$(dirname "$LLL_DIR")"; git clone "$(mirror_url "$LLL_REPO_URL")" "$LLL_DIR"; fi
 else
   if [ -d "$LLL_DIR/.git" ]; then run_visible git -C "$LLL_DIR" pull --ff-only; else echo "using existing non-git LLL dir: $LLL_DIR"; fi
 fi
@@ -641,7 +686,7 @@ fi
 if [ "$WITH_AIOPS" -eq 1 ]; then
   log "Preparing OPS vault template at $TEMPLATE_DIR"
   if [ ! -f "$TEMPLATE_DIR/scripts/install.py" ]; then
-    if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $AIOPS_TEMPLATE_REPO_URL $TEMPLATE_DIR"; else mkdir -p "$(dirname "$TEMPLATE_DIR")"; git clone "$AIOPS_TEMPLATE_REPO_URL" "$TEMPLATE_DIR"; fi
+    if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $(mirror_url "$AIOPS_TEMPLATE_REPO_URL") $TEMPLATE_DIR"; else mkdir -p "$(dirname "$TEMPLATE_DIR")"; git clone "$(mirror_url "$AIOPS_TEMPLATE_REPO_URL")" "$TEMPLATE_DIR"; fi
   else
     if [ -d "$TEMPLATE_DIR/.git" ]; then run_visible git -C "$TEMPLATE_DIR" pull --ff-only; else echo "using existing non-git template dir: $TEMPLATE_DIR"; fi
   fi
