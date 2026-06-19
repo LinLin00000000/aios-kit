@@ -12,7 +12,7 @@ Repo/source/runtime boundaries live in [architecture.md](architecture.md). This 
 
 ## One-sentence architecture
 
-When the user says “the LLL project”, an agent should resolve that phrase to a canonical resource id, choose the best available location, respect permissions, and then act.
+When the user says “LLL project”, an agent should resolve that phrase to a canonical resource id, choose the best available location, respect permissions, and then act.
 
 ## Resource boundaries
 
