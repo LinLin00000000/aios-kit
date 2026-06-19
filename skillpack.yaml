@@ -1,5 +1,5 @@
 name: aios-kit
-version: 0.2.0
+version: 0.2.2
 description: Portable AIOS kit base skillpack. Machine-specific/local skills belong in skillpack.local.yaml.
 
 defaults:
@@ -64,6 +64,26 @@ external:
     skill: web-design-guidelines
     enabled: true
     reason: Web design guidelines for modern frontend work.
+  - id: grilling
+    source: mattpocock/skills
+    skill: grilling
+    enabled: true
+    reason: Reusable relentless interview loop for stress-testing plans and designs.
+  - id: grill-me
+    source: mattpocock/skills
+    skill: grill-me
+    enabled: true
+    reason: User-facing entrypoint for sharpening a plan or design through a grilling session.
+  - id: grill-with-docs
+    source: mattpocock/skills
+    skill: grill-with-docs
+    enabled: true
+    reason: Grilling workflow that also captures glossary and ADR-style design documentation.
+  - id: domain-modeling
+    source: mattpocock/skills
+    skill: domain-modeling
+    enabled: true
+    reason: Domain vocabulary and ADR support required by grill-with-docs.
 
 first_party:
   - id: aios-resource-resolver
@@ -90,3 +110,12 @@ first_party:
     default_mode: copy
     targets: universal
     reason: Lin-customized GitHub project discovery and comparison skill; AIOS repo is the truth source.
+  - id: install-skill
+    path: skills/install-skill
+    source: LinLin00000000/aios-kit
+    skill: install-skill
+    enabled: true
+    default_mode: copy
+    targets: hermes
+    runtime_path: ~/.hermes/skills/skills/install-skill
+    reason: Lin-created Hermes skill for installing Agent/Hermes-compatible skills through npx skills.
