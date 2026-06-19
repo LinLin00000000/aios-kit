@@ -1,5 +1,7 @@
 # aios-kit
 
+**简体中文** | [English](./translations/en/README.md)
+
 `aios-kit` 是一个轻量、可迁移、Agent-friendly 的 Personal AIOS 安装与分发套件。
 
 它想解决的不是“怎么多装几个 AI 工具”，而是一个更长期的问题：当 AI 开始替你读文档、跑命令、维护服务、整理知识、延续项目时，你需要一个属于自己的操作系统层，把记忆、工具、资源、工作流和边界组织起来。

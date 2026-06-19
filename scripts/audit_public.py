@@ -61,7 +61,7 @@ def main() -> int:
         for f in findings:
             print(f"{f[0]}:{f[1]} [{f[2]}] {f[3]}")
         return 1
-    print("PASS: no obvious secrets or machine-specific absolute paths in tracked files")
+    print("PASS: no obvious secrets or machine-specific absolute paths in tracked or untracked non-ignored files")
     return 0
 
 if __name__ == "__main__":

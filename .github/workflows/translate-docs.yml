@@ -1,0 +1,63 @@
+name: Translate docs zh to en
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - 'docs/**/*.md'
+      - 'scripts/translate_docs.py'
+      - '.github/workflows/translate-docs.yml'
+      - '!translations/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: translate-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check upstream AI API
+        env:
+          TRANSLATE_BASE_URL: ${{ secrets.TRANSLATE_BASE_URL }}
+          TRANSLATE_API_KEY: ${{ secrets.TRANSLATE_API_KEY }}
+          TRANSLATE_MODEL: ${{ secrets.TRANSLATE_MODEL }}
+          TRANSLATE_API_MODE: ${{ secrets.TRANSLATE_API_MODE }}
+        run: python3 scripts/translate_docs.py --check-api --dry-run
+
+      - name: Generate English docs
+        env:
+          TRANSLATE_BASE_URL: ${{ secrets.TRANSLATE_BASE_URL }}
+          TRANSLATE_API_KEY: ${{ secrets.TRANSLATE_API_KEY }}
+          TRANSLATE_MODEL: ${{ secrets.TRANSLATE_MODEL }}
+          TRANSLATE_API_MODE: ${{ secrets.TRANSLATE_API_MODE }}
+        run: python3 scripts/translate_docs.py --write
+
+      - name: Commit generated translations
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add translations/en
+          if git diff --cached --quiet; then
+            echo "No translation changes."
+            exit 0
+          fi
+          git commit -m "docs(i18n): update English translation"
+          git push origin HEAD:main
