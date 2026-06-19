@@ -1,66 +1,81 @@
 # aios-kit architecture
 
-`aios-kit` is not a monorepo that absorbs every asset. It is an assembly/control repo.
+`aios-kit` is an assembly/control repo, not a monorepo that absorbs every asset.
 
 ## Core decision
 
-Keep independently meaningful projects independent, and connect them with manifests and local links:
+Keep independently meaningful projects independent, and connect them with manifests, modules, registries, and local links:
 
-- `lins-living-loop`: independent first-party skill/project with its own GitHub remote.
-- `aiops-vault-template`: independent public template repo.
-- `~/ai-ops`: real local operational vault, not a GitHub template and not committed here.
-- `aios-kit`: the kit that documents, validates, links, and synchronizes these parts.
+- `aios-kit`: installer, CLI, public manifests, selected first-party skills, and docs.
+- `lins-living-loop`: independent first-party workflow skill/project.
+- `aiops-vault-template`: independent public OPS vault template.
+- `~/aios/vault/ops`: default live OPS vault for a new AIOS instance.
+- `~/ai-ops`: legacy/author compatibility path only; never a public install default.
 
-## Why not merge everything?
+## Source, runtime, and state
 
-Merging LLL, ai-ops template, and live ai-ops into one repo would blur three different truth sources:
+Do not move every repo under `aios-kit`. Use clear boundaries:
 
-1. reusable workflow product (`lins-living-loop`),
-2. reusable vault template (`aiops-vault-template`),
-3. private/current operational facts (`~/ai-ops`).
+| Layer | Owns | Example |
+|---|---|---|
+| Distribution source | installer, CLI, public docs/manifests | `~/projects/aios-kit` or `~/aios/modules/aios-kit` |
+| Modules | updateable checkouts/templates | `~/aios/modules/lins-living-loop` |
+| Runtime skills | what agents actually load | `~/.agents/skills`, `~/.hermes/skills` |
+| Live vault | private/current operational facts | `~/aios/vault/ops` |
+| Skillpack state | safe update/prune records | `~/aios/vault/ops/state/aios-kit/install-state.json` |
 
-The kit should know how to find and validate them, not own all of their content.
+External skills are installed through `npx skills`. First-party skills can be copied for users or symlinked for authors.
 
-## Skillpack module
+## Install and development modes
 
-The skillpack module has three layers:
-
-```text
-skillpack.yaml                         # selected skills intent
-scripts/aios.py skillpack sync         # installer/linker/pruner
-~/.agents/skillpacks/state/aios-kit    # local state for safe prune/update
-```
-
-External skills are installed through `npx skills`. First-party skills can be copied or symlinked.
-
-## Local source and runtime model
-
-For active development:
-
-```text
-~/projects/lins-living-loop              # canonical discoverable source path
-~/.agents/skills/lins-living-loop        # runtime path; may be the real worktree or a symlink
-```
-
-Long-term preferred shape:
-
-```text
-~/.agents/skills/lins-living-loop -> ~/projects/lins-living-loop
-```
-
-Current migration note: when an existing runtime clone has uncommitted changes, do not overwrite it. Promote/link it safely first, then merge histories before converting runtime to a pure symlink.
-
-## Friend/user distribution model
-
-For friends or clean machines, default to copy/install:
+For friends or clean machines, use the installer:
 
 ```bash
-git clone https://github.com/LinLin00000000/aios-kit ~/.agents/skillpacks/aios-kit
-~/.agents/skillpacks/aios-kit/aios skillpack sync --apply
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
-For authors/developers, use symlink:
+For a checked-out repo:
 
 ```bash
-~/projects/aios-kit/aios skillpack dev-link --apply
+bash install.sh
 ```
+
+For author development, use per-skill symlinks so runtime edits are Git-visible:
+
+```bash
+cd ~/projects/aios-kit
+./aios skillpack dev-link --apply
+./aios skillpack doctor
+```
+
+Do not symlink or replace an entire agent skills directory. Public installs copy/sync selected skills one by one.
+
+## Local structure and linking policy
+
+Canonical development paths are intentionally separate from runtime install paths:
+
+| Item | Path | Policy |
+|---|---|---|
+| Main kit | `~/projects/aios-kit` | source of assembly scripts/manifests/docs |
+| LLL | `~/projects/lins-living-loop` | independent first-party source |
+| AIOps template | `~/projects/aiops-vault-template` | public reusable template |
+| Live AIOps vault | `~/aios/vault/ops` | default instance vault; private/current facts |
+| Legacy live vault | `~/ai-ops` | author/local compatibility only |
+| Universal skills | `~/.agents/skills` | runtime install target, not automatically source |
+| Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
+
+Rules:
+
+1. Templates are not live assets.
+2. Runtime directories become source only when intentionally promoted.
+3. Active first-party skills should be Git-visible.
+4. Symlinks are for local authoring; copy/install is the public default.
+5. Only paths recorded in the current install-state can be pruned automatically.
+
+## Key decisions
+
+- **Main project name**: use `aios-kit`; skillpack is a module, not the repo boundary.
+- **LLL remains independent**: `aios-kit` references, links, or copies it, but does not vendor it.
+- **OPS template and live vault stay separate**: template is reusable starter content; live vault is user/private state.
+- **Symlink for authoring, copy for distribution**: author machines optimize editability; public installs optimize portability.
+- **Manifest + thin script, not a new package manager**: `aios-kit` reads `skillpack.yaml`, calls `npx skills` for external skills, and directly copies/symlinks first-party skills.

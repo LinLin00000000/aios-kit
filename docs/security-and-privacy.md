@@ -6,6 +6,7 @@ Public `aios-kit` files should be portable:
 
 - Commit examples, schemas, templates, reusable scripts, and generic docs.
 - Do not commit machine-specific manifests, live vault data, state files, logs, secrets, tokens, private hostnames, private IPs, or private agent skill contents.
+- Do not commit proxy subscription URLs, node YAML containing UUIDs/passwords, provider tokens, or generated Mihomo configs with private nodes.
 
 ## Local overrides
 

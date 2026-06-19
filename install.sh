@@ -56,7 +56,7 @@ be automated with flags for repeatable operations.
 
 Core options:
   --root PATH              AIOS instance root (default: $AIOS_ROOT or ~/aios)
-  --kit-dir PATH           aios-kit checkout (default: $AIOS_ROOT/modules/aios-kit)
+  --kit-dir PATH           aios-kit checkout (default: current repo when run from a checkout, otherwise $AIOS_ROOT/modules/aios-kit)
   --lll-dir PATH           lins-living-loop checkout (default: $AIOS_ROOT/modules/lins-living-loop)
   --vault PATH             OPS vault path (default: $AIOS_ROOT/vault/ops)
   --skills-dir PATH        Agent runtime skills dir (default: ~/.agents/skills)
@@ -112,6 +112,15 @@ print_cmd() { printf '+'; for arg in "$@"; do printf ' %q' "$arg"; done; printf 
 run_visible() { print_cmd "$@"; if [ "$DRY_RUN" -eq 0 ]; then command "$@"; fi; }
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 need_cmd() { if ! have_cmd "$1"; then echo "missing required command: $1" >&2; exit 1; fi; }
+require_arg() {
+  opt="$1"
+  count="$2"
+  if [ "$count" -lt 2 ]; then
+    echo "missing value for $opt" >&2
+    usage >&2
+    exit 2
+  fi
+}
 
 mirror_url() {
   url="$1"
@@ -194,22 +203,22 @@ validate_path() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --root) AIOS_ROOT="$2"; shift 2 ;;
-    --kit-dir) KIT_DIR="$2"; KIT_DIR_EXPLICIT=1; shift 2 ;;
-    --lll-dir) LLL_DIR="$2"; LLL_DIR_EXPLICIT=1; shift 2 ;;
-    --vault) VAULT_PATH="$2"; VAULT_PATH_EXPLICIT=1; shift 2 ;;
-    --skills-dir) SKILLS_DIR="$2"; SKILLS_DIR_EXPLICIT=1; shift 2 ;;
-    --global-bin) GLOBAL_BIN_DIR="$2"; GLOBAL_BIN_EXPLICIT=1; shift 2 ;;
-    --add-to-path) ADD_TO_PATH="$2"; shift 2 ;;
-    --github-mirror) AIOS_GITHUB_MIRROR_PREFIX="$2"; shift 2 ;;
-    --proxy) WITH_PROXY="$2"; shift 2 ;;
+    --root) require_arg "$1" "$#"; AIOS_ROOT="$2"; shift 2 ;;
+    --kit-dir) require_arg "$1" "$#"; KIT_DIR="$2"; KIT_DIR_EXPLICIT=1; shift 2 ;;
+    --lll-dir) require_arg "$1" "$#"; LLL_DIR="$2"; LLL_DIR_EXPLICIT=1; shift 2 ;;
+    --vault) require_arg "$1" "$#"; VAULT_PATH="$2"; VAULT_PATH_EXPLICIT=1; shift 2 ;;
+    --skills-dir) require_arg "$1" "$#"; SKILLS_DIR="$2"; SKILLS_DIR_EXPLICIT=1; shift 2 ;;
+    --global-bin) require_arg "$1" "$#"; GLOBAL_BIN_DIR="$2"; GLOBAL_BIN_EXPLICIT=1; shift 2 ;;
+    --add-to-path) require_arg "$1" "$#"; ADD_TO_PATH="$2"; shift 2 ;;
+    --github-mirror) require_arg "$1" "$#"; AIOS_GITHUB_MIRROR_PREFIX="$2"; shift 2 ;;
+    --proxy) require_arg "$1" "$#"; WITH_PROXY="$2"; shift 2 ;;
     --proxy-tun) PROXY_TUN=1; shift ;;
     --no-proxy-tun) PROXY_TUN=0; shift ;;
-    --proxy-subscription-url) PROXY_SUBSCRIPTION_URL="$2"; shift 2 ;;
-    --proxy-proxies-file) PROXY_PROXIES_FILE="$2"; shift 2 ;;
-    --proxy-auto-env) PROXY_AUTO_ENV="$2"; shift 2 ;;
-    --mihomo-url) MIHOMO_DOWNLOAD_URL="$2"; shift 2 ;;
-    --mihomo-version) MIHOMO_VERSION="$2"; shift 2 ;;
+    --proxy-subscription-url) require_arg "$1" "$#"; PROXY_SUBSCRIPTION_URL="$2"; shift 2 ;;
+    --proxy-proxies-file) require_arg "$1" "$#"; PROXY_PROXIES_FILE="$2"; shift 2 ;;
+    --proxy-auto-env) require_arg "$1" "$#"; PROXY_AUTO_ENV="$2"; shift 2 ;;
+    --mihomo-url) require_arg "$1" "$#"; MIHOMO_DOWNLOAD_URL="$2"; shift 2 ;;
+    --mihomo-version) require_arg "$1" "$#"; MIHOMO_VERSION="$2"; shift 2 ;;
     --reset-sources) RESET_SOURCES=1; shift ;;
     --no-reset-sources) RESET_SOURCES=0; shift ;;
     --with-dev-env) WITH_DEV_ENV=1; shift ;;
@@ -218,8 +227,8 @@ while [ $# -gt 0 ]; do
     --no-hermes|--no-core) WITH_HERMES=0; WITH_CORE=0; shift ;;
     --with-aiops) WITH_AIOPS=1; shift ;;
     --no-aiops) WITH_AIOPS=0; shift ;;
-    --target) TARGET="$2"; shift 2 ;;
-    --mode) MODE="$2"; shift 2 ;;
+    --target) require_arg "$1" "$#"; TARGET="$2"; shift 2 ;;
+    --mode) require_arg "$1" "$#"; MODE="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
     --non-interactive) INTERACTIVE="no"; shift ;;
     --interactive) INTERACTIVE="yes"; shift ;;

@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -924,6 +925,10 @@ def update(args: argparse.Namespace) -> None:
     subject = getattr(args, "subject", None) or "all"
     code = 0
 
+    if subject != "all" and (getattr(args, "no_skills", False) or getattr(args, "no_ops", False)):
+        print("error: --no-skills and --no-ops only apply to `aios update all`", file=sys.stderr)
+        raise SystemExit(2)
+
     if subject in {"all", "modules"}:
         code = max(code, update_modules(args, paths=paths, apply=apply))
     if subject in {"all", "ops"} and not getattr(args, "no_ops", False):
@@ -1065,11 +1070,11 @@ def build_parser() -> argparse.ArgumentParser:
     pv = psub.add_parser("validate")
     pv.set_defaults(func=project_validate)
 
-    d = sub.add_parser("doctor")
+    d = sub.add_parser("doctor", help="validate instance, skillpack, and assets")
     d.add_argument("--target", default="universal", choices=["universal", "hermes", "both"])
     d.set_defaults(func=doctor)
 
-    sp = sub.add_parser("skillpack")
+    sp = sub.add_parser("skillpack", help="inspect/sync managed runtime skills")
     sps = sp.add_subparsers(dest="skillpack_cmd", required=True)
     ls = sps.add_parser("list")
     ls.set_defaults(func=skillpack_list)
@@ -1078,8 +1083,9 @@ def build_parser() -> argparse.ArgumentParser:
     doc.add_argument("--state-dir")
     doc.set_defaults(func=skillpack_doctor)
     sync = sps.add_parser("sync")
-    sync.add_argument("--apply", action="store_true")
-    sync.add_argument("--dry-run", action="store_true", help="explicit no-op; default")
+    sync_apply = sync.add_mutually_exclusive_group()
+    sync_apply.add_argument("--apply", action="store_true")
+    sync_apply.add_argument("--dry-run", action="store_true", help="explicit no-op; default")
     sync.add_argument("--prune", action="store_true")
     sync.add_argument("--mode", choices=["copy", "symlink"])
     sync.add_argument("--force", action="store_true", help="overwrite locally modified managed skill copies")
@@ -1087,20 +1093,22 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--state-dir")
     sync.set_defaults(func=skillpack_sync)
     dev = sps.add_parser("dev-link")
-    dev.add_argument("--apply", action="store_true")
-    dev.add_argument("--dry-run", action="store_true")
+    dev_apply = dev.add_mutually_exclusive_group()
+    dev_apply.add_argument("--apply", action="store_true")
+    dev_apply.add_argument("--dry-run", action="store_true")
     dev.add_argument("--target", default="default", choices=["default", "universal", "hermes", "both"])
     dev.add_argument("--force", action="store_true", help="overwrite locally modified managed skill copies")
     dev.add_argument("--state-dir")
     dev.set_defaults(func=lambda a: skillpack_sync(argparse.Namespace(**{**vars(a), "mode": "symlink", "prune": False, "first_party_only": True})))
 
-    ap = sub.add_parser("assets")
+    ap = sub.add_parser("assets", help="validate/link local asset discovery manifest")
     aps = ap.add_subparsers(dest="assets_cmd", required=True)
     ad = aps.add_parser("doctor")
     ad.set_defaults(func=assets_doctor)
     al = aps.add_parser("link")
-    al.add_argument("--apply", action="store_true")
-    al.add_argument("--dry-run", action="store_true")
+    al_apply = al.add_mutually_exclusive_group()
+    al_apply.add_argument("--apply", action="store_true")
+    al_apply.add_argument("--dry-run", action="store_true")
     al.set_defaults(func=assets_link)
     return p
 

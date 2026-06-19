@@ -1,10 +1,14 @@
 # AIOS Resource Architecture
 
+AIOS is not one giant folder. It is a **resource registry + context resolver + workflow layer** that points to projects, devices, services, data assets, skills, and vaults without owning all of them.
+
+Repo/source/runtime boundaries live in [architecture.md](architecture.md). This document focuses on resource registry semantics.
+
 ## One-sentence architecture
 
-AIOS is not one giant folder. It is a **resource registry + context resolver + workflow layer** that points to projects, devices, services, data assets, skills, and real vaults without owning all of them.
+When the user says “LLL 项目”, an agent should resolve that phrase to a canonical resource id, choose the best available location, respect permissions, and then act.
 
-## Boundaries
+## Resource boundaries
 
 ```text
 AIOS                 overall personal digital operating system
@@ -17,74 +21,22 @@ AIOS                 overall personal digital operating system
 └── Worlds           digital metaverse / long-term creative world layer
 ```
 
-AIOps is a subsystem of AIOS, not the whole AIOS. Project Graph is another subsystem.
+AIOps is one subsystem of AIOS, not the whole AIOS.
 
-## Source layout vs runtime layout
+## Registry files
 
-Do not move every repo under `aios-kit`.
-
-Use this separation:
-
-| Layer | Owns | Example |
-|---|---|---|
-| `aios-kit` | schemas, scripts, templates, skills, docs | this repo |
-| independent project repos | product/source truth | `lins-living-loop`, `aiops-vault-template` |
-| live asset vaults | private/current facts | `~/ai-ops` |
-| registries | pointers and permissions | `projects/registry.jsonl`, `devices.jsonl` |
-| indexes | generated query surfaces | SQLite/FTS later |
-| runtime | installed skills/services | `~/.agents/skills`, systemd, Docker |
-
-## Should related repos be nested under aios-kit?
-
-Default: **no**.
-
-`projects/lins-living-loop` and `projects/aiops-vault-template` should remain sibling repos, not subdirectories inside `projects/aios-kit`, because they have independent lifecycles, releases, issues, and installation paths.
-
-Acceptable alternatives:
-
-1. **Sibling repos + registry** — recommended default.
-2. **Git submodules under `vendor/` or `integrations/`** — only if the kit must pin exact versions.
-3. **Monorepo** — only if the projects are no longer independently useful or released.
-4. **Symlinks under a local-only workspace** — okay for author convenience, never as the public source layout.
-
-Recommended local shape:
+Default project registry files live in the instance OPS vault:
 
 ```text
-~/projects/
-  aios-kit/
-  lins-living-loop/
-  aiops-vault-template/
-  ai-ops -> ~/ai-ops   # local discovery link only
+~/aios/vault/ops/projects/registry.jsonl
+~/aios/vault/ops/projects/aliases.yaml
 ```
 
-## aiops-vault-template vs live ai-ops
+`~/ai-ops` may exist as an author/legacy compatibility path, but new public installs should treat `~/aios/vault/ops` as the default live vault.
 
-`aiops-vault-template` is a reusable starter kit. It answers:
+## Resource shape
 
-> What should a new AIOps vault look like?
-
-Live `ai-ops` answers:
-
-> What is true on this machine / this user's infrastructure now?
-
-Relationship:
-
-```text
-aiops-vault-template --instantiate--> ~/ai-ops
-~/ai-ops --lessons/schema improvements--> aiops-vault-template
-~/ai-ops --registered/linked by--> aios-kit
-```
-
-Rules:
-
-- Never sync live `~/ai-ops` wholesale back into the public template.
-- Extract only reusable schema/scripts/docs after scrubbing current facts.
-- Keep secrets out of both; live vault may record secret locations only.
-- `aios-kit` may register and validate both, but does not own their content.
-
-## Resource Registry + Context Resolver
-
-The core AIOS primitive is a Resource:
+A project/resource entry is intentionally explicit and file-based:
 
 ```json
 {
@@ -106,27 +58,33 @@ The core AIOS primitive is a Resource:
 }
 ```
 
-When the user says “LLL 项目”, the agent should:
+## Resource/project registry CLI
 
-1. Load the resolver skill.
-2. Query registries and aliases.
-3. Resolve a canonical resource id.
-4. Prefer local path if available and permitted.
-5. Fall back to GitHub/remote/device path if needed.
-6. Respect sensitivity and write permissions.
-7. Ask only when ambiguous.
+Prefer the CLI over hand-editing when possible:
+
+```bash
+aios project list
+aios project list --json
+aios project get <id-or-alias>
+aios project add --id <id> --name "<name>" --path <path> --github <url> --alias <alias>
+aios project alias <alias> <id>
+aios project validate
+```
+
+## Resolver flow
+
+When resolving a user-mentioned resource, an agent should:
+
+1. load the resource resolver skill if available;
+2. query registry entries and aliases;
+3. resolve a canonical resource id;
+4. prefer local paths when present and permitted;
+5. fall back to GitHub/remote/device locations if needed;
+6. respect sensitivity and write permissions;
+7. ask only when the alias is genuinely ambiguous.
 
 ## Skill strategy
 
-Start with **one thin umbrella skill**: `aios-resource-resolver`.
+Keep skills thin: skills describe **how to resolve and operate**; registries store **what exists**.
 
-It handles the common resolution flow for projects, devices, services, data assets, workflows, and skills.
-
-Split later only when a subsystem becomes complex:
-
-- `project-graph`: project state, repo relationships, lifecycle, GitHub/local mapping.
-- `data-governance`: sensitivity, backups, RAG/indexing, external model rules.
-- `device-and-edge`: central vs Windows/edge execution paths.
-- `digital-self-context`: identity/narrative/long-term meaning.
-
-Do not store large resource facts in skills. Skills describe how to resolve; registries store what exists.
+Start with one umbrella skill, `aios-resource-resolver`. Split later only when a subsystem becomes complex enough to justify its own workflow, such as `project-graph`, `data-governance`, `device-and-edge`, or `digital-self-context`.

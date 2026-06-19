@@ -20,6 +20,7 @@ Windows/macOS 不应直接假设同一套 systemd/CAP_NET_ADMIN/TUN 行为可用
 ### 供应商订阅 URL
 
 ```bash
+# inside an aios-kit repo checkout
 bash install.sh --proxy yes --proxy-subscription-url 'https://example.com/sub?token=...'
 ```
 
