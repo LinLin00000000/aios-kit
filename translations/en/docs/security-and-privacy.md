@@ -27,7 +27,7 @@ registries/*.local.*
 
 They are used for local paths, private skills, current device names, and non-public repositories.
 
-## Pre-Push Public Audit Checklist
+## Audit Checklist Before Public Push
 
 Run first:
 
@@ -43,4 +43,4 @@ git status --short --branch
 git ls-files
 ```
 
-If private local paths were accidentally committed to the repository, rewrite history while the repository is still new and the impact is manageable. If real secrets have been exposed, immediately rotate or delete the relevant credentials.
+If private local paths were mistakenly committed to the repository, rewrite history while the repository is still new and the impact is manageable. If a real secret has been exposed, immediately rotate or delete the related credentials.
