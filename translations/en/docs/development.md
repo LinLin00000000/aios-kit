@@ -6,30 +6,39 @@
 
 # Development Guide
 
-This document is for maintainers, contributors, and future collaborating AI Agents. The README is only the public entry point; module details, skills, local overlays, release validation, and AI collaboration rules are kept here.
+This document is for maintainers, contributors, and future collaborating AI Agents. The README is only the public entry point; modules, skills, local overlays, release validation, and AI collaboration rules belong here.
 
-## Product surface rule
+## Product Surface Rules
 
-The README is the product entry point, not a maintenance log, personal explanation, or draft of decisions. Include only: project positioning, installation, common commands, core directories, boundaries, and documentation entry points.
+The README is the product entry point, not a maintenance log, personal explanation, or decision draft. Include only: project positioning, installation, common commands, core directories, boundaries, and documentation entry points.
 
-Put complex background, design details, private/local overlays, and AI collaboration prompts in `docs/` or LLL workspace reports.
+Complex background, design details, private/local overlays, and AI collaboration prompts should go in `docs/` or LLL workspace reports.
 
-## CLI design
+## Documentation Language Rules
+
+The repository’s source documentation is maintained only in Simplified Chinese:
+
+- `README.md` and `docs/*.md` use Simplified Chinese as the only source language. Do not maintain English translations in titles or body text at the same time.
+- English documentation is generated only by the automated translation process into `translations/en/**`. Do not manually edit generated files.
+- If English wording needs improvement, first improve the Chinese source documentation or the translation script, then regenerate the English version.
+- Technical terms, commands, file names, configuration keys, and product names may remain in English, such as `runtime skills`, `skillpack`, `registry`, and `install-state.json`.
+
+## CLI Design
 
 The CLI has two layers:
 
 | Layer | User-facing examples | Purpose |
 |---|---|---|
-| Product commands | `aios status`, `aios doctor`, `aios update`, `aios update skills`, `aios update modules lins-living-loop` | Stable commands for normal users |
+| Product commands | `aios status`, `aios doctor`, `aios update`, `aios update skills`, `aios update modules lins-living-loop` | Stable commands for regular users |
 | Expert subdomains | `aios skillpack sync --apply`, `aios skillpack dev-link --apply`, `aios assets doctor` | Manifest reconciliation, development, debugging |
 
-`skillpack sync` means "reconcile/converge runtime skills according to `skillpack.yaml`"; it is not a normal update. Normal users should prefer:
+`skillpack sync` means “reconcile/converge runtime skills according to `skillpack.yaml`”; it is not a regular update. Regular users should prefer:
 
 ```bash
 aios update skills
 ```
 
-`aios update` defaults to the equivalent of `aios update all`. Use these when more granularity is needed:
+`aios update` is equivalent to `aios update all` by default. Use the following when finer granularity is needed:
 
 ```bash
 aios update modules
@@ -38,9 +47,9 @@ aios update skills
 aios update ops
 ```
 
-An update target deserves to become a separate subject only when it has an independent lifecycle, cost, failure risk, or clear user intent. For now, `modules`, `skills`, and `ops` are enough.
+An update target only deserves to become an independent subject when it has an independent lifecycle, takes significant time, carries failure risk, or reflects clear user intent. For now, `modules`, `skills`, and `ops` are enough.
 
-## Global command installation
+## Global Command Installation
 
 The installer always creates:
 
@@ -48,13 +57,13 @@ The installer always creates:
 ~/aios/bin/aios -> ~/aios/modules/aios-kit/aios
 ```
 
-Users are recommended to add `~/aios/bin` to PATH:
+Users are encouraged to add `~/aios/bin` to PATH:
 
 ```bash
 export PATH="$HOME/aios/bin:$PATH"
 ```
 
-If users want to write directly to an existing PATH directory, they can use:
+If users want to write directly into an existing PATH directory, they can use:
 
 ```bash
 bash install.sh --global-bin ~/.local/bin
@@ -62,17 +71,17 @@ bash install.sh --global-bin ~/.local/bin
 
 The installer will not overwrite an existing conflicting `~/.local/bin/aios`.
 
-## Adding a portable skill
+## Adding a Portable Skill
 
-A skill suitable for the portable base pack should meet at least one of these criteria:
+A skill suitable for inclusion in the portable base pack should meet at least one of these conditions:
 
 - Most AIOS users will need it frequently;
-- It clearly improves default capabilities after installation with minimal side effects;
-- It is closely related to core AIOS flows, such as skill discovery, document workflows, LLL, or resource/project resolution.
+- It clearly improves the default post-installation capability with minimal side effects;
+- It is strongly related to AIOS core workflows, such as skill discovery, document workflows, LLL, or resource/project resolution.
 
 Steps:
 
-1. Add the entry to `skillpack.yaml`, clearly specifying `source`, `skill`, and `reason`.
+1. Add the entry to `skillpack.yaml`, and clearly specify `source`, `skill`, and `reason`.
 2. Run a dry run:
 
    ```bash
@@ -80,7 +89,7 @@ Steps:
    aios update skills --dry-run
    ```
 
-3. Install and verify:
+3. Install and verify for real:
 
    ```bash
    aios update skills
@@ -90,47 +99,47 @@ Steps:
 4. Perform a fresh HOME smoke install to avoid contamination from existing local files.
 5. Commit/push after passing public audit.
 
-## Adding a first-party skill
+## Adding a First-party Skill
 
-If the skill is maintained by AIOS itself, prefer one of the following truth sources:
+If the skill is maintained by AIOS itself, prefer one of the following source-of-truth locations:
 
-| Case | Truth source | Runtime install |
+| Scenario | Source of truth | Runtime installation method |
 |---|---|---|
-| Small AIOS-specific skill | `aios-kit/skills/<skill>` | copy for users, symlink for dev |
-| Independent product-like skill | separate repo under `~/aios/modules/<repo>` | copy for users, symlink for dev |
-| Subskill inside a template repo | `<repo>/skills/<skill>` | copy for users, symlink for dev |
+| Small AIOS-specific skill | `aios-kit/skills/<skill>` | Copy for user installs, symlink on development machines |
+| Independent product-style skill | Independent repo under `~/aios/modules/<repo>` | Copy for user installs, symlink on development machines |
+| Sub-skill inside a template repo | `<repo>/skills/<skill>` | Copy for user installs, symlink on development machines |
 
-Do not treat the runtime skills directory as the truth source. On development machines, runtime skills may be symlinked one by one to Git worktrees, but public installation defaults to copy mode.
+Do not treat the runtime skills directory as the source of truth. On development machines, each runtime skill may be symlinked to a Git worktree, but public installs default to copy.
 
-## Adding a module
+## Adding a Module
 
-A module is an updatable source or template checkout under `~/aios/modules/<name>`. Good module candidates usually have an independent lifecycle, such as LLL, an OPS vault template, or future multi-device interconnection modules.
+A module is an updatable source or template checkout under `~/aios/modules/<name>`. Objects suitable as modules usually have independent lifecycles, such as LLL, the OPS vault template, or future multi-device interconnection modules.
 
 When adding a module, decide:
 
 - Is it part of the public portable base, or a local overlay?
 - Does the installer need to clone it?
-- Is `aios update modules <name>` enough, or does it need extra refresh steps?
+- Is `aios update modules <name>` sufficient, or is an additional refresh step needed?
 - Does it provide a runtime skill? If so, where should the runtime skill be copied/symlinked?
 
 If it is only a single skill, do not turn it into a module too early. Put it in `skillpack.yaml` or `aios-kit/skills/<skill>` first.
 
-## Local overlay policy
+## Local Overlay Strategy
 
-Local overlays are for maintainers' own machines, private infrastructure, central control planes, or experimental modules. They may belong to "Lin's AIOS", but not to the public portable base pack.
+A local overlay is for a maintainer’s own machine, private infrastructure, central control plane, or experimental modules. They may belong to “Lin’s AIOS”, but they are not part of the public portable base pack.
 
 Current local overlay examples:
 
-| Skill | Location | Why local-only now |
+| Skill | Location | Why it is currently local-only |
 |---|---|---|
-| `cloud-server-ssh-assets` | `skillpack.local.yaml` | Bound to Lin's cloud server inventory and SSH/resource conventions |
-| `central-agent-control-plane` | `skillpack.local.yaml` / Hermes profile | Bound to Lin's central Hermes/control-plane operations |
+| `cloud-server-ssh-assets` | `skillpack.local.yaml` | Bound to Lin’s cloud server inventory and SSH/resource conventions |
+| `central-agent-control-plane` | `skillpack.local.yaml` / Hermes profile | Bound to Lin’s central Hermes/control-plane operations |
 
-If multi-device interconnection, central Agents, or remote execution become public core AIOS capabilities in the future, extract a portable module/skill that publishes only generic flows, schemas, and templates—not private resource facts.
+If multi-device interconnection, central Agents, or remote execution become public core AIOS capabilities in the future, extract them into portable modules/skills. Publish only generic workflows, schemas, and templates, not private resource facts.
 
-## AIOps skills distinction
+## Differences Between AIOps Skills
 
-`aiops-vault` is the entry/companion skill for the OPS vault. It defines how to read the vault, respect secret boundaries, maintain `resources.md`, `maintenance-log.jsonl`, `secrets-location.md`, and so on. Its `SKILL.md` is located at the root of the `aiops-vault-template` repository, so the runtime symlink on development machines points to the repository root:
+`aiops-vault` is the entry/companion skill for the OPS vault. It defines how to read the vault, respect secret boundaries, maintain `resources.md`, `maintenance-log.jsonl`, `secrets-location.md`, and so on. Its `SKILL.md` is located at the root of the `aiops-vault-template` repository, so the runtime symlink on a development machine points to the repository root:
 
 ```text
 ~/.agents/skills/aiops-vault -> ~/projects/aiops-vault-template
@@ -142,27 +151,27 @@ If multi-device interconnection, central Agents, or remote execution become publ
 ~/.agents/skills/aiops-service-operations -> ~/projects/aiops-vault-template/skills/aiops-service-operations
 ```
 
-## How to ask an AI to add a module
+## How to Have AI Add a Module
 
 ```text
 I made a new module: <module name>.
 Local path: <path>.
-Goal: include it in AIOS's portable install/update flow.
-Please decide whether it should be a portable base item, first-party skill, independent module, or local overlay.
-Requirements: do not copy my private data or secrets; do not take over a friend's entire existing skills directory; README should contain only information the general public needs; development rules should go in docs/development.md; run dry-run, doctor, public audit, and fresh HOME smoke install; after passing, commit and push.
+Goal: include it in AIOS’s portable install/update workflow.
+Please decide whether it should be a portable base, first-party skill, independent module, or local overlay.
+Requirements: do not copy my private data or secrets; do not take over a friend’s entire existing skills directory; put only generally useful information in the README; put development rules in docs/development.md; run dry-run, doctor, public audit, and fresh HOME smoke install; after passing, commit and push.
 ```
 
-## Skillpack update semantics
+## Skillpack Update Semantics
 
-`aios-kit` is more conservative than simply "adding everything again":
+`aios-kit` is more conservative than simply “adding everything again”:
 
-- Each managed skill records its install path and local content hash;
-- Before updating, if a runtime skill has been modified locally by the user, overwrite is rejected by default;
-- Overwrite only with explicit `--force`;
+- Each managed skill records its installation path and local content hash;
+- Before updating, if the runtime skill has been modified locally by the user, overwrite is refused by default;
+- Only explicit `--force` overwrites;
 - Stale skills are removed only with `--prune --apply`;
 - Prune only deletes paths recorded in install-state as managed by `aios-kit`.
 
-Development machines can use symlink mode so edits made by agents to runtime skills land in a Git-visible worktree:
+Development machines can use symlink mode so that agent edits to runtime skills land in a Git-visible worktree:
 
 ```bash
 cd ~/projects/aios-kit
@@ -170,15 +179,15 @@ cd ~/projects/aios-kit
 ./aios skillpack doctor
 ```
 
-Normal user/friend installations default to copy mode:
+Regular user/friend installs use copy mode by default:
 
 ```bash
 ./aios skillpack sync --apply
 ```
 
-`--apply` and `--dry-run` are mutually exclusive; default low-level skillpack/assets commands are no-op unless `--apply` is passed.
+`--apply` and `--dry-run` are mutually exclusive; low-level skillpack/assets commands only preview by default and make actual changes only when `--apply` is explicitly passed.
 
-## Release checklist
+## Release Checklist
 
 Before release, run at least:
 
@@ -198,4 +207,4 @@ tmp_home="$(mktemp -d)"
 git status --short
 ```
 
-When touching the installer, skillpack, module cloning, or runtime skills paths, a fresh HOME smoke install is required.
+When the installer, skillpack, module cloning, or runtime skills paths are involved, a fresh HOME smoke install is required.

@@ -6,43 +6,43 @@
 
 # AIOS Resource Architecture
 
-AIOS is not one giant folder. It is a **resource registry + context resolver + workflow layer** that points to projects, devices, services, data assets, skills, and vaults without owning all of them.
+AIOS is not a huge folder, but a **resource registry + context resolver + workflow layer**. It points to projects, devices, services, data assets, skills, and vaults, but does not need to own all of their contents.
 
-Repo/source/runtime boundaries live in [architecture.md](architecture.md). This document focuses on resource registry semantics.
+For the boundaries between repo, source, and runtime, see [architecture.md](architecture.md). This document only describes the semantics of the resource registry.
 
-## One-sentence architecture
+## One-Sentence Architecture
 
-When the user says “LLL project”, an agent should resolve that phrase to a canonical resource id, choose the best available location, respect permissions, and then act.
+When a user says “LLL project,” the agent should resolve that phrase into a canonical resource ID, choose the most suitable current location, respect permission boundaries, and then act.
 
-## Resource boundaries
+## Resource Boundaries
 
 ```text
-AIOS                 overall personal digital operating system
-├── AIOps            operations/infrastructure subsystem
-├── Project Graph    creative/project asset subsystem
-├── Data Assets      file/data governance subsystem
-├── Devices          central server and edge-node registry
+AIOS                 Overall personal digital operating system
+├── AIOps            Operations/infrastructure subsystem
+├── Project Graph    Creation/project asset subsystem
+├── Data Assets      File/data governance subsystem
+├── Devices          Registry for central servers and edge nodes
 ├── Workflows        LLL, Kanban, cron, agent runners
-├── Identity/Self    preferences, narratives, digital self context
-└── Worlds           digital metaverse / long-term creative world layer
+├── Identity/Self    Preferences, narratives, digital self context
+└── Worlds           Digital worlds / long-term creative world layer
 ```
 
-AIOps is one subsystem of AIOS, not the whole AIOS.
+AIOps is a subsystem of AIOS, not the entirety of AIOS.
 
-## Registry files
+## Registry Files
 
-Default project registry files live in the instance OPS vault:
+The default project registry is located inside the instance OPS vault:
 
 ```text
 ~/aios/vault/ops/projects/registry.jsonl
 ~/aios/vault/ops/projects/aliases.yaml
 ```
 
-`~/ai-ops` may exist as an author/legacy compatibility path, but new public installs should treat `~/aios/vault/ops` as the default live vault.
+`~/ai-ops` can exist as an author/historical compatibility path, but new public installations should treat `~/aios/vault/ops` as the default live vault.
 
-## Resource shape
+## Resource Structure
 
-A project/resource entry is intentionally explicit and file-based:
+Project/resource entries should be explicit and file-based:
 
 ```json
 {
@@ -64,9 +64,9 @@ A project/resource entry is intentionally explicit and file-based:
 }
 ```
 
-## Resource/project registry CLI
+## Resource/Project Registry CLI
 
-Prefer the CLI over hand-editing when possible:
+When the CLI is available, prefer using the CLI instead of editing manually:
 
 ```bash
 aios project list
@@ -77,20 +77,20 @@ aios project alias <alias> <id>
 aios project validate
 ```
 
-## Resolver flow
+## Resolver Flow
 
-When resolving a user-mentioned resource, an agent should:
+When resolving a resource mentioned by the user, the agent should:
 
-1. load the resource resolver skill if available;
-2. query registry entries and aliases;
-3. resolve a canonical resource id;
-4. prefer local paths when present and permitted;
-5. fall back to GitHub/remote/device locations if needed;
-6. respect sensitivity and write permissions;
-7. ask only when the alias is genuinely ambiguous.
+1. If the resource resolver skill is available, load it first;
+2. Query registry entries and aliases;
+3. Resolve the canonical resource ID;
+4. Prefer the local path when it exists and permissions allow it;
+5. Fall back to GitHub, remote devices, or other locations when necessary;
+6. Respect sensitivity and write permissions;
+7. Ask the user only when the alias is truly ambiguous.
 
-## Skill strategy
+## Skill Strategy
 
-Keep skills thin: skills describe **how to resolve and operate**; registries store **what exists**.
+Keep skills sufficiently thin: skills describe **how to resolve and operate**, while registries store **what exists**.
 
-Start with one umbrella skill, `aios-resource-resolver`. Split later only when a subsystem becomes complex enough to justify its own workflow, such as `project-graph`, `data-governance`, `device-and-edge`, or `digital-self-context`.
+Start with one umbrella skill, `aios-resource-resolver`. Only split out a new skill when a subsystem becomes complex enough to require an independent workflow, such as `project-graph`, `data-governance`, `device-and-edge`, or `digital-self-context`.

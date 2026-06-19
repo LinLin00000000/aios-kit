@@ -6,7 +6,7 @@
 
 它想解决的不是“怎么多装几个 AI 工具”，而是一个更长期的问题：当 AI 开始替你读文档、跑命令、维护服务、整理知识、延续项目时，你需要一个属于自己的操作系统层，把记忆、工具、资源、工作流和边界组织起来。
 
-## 愿景 / Vision
+## 愿景
 
 Personal AIOS 不是一个聊天窗口，也不是某个单一 agent。它更像个人数字世界的底座：知道你有哪些项目、资产、服务和习惯；知道什么能公开、什么必须留在本地；知道怎样把一次性的 AI 对话沉淀成可复用的工作流。
 
@@ -21,16 +21,16 @@ Personal AIOS 不是一个聊天窗口，也不是某个单一 agent。它更像
 
 今天的 `aios-kit` 还只是起点：先让一台新机器获得可迁移、可维护、可被 agent 理解的 AIOS 骨架。路线图不是把所有东西塞进一个仓库，而是逐步形成一个清晰的个人 AI 基础设施协议。
 
-## 安装 / Install
+## 安装
 
 当前安装器主要在 Ubuntu/Debian 系云服务器上验证过；其他发行版建议先 `--dry-run` 或使用 agent-assisted 安装。
 
-### 方式 1：让已有 agent 辅助安装 / Agent-assisted install
+### 方式 1：让已有 agent 辅助安装
 
 如果你已经有 Codex、Claude Code、OpenClaw、Hermes 等 agent，推荐先让 agent 读仓库、检测机器，再把你的选择转换成非交互安装命令。
 
 <details>
-<summary>复制给 agent 的精简 prompt / Copyable prompt</summary>
+<summary>复制给 agent 的精简提示词</summary>
 
 ```text
 请帮我安装这个项目：https://github.com/LinLin00000000/aios-kit
@@ -44,7 +44,7 @@ Personal AIOS 不是一个聊天窗口，也不是某个单一 agent。它更像
 
 </details>
 
-### 方式 2：一行交互式安装 / One-line interactive install
+### 方式 2：一行交互式安装
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
@@ -56,7 +56,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/
 bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
 ```
 
-### 方式 3：非交互自动安装 / Non-interactive install
+### 方式 3：非交互自动安装
 
 还没有 clone repo 时：
 
@@ -81,48 +81,48 @@ bash install.sh --non-interactive -y --no-hermes --target universal --mode copy
 
 详细流程、交互问题和非交互参数见：[docs/installation.md](docs/installation.md)。
 
-## 默认会安装什么 / What it installs
+## 默认会安装什么
 
 ```text
 ~/aios/
-  bin/                     # aios command shim
-  config/                  # instance configuration
-  vault/ops/               # OPS vault from public template
-  work/                    # LLL / agent work directories
-  skills/                  # AIOS metadata/cache, not runtime skills dir
-  modules/                 # updateable module checkouts
-  network/mihomo/          # optional Mihomo network component
+  bin/                     # aios 命令入口
+  config/                  # 实例配置
+  vault/ops/               # 从公开模板初始化的 OPS vault
+  work/                    # LLL / agent 工作目录
+  skills/                  # AIOS 元数据/缓存，不是 runtime skills 目录
+  modules/                 # 可更新的模块 checkout
+  network/mihomo/          # 可选 Mihomo 网络组件
   state/ logs/ cache/
 ```
 
 Agent 真正加载的 runtime skills 仍安装到 agent 自己的目录，例如 `~/.agents/skills/<skill>` 或 `~/.hermes/skills/<skill>`。`aios-kit` 只逐个安装托管 skills，不接管整个 skills 目录。
 
-## 网络与 Mihomo / Network and Mihomo
+## 网络与 Mihomo
 
 安装器会先在不设置代理环境变量的情况下测试外网。如果直连失败，交互式会询问是否安装 Mihomo，默认 yes；非交互 `--proxy auto` 会自动安装。
 
 Mihomo 默认安装到 `~/aios/network/mihomo`，TUN 默认开启；Linux/systemd 上会写入 `aios-mihomo.service`。TUN 配置不是跨 Windows/macOS/Linux 的绝对通用配置，当前默认值主要面向 Ubuntu/Debian 云服务器。详情见：[docs/mihomo-network.md](docs/mihomo-network.md)。
 
-## 常用命令 / Common commands
+## 常用命令
 
 ```bash
-aios status                 # show instance summary
-aios doctor                 # validate wiring
-aios update                 # update modules, OPS template, and managed skills
-aios update --dry-run       # preview update
-aios update skills          # refresh managed runtime skills
-aios project list           # inspect project/resource registry
+aios status                 # 查看实例摘要
+aios doctor                 # 校验安装与链接状态
+aios update                 # 更新模块、OPS 模板和托管 skills
+aios update --dry-run       # 预览更新
+aios update skills          # 刷新托管 runtime skills
+aios project list           # 查看项目/资源注册表
 ```
 
 维护/调试入口：`aios skillpack doctor`、`aios skillpack sync --dry-run`、`aios assets doctor`。如果没有配置 PATH，可用 `~/aios/bin/aios status`。
 
-## 文档索引 / Docs index
+## 文档索引
 
 | 文档 | 用途 |
 |---|---|
 | [docs/installation.md](docs/installation.md) | 安装流程、交互选项、非交互参数 |
 | [docs/mihomo-network.md](docs/mihomo-network.md) | Mihomo 配置、TUN 兼容性、订阅/节点输入 |
 | [docs/architecture.md](docs/architecture.md) | repo 边界、本地结构、source/runtime 模型、关键决策 |
-| [docs/aios-resource-architecture.md](docs/aios-resource-architecture.md) | AIOS resource / project registry / resolver 结构 |
-| [docs/security-and-privacy.md](docs/security-and-privacy.md) | 安全与隐私边界、公开发布 audit |
+| [docs/aios-resource-architecture.md](docs/aios-resource-architecture.md) | AIOS 资源、项目注册表与 resolver 结构 |
+| [docs/security-and-privacy.md](docs/security-and-privacy.md) | 安全与隐私边界、公开发布审计 |
 | [docs/development.md](docs/development.md) | 维护者开发、skillpack、发布流程 |

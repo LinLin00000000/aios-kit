@@ -1,21 +1,30 @@
-# Development Guide / 开发指南
+# 开发指南
 
 本文档面向维护者、贡献者和后续协作的 AI Agent。README 只做大众入口；模块、skill、local overlay、发布验证和 AI 协作规则放在这里。
 
-## Product surface rule / 产品表面规则
+## 产品表面规则
 
 README 是产品入口，不是维护日志、个人解释或决策草稿。只放：项目定位、安装、常用命令、核心目录、边界和文档入口。
 
 复杂背景、设计细节、私有/本机 overlay、AI 协作提示词，放在 `docs/` 或 LLL 工作区报告中。
 
-## CLI design / CLI 设计
+## 文档语言规则
+
+仓库的源文档只维护简体中文：
+
+- `README.md` 和 `docs/*.md` 使用简体中文作为唯一源语言，不在标题或正文中同时维护英文翻译。
+- 英文文档只由自动翻译流程生成到 `translations/en/**`，不要手工修改生成文件。
+- 如果需要改英文表达，先优化中文源文档或翻译脚本，再重新生成英文版本。
+- 技术名词、命令、文件名、配置 key、产品名可以保留英文，例如 `runtime skills`、`skillpack`、`registry`、`install-state.json`。
+
+## CLI 设计
 
 CLI 分两层：
 
-| Layer | User-facing examples | Purpose |
+| 层级 | 面向用户的例子 | 用途 |
 |---|---|---|
-| Product commands | `aios status`, `aios doctor`, `aios update`, `aios update skills`, `aios update modules lins-living-loop` | Stable commands for normal users |
-| Expert subdomains | `aios skillpack sync --apply`, `aios skillpack dev-link --apply`, `aios assets doctor` | Manifest reconciliation, development, debugging |
+| 产品命令 | `aios status`, `aios doctor`, `aios update`, `aios update skills`, `aios update modules lins-living-loop` | 面向普通用户的稳定命令 |
+| 专家子域 | `aios skillpack sync --apply`, `aios skillpack dev-link --apply`, `aios assets doctor` | 清单对账、开发、调试 |
 
 `skillpack sync` 表示“按 `skillpack.yaml` 对 runtime skills 做对账/收敛”，不是普通 update。普通用户优先使用：
 
@@ -34,7 +43,7 @@ aios update ops
 
 只有当某个更新对象有独立生命周期、耗时、失败风险或用户明确意图时，才值得成为独立 subject。现在 `modules`、`skills`、`ops` 足够。
 
-## Global command installation / 全局命令安装
+## 全局命令安装
 
 安装器总会创建：
 
@@ -56,7 +65,7 @@ bash install.sh --global-bin ~/.local/bin
 
 安装器不会覆盖已有冲突的 `~/.local/bin/aios`。
 
-## Adding a portable skill / 新增 portable skill
+## 新增 portable skill
 
 适合加入 portable base pack 的 skill 至少满足一个条件：
 
@@ -84,19 +93,19 @@ bash install.sh --global-bin ~/.local/bin
 4. 做 fresh HOME smoke install，避免本机已有文件污染结果。
 5. 通过 public audit 后 commit/push。
 
-## Adding a first-party skill / 新增 first-party skill
+## 新增 first-party skill
 
 如果 skill 是 AIOS 自己维护的，优先选择以下真源位置：
 
-| Case | Truth source | Runtime install |
+| 场景 | 真源位置 | Runtime 安装方式 |
 |---|---|---|
-| Small AIOS-specific skill | `aios-kit/skills/<skill>` | copy for users, symlink for dev |
-| Independent product-like skill | separate repo under `~/aios/modules/<repo>` | copy for users, symlink for dev |
-| Subskill inside a template repo | `<repo>/skills/<skill>` | copy for users, symlink for dev |
+| 小型 AIOS 专属 skill | `aios-kit/skills/<skill>` | 用户安装用 copy，开发机用 symlink |
+| 独立产品型 skill | `~/aios/modules/<repo>` 下的独立 repo | 用户安装用 copy，开发机用 symlink |
+| 模板 repo 内的子 skill | `<repo>/skills/<skill>` | 用户安装用 copy，开发机用 symlink |
 
 不要把 runtime skills 目录当真源。开发机可以逐个 symlink runtime skill 到 Git worktree，但公开安装默认 copy。
 
-## Adding a module / 新增 module
+## 新增 module
 
 module 是 `~/aios/modules/<name>` 下可更新的源码或模板 checkout。适合 module 的对象通常有独立生命周期，例如 LLL、OPS vault template、未来多设备互联模块。
 
@@ -109,20 +118,20 @@ module 是 `~/aios/modules/<name>` 下可更新的源码或模板 checkout。适
 
 如果只是单个 skill，不要过早做成 module。先放 `skillpack.yaml` 或 `aios-kit/skills/<skill>`。
 
-## Local overlay policy / 本机 overlay 策略
+## 本机 overlay 策略
 
 local overlay 用于维护者自己的机器、私有基础设施、中央控制面或实验模块。它们可以属于“Lin 的 AIOS”，但不属于公开 portable base pack。
 
 当前 local overlay 示例：
 
-| Skill | Location | Why local-only now |
+| Skill | 位置 | 当前为何只放本机 |
 |---|---|---|
-| `cloud-server-ssh-assets` | `skillpack.local.yaml` | Bound to Lin's cloud server inventory and SSH/resource conventions |
-| `central-agent-control-plane` | `skillpack.local.yaml` / Hermes profile | Bound to Lin's central Hermes/control-plane operations |
+| `cloud-server-ssh-assets` | `skillpack.local.yaml` | 绑定 Lin 的云服务器清单与 SSH/资源约定 |
+| `central-agent-control-plane` | `skillpack.local.yaml` / Hermes profile | 绑定 Lin 的中央 Hermes/控制面运维 |
 
 未来如果多设备互联、中央 Agent、远程执行成为 AIOS 的公开核心能力，应抽象出 portable module/skill，只公开通用流程、schema 和模板，不公开私人资源事实。
 
-## AIOps skills distinction / AIOps skills 的区别
+## AIOps skills 的区别
 
 `aiops-vault` 是 OPS vault 的入口/伴随 skill。它定义如何读取 vault、遵守密钥边界、维护 `resources.md`、`maintenance-log.jsonl`、`secrets-location.md` 等。它的 `SKILL.md` 位于 `aiops-vault-template` 仓库根目录，所以开发机 runtime symlink 指向仓库根目录：
 
@@ -136,7 +145,7 @@ local overlay 用于维护者自己的机器、私有基础设施、中央控制
 ~/.agents/skills/aiops-service-operations -> ~/projects/aiops-vault-template/skills/aiops-service-operations
 ```
 
-## How to ask an AI to add a module / 如何让 AI 添加模块
+## 如何让 AI 添加模块
 
 ```text
 我做了一个新模块：<模块名>。
@@ -146,7 +155,7 @@ local overlay 用于维护者自己的机器、私有基础设施、中央控制
 要求：不要复制我的私有数据或密钥；不要接管朋友已有的整个 skills 目录；README 只写大众需要的信息；开发规则写到 docs/development.md；运行 dry-run、doctor、public audit、fresh HOME smoke install；通过后 commit 并 push。
 ```
 
-## Skillpack update semantics / Skillpack 更新语义
+## Skillpack 更新语义
 
 `aios-kit` 比普通“重新 add 一遍”更保守：
 
@@ -170,9 +179,9 @@ cd ~/projects/aios-kit
 ./aios skillpack sync --apply
 ```
 
-`--apply` and `--dry-run` are mutually exclusive; default low-level skillpack/assets commands are no-op unless `--apply` is passed.
+`--apply` 和 `--dry-run` 互斥；低层 skillpack/assets 命令默认只预览，只有显式传入 `--apply` 才会实际修改。
 
-## Release checklist / 发布检查清单
+## 发布检查清单
 
 发布前至少运行：
 

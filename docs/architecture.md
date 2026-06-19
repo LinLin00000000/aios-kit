@@ -1,46 +1,46 @@
-# aios-kit architecture
+# aios-kit 架构
 
-`aios-kit` is an assembly/control repo, not a monorepo that absorbs every asset.
+`aios-kit` 是一个装配/控制仓库，不是把所有资产都吞进来的 monorepo。
 
-## Core decision
+## 核心决策
 
-Keep independently meaningful projects independent, and connect them with manifests, modules, registries, and local links:
+保持独立项目的独立性，用 manifest、module、registry 和本地链接把它们连接起来：
 
-- `aios-kit`: installer, CLI, public manifests, selected first-party skills, and docs.
-- `lins-living-loop`: independent first-party workflow skill/project.
-- `aiops-vault-template`: independent public OPS vault template.
-- `~/aios/vault/ops`: default live OPS vault for a new AIOS instance.
-- `~/ai-ops`: legacy/author compatibility path only; never a public install default.
+- `aios-kit`：安装器、CLI、公开 manifest、选定的一方 skills 和文档。
+- `lins-living-loop`：独立的一方 workflow skill / project。
+- `aiops-vault-template`：独立的公开 OPS vault 模板。
+- `~/aios/vault/ops`：新 AIOS 实例默认 live OPS vault。
+- `~/ai-ops`：作者/历史兼容路径；不能作为公开安装默认值。
 
-## Source, runtime, and state
+## Source、runtime 与 state
 
-Do not move every repo under `aios-kit`. Use clear boundaries:
+不要把所有 repo 都移动到 `aios-kit` 下面。边界应清晰：
 
-| Layer | Owns | Example |
+| 层级 | 负责内容 | 示例 |
 |---|---|---|
-| Distribution source | installer, CLI, public docs/manifests | `~/projects/aios-kit` or `~/aios/modules/aios-kit` |
-| Modules | updateable checkouts/templates | `~/aios/modules/lins-living-loop` |
-| Runtime skills | what agents actually load | `~/.agents/skills`, `~/.hermes/skills` |
-| Live vault | private/current operational facts | `~/aios/vault/ops` |
-| Skillpack state | safe update/prune records | `~/aios/vault/ops/state/aios-kit/install-state.json` |
+| 分发源 | 安装器、CLI、公开文档/manifest | `~/projects/aios-kit` 或 `~/aios/modules/aios-kit` |
+| Modules | 可更新的 checkout / template | `~/aios/modules/lins-living-loop` |
+| Runtime skills | agent 实际加载的 skills | `~/.agents/skills`、`~/.hermes/skills` |
+| Live vault | 私有/当前运维事实 | `~/aios/vault/ops` |
+| Skillpack state | 安全更新/裁剪记录 | `~/aios/vault/ops/state/aios-kit/install-state.json` |
 
-External skills are installed through `npx skills`. First-party skills can be copied for users or symlinked for authors.
+外部 skills 通过 `npx skills` 安装。一方 skills 对普通用户可以复制安装，对作者开发机可以 symlink。
 
-## Install and development modes
+## 安装模式与开发模式
 
-For friends or clean machines, use the installer:
+给朋友或干净机器使用安装器：
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
-For a checked-out repo:
+已经 checkout 仓库时：
 
 ```bash
 bash install.sh
 ```
 
-For author development, use per-skill symlinks so runtime edits are Git-visible:
+作者开发时使用逐个 skill symlink，让 runtime 里的编辑能落到 Git 可见的 worktree：
 
 ```bash
 cd ~/projects/aios-kit
@@ -48,34 +48,34 @@ cd ~/projects/aios-kit
 ./aios skillpack doctor
 ```
 
-Do not symlink or replace an entire agent skills directory. Public installs copy/sync selected skills one by one.
+不要 symlink 或替换整个 agent skills 目录。公开安装默认逐个复制/同步选定 skills。
 
-## Local structure and linking policy
+## 本地结构与链接策略
 
-Canonical development paths are intentionally separate from runtime install paths:
+标准开发路径有意和 runtime 安装路径分离：
 
-| Item | Path | Policy |
+| 对象 | 路径 | 策略 |
 |---|---|---|
-| Main kit | `~/projects/aios-kit` | source of assembly scripts/manifests/docs |
-| LLL | `~/projects/lins-living-loop` | independent first-party source |
-| AIOps template | `~/projects/aiops-vault-template` | public reusable template |
-| Live AIOps vault | `~/aios/vault/ops` | default instance vault; private/current facts |
-| Legacy live vault | `~/ai-ops` | author/local compatibility only |
-| Universal skills | `~/.agents/skills` | runtime install target, not automatically source |
+| 主套件 | `~/projects/aios-kit` | 装配脚本、manifest、文档的真源 |
+| LLL | `~/projects/lins-living-loop` | 独立一方源项目 |
+| AIOps 模板 | `~/projects/aiops-vault-template` | 公开可复用模板 |
+| Live AIOps vault | `~/aios/vault/ops` | 默认实例 vault；私有/当前事实 |
+| 历史 live vault | `~/ai-ops` | 作者/本地兼容路径 |
+| Universal skills | `~/.agents/skills` | runtime 安装目标，不自动等于真源 |
 | Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
 
-Rules:
+规则：
 
-1. Templates are not live assets.
-2. Runtime directories become source only when intentionally promoted.
-3. Active first-party skills should be Git-visible.
-4. Symlinks are for local authoring; copy/install is the public default.
-5. Only paths recorded in the current install-state can be pruned automatically.
+1. 模板不是 live 资产。
+2. Runtime 目录只有在明确提升后才成为真源。
+3. 活跃的一方 skills 应该能被 Git 追踪。
+4. Symlink 用于作者本地开发；copy/install 是公开默认行为。
+5. 只有当前 install-state 记录过的路径才允许自动 prune。
 
-## Key decisions
+## 关键决策
 
-- **Main project name**: use `aios-kit`; skillpack is a module, not the repo boundary.
-- **LLL remains independent**: `aios-kit` references, links, or copies it, but does not vendor it.
-- **OPS template and live vault stay separate**: template is reusable starter content; live vault is user/private state.
-- **Symlink for authoring, copy for distribution**: author machines optimize editability; public installs optimize portability.
-- **Manifest + thin script, not a new package manager**: `aios-kit` reads `skillpack.yaml`, calls `npx skills` for external skills, and directly copies/symlinks first-party skills.
+- **主项目名**：使用 `aios-kit`；skillpack 是模块，不是 repo 边界。
+- **LLL 保持独立**：`aios-kit` 引用、链接或复制它，但不 vendor 它。
+- **OPS 模板与 live vault 分离**：模板是可复用起点；live vault 是用户/私有状态。
+- **作者开发用 symlink，公开分发用 copy**：作者机器优化可编辑性；公开安装优化可迁移性。
+- **Manifest + 薄脚本，不做新包管理器**：`aios-kit` 读取 `skillpack.yaml`，对外部 skills 调用 `npx skills`，对一方 skills 直接 copy/symlink。

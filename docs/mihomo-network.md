@@ -1,26 +1,26 @@
-# Mihomo 网络配置 / Mihomo Network Bootstrap
+# Mihomo 网络配置
 
 AIOS 的网络 bootstrap 目标是：新云服务器如果不能直连外网，可以快速得到一个可控、可恢复、可审计的代理层。
 
-## 当前定位 / Scope
+## 当前定位
 
 当前 installer 主要面向 Ubuntu/Debian 云服务器：
 
-- systemd unit：`/etc/systemd/system/aios-mihomo.service`
+- systemd 服务单元：`/etc/systemd/system/aios-mihomo.service`
 - 二进制：`~/aios/network/mihomo/mihomo`
 - 配置：`~/aios/network/mihomo/config.yaml`
-- shell helpers：`proxy_on`、`proxy_off`、`proxy_test`、`proxy_restart`
+- shell 辅助命令：`proxy_on`、`proxy_off`、`proxy_test`、`proxy_restart`
 
 Windows/macOS 不应直接假设同一套 systemd/CAP_NET_ADMIN/TUN 行为可用。可以使用本文档和 agent-assisted installation 作为适配参考。
 
-## 配置输入 / Configuration inputs
+## 配置输入
 
 推荐两种输入方式。
 
 ### 供应商订阅 URL
 
 ```bash
-# inside an aios-kit repo checkout
+# 在 aios-kit 仓库 checkout 内执行
 bash install.sh --proxy yes --proxy-subscription-url 'https://example.com/sub?token=...'
 ```
 
@@ -62,7 +62,7 @@ proxies:
 
 安装器会自动提取 `name` 并加入 `AI`、`Auto`、`PROXY` groups。
 
-## TUN 配置是否通用 / Is the TUN config universal?
+## TUN 配置是否通用
 
 当前模板：
 
@@ -90,7 +90,7 @@ tun:
 - 内核支持 TUN；
 - 注意和 Docker、Tailscale、CNI、WireGuard 等路由规则的交互。
 
-AIOS systemd unit 已设置：
+AIOS systemd 服务单元已设置：
 
 ```text
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
@@ -115,20 +115,20 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 - DNS hijack 行为与 Windows 网络栈、Hyper-V/WSL/VPN 共存复杂；
 - 更适合用 Windows 原生 Mihomo/Clash 客户端或由 agent 按本机环境安装。
 
-## 当前优化点 / Why this template
+## 当前优化点
 
 模板已经加入：
 
 - `allow-lan: true`，方便局域网设备使用；
 - Tailscale/MagicDNS/fake-ip 例外；
-- private network direct；
-- geodata auto update；
-- AI / Auto / PROXY / GLOBAL groups；
+- 私有网络直连；
+- geodata 自动更新；
+- `AI`、`Auto`、`PROXY`、`GLOBAL` 分组；
 - `external-ui` 和 UI/geodata mirror URL；
 - `fake-ip-filter` 规避 Tailscale；
 - `GEOSITE,ai,AI` 让 AI 相关流量走单独测速组。
 
-## 不够通用的地方 / Non-universal parts
+## 不够通用的地方
 
 - `allow-lan: true`：服务器场景方便，但在不可信局域网有暴露风险。后续可以加 `--mihomo-allow-lan yes|no`。
 - `stack: mixed`：在 Linux 上通常可用，但不同 Mihomo 版本/平台可能表现不同。必要时改 `system` 或平台推荐值。
@@ -136,7 +136,7 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 - `strict-route: false`：更宽松，减少新手断网概率；高隔离场景可能希望 true。
 - geodata URL 使用 GitHub 镜像：方便无代理启动，但镜像可用性取决于服务商。
 
-## 后续可加选项 / Future options
+## 后续可加选项
 
 - `--mihomo-allow-lan yes|no`
 - `--mihomo-stack mixed|system|gvisor`

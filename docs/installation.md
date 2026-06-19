@@ -1,8 +1,8 @@
-# 安装指南 / Installation Guide
+# 安装指南
 
 当前安装器主要在 Ubuntu/Debian 系云服务器上验证。其他发行版建议先使用 `--dry-run`，或让已有 agent 读源码和文档后辅助安装。
 
-## 快速安装 / Quick install
+## 快速安装
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
@@ -14,7 +14,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/
 bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
 ```
 
-## 安装器做什么 / What the installer does
+## 安装器做什么
 
 安装器尽量幂等：先检测，再执行。主流程：
 
@@ -32,20 +32,20 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 12. 安装 skillpack：默认 target `universal`，mode `copy`，保护用户本地改动。
 13. 从公开模板初始化 OPS vault，默认 `~/aios/vault/ops`；不复制维护者私人 live vault。
 
-## 交互选项与非交互参数 / Options
+## 交互选项与非交互参数
 
 | 交互问题 | 默认值 | 非交互参数 | 说明 |
 |---|---:|---|---|
-| AIOS install root | `~/aios` | `--root PATH` | AIOS 实例根目录 |
-| Proxy setup | `auto` | `--proxy auto|yes|no` | 先直连检测，失败后安装 Mihomo |
-| Enable Mihomo TUN mode? | `1` | `--proxy-tun` / `--no-proxy-tun` | TUN 默认开启 |
-| Restore apt/npm/pip/Docker sources? | `1` | `--reset-sources` / `--no-reset-sources` | Ubuntu apt 会备份旧 source |
-| Proxy subscription URL | 空 | `--proxy-subscription-url URL` | 供应商/机场订阅 URL，属于私有配置；建议先 `export AIOS_PROXY_SUBSCRIPTION_URL='...'`，再用 `--proxy-subscription-url "$AIOS_PROXY_SUBSCRIPTION_URL"` |
-| Local proxies YAML snippet path | 空 | `--proxy-proxies-file PATH` | 自建节点 YAML 片段，属于私有配置 |
-| Install/check Python+UV, Node 24, Docker, Caddy? | `1` | `--with-dev-env` / `--no-dev-env` | skillpack 的外部安装依赖 `npx`；跳过 dev env 时请确保已有 Node/npx |
-| Install/check Hermes Agent? | `1` | `--with-hermes` / `--no-hermes` | Hermes 默认安装，但可跳过 |
-| Install/update OPS vault template? | `1` | `--with-aiops` / `--no-aiops` | 初始化运维资料库 |
-| Add AIOS bin to PATH? | 交互默认 yes | `--add-to-path yes|no|ask` | 非交互建议显式传 `yes` 或 `no` |
+| AIOS 安装根目录 | `~/aios` | `--root PATH` | AIOS 实例根目录 |
+| 代理设置 | `auto` | `--proxy auto|yes|no` | 先直连检测，失败后安装 Mihomo |
+| 是否开启 Mihomo TUN 模式 | `1` | `--proxy-tun` / `--no-proxy-tun` | TUN 默认开启 |
+| 是否恢复 apt/npm/pip/Docker 官方源 | `1` | `--reset-sources` / `--no-reset-sources` | Ubuntu apt 会备份旧 source |
+| 代理订阅 URL | 空 | `--proxy-subscription-url URL` | 供应商/机场订阅 URL，属于私有配置；建议先 `export AIOS_PROXY_SUBSCRIPTION_URL='...'`，再用 `--proxy-subscription-url "$AIOS_PROXY_SUBSCRIPTION_URL"` |
+| 本地代理 YAML 片段路径 | 空 | `--proxy-proxies-file PATH` | 自建节点 YAML 片段，属于私有配置 |
+| 是否安装/检查 Python+UV、Node 24、Docker、Caddy | `1` | `--with-dev-env` / `--no-dev-env` | skillpack 的外部安装依赖 `npx`；跳过 dev env 时请确保已有 Node/npx |
+| 是否安装/检查 Hermes Agent | `1` | `--with-hermes` / `--no-hermes` | Hermes 默认安装，但可跳过 |
+| 是否安装/更新 OPS vault 模板 | `1` | `--with-aiops` / `--no-aiops` | 初始化运维资料库 |
+| 是否把 AIOS bin 加入 PATH | 交互默认 yes | `--add-to-path yes|no|ask` | 非交互建议显式传 `yes` 或 `no` |
 
 常用非交互命令：
 
@@ -69,7 +69,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/
   --add-to-path yes
 ```
 
-## 完整参数 / Full option reference
+## 完整参数
 
 本文只列常用参数。完整、实时的参数说明以安装器为准：
 
@@ -89,7 +89,7 @@ bash install.sh --help
 | `--force` | 覆盖被本地修改过的 managed skill copy |
 | `--interactive` / `--dry-run` | 强制交互或只打印动作 |
 
-## GitHub 镜像 / GitHub mirror
+## GitHub 镜像
 
 当新服务器不能直连 GitHub 时，可以使用：
 
@@ -99,7 +99,7 @@ bash install.sh --help
 
 它会给 GitHub/raw URL 添加前缀，包括 aios-kit、LLL、OPS template clone，Hermes/NVM installer，以及 Mihomo release/UI/geodata 中的 GitHub URL。
 
-## 官方源恢复 / Official source reset
+## 官方源恢复
 
 默认 `--reset-sources`。当前行为：
 
@@ -116,14 +116,14 @@ apt 恢复会备份到：
 
 并禁用旧 `.list` / `.sources` 文件为 `.aios-disabled`。
 
-## 安装后检查 / Post-install checks
+## 安装后检查
 
 ```bash
 aios status
 aios doctor
 aios update --dry-run
-systemctl status aios-mihomo.service  # if Mihomo was installed
-proxy_test                             # if proxy helpers were installed
+systemctl status aios-mihomo.service  # 如果安装了 Mihomo
+proxy_test                             # 如果安装了代理辅助命令
 ```
 
 如果没有把 `aios` 加入 PATH：

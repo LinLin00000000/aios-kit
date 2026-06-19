@@ -1,16 +1,16 @@
-# Security and privacy policy
+# 安全与隐私策略
 
-## Public repo rule
+## 公开仓库规则
 
-Public `aios-kit` files should be portable:
+公开的 `aios-kit` 文件必须可迁移：
 
-- Commit examples, schemas, templates, reusable scripts, and generic docs.
-- Do not commit machine-specific manifests, live vault data, state files, logs, secrets, tokens, private hostnames, private IPs, or private agent skill contents.
-- Do not commit proxy subscription URLs, node YAML containing UUIDs/passwords, provider tokens, or generated Mihomo configs with private nodes.
+- 可以提交示例、schema、模板、可复用脚本和通用文档。
+- 不要提交机器专属 manifest、live vault 数据、state 文件、日志、secrets、tokens、私有主机名、私有 IP 或私有 agent skill 内容。
+- 不要提交代理订阅 URL、包含 UUID/password 的节点 YAML、服务商 token，或包含私人节点的生成版 Mihomo 配置。
 
-## Local overrides
+## 本地覆盖文件
 
-These files are intentionally ignored:
+这些文件会被有意忽略：
 
 ```text
 skillpack.local.yaml
@@ -19,22 +19,22 @@ manifests/local-assets.json
 registries/*.local.*
 ```
 
-Use them for local paths, private skills, current device names, and non-public repositories.
+它们用于本地路径、私有 skills、当前设备名和非公开仓库。
 
-## Audit checklist before public push
+## 公开推送前审计清单
 
-Run:
+先运行：
 
 ```bash
 python3 scripts/audit_public.py
 ./aios doctor
 ```
 
-Then inspect:
+再检查：
 
 ```bash
 git status --short --branch
 git ls-files
 ```
 
-For a repository that accidentally committed private local paths, rewrite history while the repo is new or rotate/delete anything sensitive if a real secret was exposed.
+如果仓库曾误提交私有本地路径，在仓库还新、影响面可控时应重写历史；如果真实 secret 已暴露，则应立即轮换或删除相关凭据。
