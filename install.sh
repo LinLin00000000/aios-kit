@@ -746,7 +746,7 @@ else
   log "Installing skillpack"
   force_arg=""; [ "$FORCE" -eq 1 ] && force_arg="--force"
   skillpack_args=("$KIT_DIR/aios" --home "$HOME" skillpack sync --mode "$MODE" --target "$TARGET")
-  [ "$DRY_RUN" -eq 0 ] && skillpack_args+=(--apply)
+  if [ "$DRY_RUN" -eq 1 ]; then skillpack_args+=(--dry-run); else skillpack_args+=(--apply); fi
   [ -n "$force_arg" ] && skillpack_args+=("$force_arg")
   AIOS_ROOT="$AIOS_ROOT" AIOS_AGENT_SKILLS_DIR="$SKILLS_DIR" run_visible "${skillpack_args[@]}"
   AIOS_ROOT="$AIOS_ROOT" AIOS_AGENT_SKILLS_DIR="$SKILLS_DIR" run_visible "$KIT_DIR/aios" --home "$HOME" skillpack doctor --target "$TARGET"

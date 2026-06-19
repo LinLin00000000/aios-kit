@@ -40,7 +40,7 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 | Proxy setup | `auto` | `--proxy auto|yes|no` | 先直连检测，失败后安装 Mihomo |
 | Enable Mihomo TUN mode? | `1` | `--proxy-tun` / `--no-proxy-tun` | TUN 默认开启 |
 | Restore apt/npm/pip/Docker sources? | `1` | `--reset-sources` / `--no-reset-sources` | Ubuntu apt 会备份旧 source |
-| Proxy subscription URL | 空 | `--proxy-subscription-url URL` | 供应商/机场订阅 URL，属于私有配置 |
+| Proxy subscription URL | 空 | `--proxy-subscription-url URL` | 供应商/机场订阅 URL，属于私有配置；建议先 `export AIOS_PROXY_SUBSCRIPTION_URL='...'`，再用 `--proxy-subscription-url "$AIOS_PROXY_SUBSCRIPTION_URL"` |
 | Local proxies YAML snippet path | 空 | `--proxy-proxies-file PATH` | 自建节点 YAML 片段，属于私有配置 |
 | Install/check Python+UV, Node 24, Docker, Caddy? | `1` | `--with-dev-env` / `--no-dev-env` | skillpack 的外部安装依赖 `npx`；跳过 dev env 时请确保已有 Node/npx |
 | Install/check Hermes Agent? | `1` | `--with-hermes` / `--no-hermes` | Hermes 默认安装，但可跳过 |
