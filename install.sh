@@ -79,8 +79,10 @@ Network/proxy:
 Install phases:
   --with-dev-env           Install/check Python+UV, NVM+Node 24 LTS, Docker, Caddy (default)
   --no-dev-env             Skip development/runtime packages
-  --with-core              Install/check Hermes and skill dirs (default)
-  --no-core                Skip Hermes/core component phase
+  --with-hermes            Install/check Hermes Agent and configure its external skill dir (default)
+  --no-hermes              Skip Hermes Agent install/config; useful for Codex/Claude/OpenClaw users
+  --with-core              Legacy alias for --with-hermes
+  --no-core                Legacy alias for --no-hermes
   --with-aiops             Install/update OPS vault template too (default)
   --no-aiops               Skip OPS vault template
 
@@ -212,8 +214,8 @@ while [ $# -gt 0 ]; do
     --no-reset-sources) RESET_SOURCES=0; shift ;;
     --with-dev-env) WITH_DEV_ENV=1; shift ;;
     --no-dev-env) WITH_DEV_ENV=0; shift ;;
-    --with-core) WITH_CORE=1; shift ;;
-    --no-core) WITH_CORE=0; shift ;;
+    --with-hermes|--with-core) WITH_HERMES=1; WITH_CORE=1; shift ;;
+    --no-hermes|--no-core) WITH_HERMES=0; WITH_CORE=0; shift ;;
     --with-aiops) WITH_AIOPS=1; shift ;;
     --no-aiops) WITH_AIOPS=0; shift ;;
     --target) TARGET="$2"; shift 2 ;;
@@ -239,10 +241,12 @@ if is_interactive; then
   ask_path AIOS_ROOT "AIOS install root" "$AIOS_ROOT"
   ask_choice WITH_PROXY "Proxy setup" "$WITH_PROXY" "auto yes no"
   ask_choice PROXY_TUN "Enable Mihomo TUN mode? (1=yes, 0=no)" "$PROXY_TUN" "0 1"
+  ask_choice RESET_SOURCES "Restore apt/npm/pip/Docker sources to official defaults? (1=yes, 0=no)" "$RESET_SOURCES" "0 1"
   ask_text PROXY_SUBSCRIPTION_URL "Proxy subscription URL, leave empty if using a proxies YAML file" "$PROXY_SUBSCRIPTION_URL"
   ask_text PROXY_PROXIES_FILE "Local proxies YAML snippet path, leave empty if using subscription" "$PROXY_PROXIES_FILE"
   ask_choice WITH_DEV_ENV "Install/check Python+UV, Node 24, Docker, Caddy? (1=yes, 0=no)" "$WITH_DEV_ENV" "0 1"
-  ask_choice WITH_CORE "Install/check Hermes core components? (1=yes, 0=no)" "$WITH_CORE" "0 1"
+  ask_choice WITH_HERMES "Install/check Hermes Agent? (1=yes, 0=no)" "$WITH_HERMES" "0 1"
+  WITH_CORE="$WITH_HERMES"
   ask_choice WITH_AIOPS "Install/update OPS vault template? (1=yes, 0=no)" "$WITH_AIOPS" "0 1"
   ask_choice ADD_TO_PATH "Add AIOS bin to PATH?" "yes" "yes no"
 fi
@@ -286,14 +290,69 @@ install_package_if_missing() {
   fi
 }
 
+reset_apt_sources_to_official() {
+  have_cmd apt-get || return 0
+  os_id=""; codename=""
+  if [ -r /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os_id="${ID:-}"
+    codename="${VERSION_CODENAME:-}"
+  fi
+  if [ "$os_id" != "ubuntu" ] || [ -z "$codename" ]; then
+    warn "APT official source reset is currently implemented for Ubuntu only; detected ${os_id:-unknown}/${codename:-unknown}."
+    return 0
+  fi
+  target="/etc/apt/sources.list.d/ubuntu.sources"
+  backup_dir="/etc/apt/sources.list.d/aios-backup-$(date +%Y%m%d-%H%M%S)"
+  apt_arch="$(dpkg --print-architecture 2>/dev/null || true)"
+  ubuntu_uri="http://archive.ubuntu.com/ubuntu"
+  security_uri="http://security.ubuntu.com/ubuntu"
+  case "$apt_arch" in
+    arm64|armhf|ppc64el|s390x|riscv64)
+      ubuntu_uri="http://ports.ubuntu.com/ubuntu-ports"
+      security_uri="http://ports.ubuntu.com/ubuntu-ports" ;;
+  esac
+  content="Types: deb
+URIs: $ubuntu_uri
+Suites: $codename $codename-updates $codename-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: $security_uri
+Suites: $codename-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "+ backup existing /etc/apt/sources.list and /etc/apt/sources.list.d/*.list/*.sources to $backup_dir"
+    echo "+ disable old apt source files with .aios-disabled suffix"
+    echo "+ write Ubuntu official apt sources to $target ($ubuntu_uri, $security_uri)"
+    echo "+ sudo apt-get update"
+    return 0
+  fi
+  sudo mkdir -p "$backup_dir"
+  if [ -f /etc/apt/sources.list ]; then
+    sudo cp -a /etc/apt/sources.list "$backup_dir/"
+    sudo mv /etc/apt/sources.list "/etc/apt/sources.list.aios-disabled-$(date +%Y%m%d-%H%M%S)"
+  fi
+  for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [ -e "$f" ] || continue
+    [ "$f" = "$target" ] && continue
+    sudo cp -a "$f" "$backup_dir/"
+    sudo mv "$f" "$f.aios-disabled-$(date +%Y%m%d-%H%M%S)"
+  done
+  printf '%s' "$content" | sudo tee "$target" >/dev/null
+  run_visible sudo apt-get update
+}
+
 reset_sources_to_official() {
   [ "$RESET_SOURCES" -eq 1 ] || return 0
   log "Resetting package sources toward official defaults"
+  reset_apt_sources_to_official
   if have_cmd npm; then run_visible npm config delete registry || true; fi
   if have_cmd python3; then run_visible python3 -m pip config unset global.index-url || true; fi
-  if have_cmd apt-get; then
-    echo "APT official source reset is distro-specific; keeping existing files unless you provide an OS profile."
-  fi
   echo "Docker official repository will be configured by Docker install step when needed."
 }
 
@@ -652,8 +711,9 @@ fi
 
 if [ "$WITH_PROXY" = "yes" ]; then
   install_mihomo
-  reset_sources_to_official
 fi
+
+reset_sources_to_official
 
 if [ "$WITH_DEV_ENV" -eq 1 ]; then install_dev_env; fi
 
@@ -669,7 +729,7 @@ else
   if [ -d "$LLL_DIR/.git" ]; then run_visible git -C "$LLL_DIR" pull --ff-only; else echo "using existing non-git LLL dir: $LLL_DIR"; fi
 fi
 
-if [ "$WITH_CORE" -eq 1 ]; then install_hermes_core; fi
+if [ "$WITH_HERMES" -eq 1 ]; then install_hermes_core; else log "Skipping Hermes Agent install/config (--no-hermes)"; fi
 
 if ! have_cmd npx && [ "$DRY_RUN" -eq 0 ]; then
   warn "npx is still missing; cannot install external skillpack entries. Re-run after Node/NVM shell reload."
