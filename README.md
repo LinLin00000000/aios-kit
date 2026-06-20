@@ -21,6 +21,20 @@ Personal AIOS 不是一个聊天窗口，也不是某个单一 agent。它更像
 
 今天的 `aios-kit` 还只是起点：先让一台新机器获得可迁移、可维护、可被 agent 理解的 AIOS 骨架。路线图不是把所有东西塞进一个仓库，而是逐步形成一个清晰的个人 AI 基础设施协议。
 
+## LLL 工作流入口
+
+LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立一等 CLI。`aios-kit` 负责发现、安装、更新和治理 LLL，不吞并 LLL 的核心状态机。
+
+```bash
+./aios update modules lins-living-loop
+./aios lll doctor
+./aios lll list
+./aios lll new demo --objective "..."
+./aios lll status <workdir-or-name>
+```
+
+`aios lll ...` 的边界：默认只定位 `lll` CLI/helper、列出 AIOS work root 下的 LLL workdirs、创建新 workdir，或把 status/validate 代理给 `lll`；任务队列、runner、lease、reaper、artifacts 仍由 LLL CLI/协议负责。
+
 ## 安装
 
 当前安装器主要在 Ubuntu/Debian 系云服务器上验证过；其他发行版建议先 `--dry-run` 或使用 agent-assisted 安装。

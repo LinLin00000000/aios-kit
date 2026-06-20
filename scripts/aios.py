@@ -10,6 +10,7 @@ import argparse
 import datetime as _dt
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -997,6 +998,199 @@ def assets_link(args: argparse.Namespace) -> None:
         symlink(src, dst, apply=apply)
 
 
+def discover_lll(home: Path, paths: dict[str, Path] | None = None) -> dict[str, Any]:
+    """Find the LLL CLI/helper without making AIOS own LLL state."""
+    paths = paths or instance_paths(home)
+    env_bin = os.environ.get("AIOS_LLL_BIN")
+    if env_bin:
+        return {"kind": "env-bin", "cmd": [env_bin], "source_dir": None, "script": None}
+    env_dir = expand(os.environ.get("AIOS_LLL_DIR"), home=home) if os.environ.get("AIOS_LLL_DIR") else None
+    candidates: list[Path] = []
+    if env_dir:
+        candidates.extend([env_dir / "lll", env_dir / "scripts" / "lll.py"])
+    path_bin = shutil.which("lll")
+    if path_bin:
+        return {"kind": "path", "cmd": [path_bin], "source_dir": None, "script": Path(path_bin)}
+    module_dir = paths["modules"] / "lins-living-loop"
+    candidates.extend([module_dir / "lll", module_dir / "scripts" / "lll.py"])
+    for c in candidates:
+        if c.exists():
+            if c.name == "lll.py":
+                return {"kind": "module-script", "cmd": ["python3", str(c)], "source_dir": c.parents[1], "script": c}
+            return {"kind": "module-bin", "cmd": [str(c)], "source_dir": c.parent, "script": c}
+    return {"kind": "missing", "cmd": None, "source_dir": module_dir, "script": None}
+
+
+def is_probable_lll_workdir(path: Path) -> tuple[bool, list[str]]:
+    markers = [m for m in ["mission.md", "internal/tasks.jsonl", "internal/recovery-state.md", "tasks.jsonl"] if (path / m).exists()]
+    return bool(markers), markers
+
+
+def list_lll_workdirs(home: Path, *, limit: int = 20, include_all: bool = False) -> list[dict[str, Any]]:
+    work_root = instance_paths(home)["work"]
+    rows: list[dict[str, Any]] = []
+    if not work_root.exists():
+        return rows
+    for child in sorted((x for x in work_root.iterdir() if x.is_dir()), key=lambda x: x.stat().st_mtime, reverse=True):
+        is_lll, markers = is_probable_lll_workdir(child)
+        if not is_lll and not include_all:
+            continue
+        rows.append({
+            "name": child.name,
+            "path": str(child),
+            "is_lll": is_lll,
+            "markers": markers,
+            "mtime": _dt.datetime.fromtimestamp(child.stat().st_mtime).astimezone().isoformat(timespec="seconds"),
+        })
+        if limit and len(rows) >= limit:
+            break
+    return rows
+
+
+def resolve_lll_workdir(home: Path, query: str | None) -> Path | None:
+    paths = instance_paths(home)
+    if not query:
+        return None
+    raw = expand(query, home=home)
+    if raw and (raw.is_absolute() or query.startswith("~/") or "/" in query or "\\" in query):
+        return raw.resolve()
+    candidate = paths["work"] / query
+    if candidate.exists():
+        return candidate.resolve()
+    matches = [Path(r["path"]) for r in list_lll_workdirs(home, limit=0) if r["name"].startswith(query)]
+    if len(matches) == 1:
+        return matches[0].resolve()
+    if len(matches) > 1:
+        raise SystemExit("ambiguous LLL workdir: " + ", ".join(m.name for m in matches[:10]))
+    return candidate.resolve()
+
+
+def run_lll_proxy(home: Path, lll_args: list[str], *, json_mode: bool = False) -> int:
+    info = discover_lll(home)
+    if not info.get("cmd"):
+        raise SystemExit("LLL CLI/helper not found; run `aios update modules lins-living-loop` or set AIOS_LLL_BIN")
+    cmd = list(info["cmd"]) + lll_args
+    if json_mode:
+        cp = subprocess.run(cmd + ["--json"], text=True, capture_output=True)
+        if cp.returncode == 0:
+            print(cp.stdout, end="")
+            return 0
+        if "unrecognized arguments: --json" not in cp.stderr:
+            print(cp.stdout, end="")
+            print(cp.stderr, end="", file=sys.stderr)
+            return cp.returncode
+        cp = subprocess.run(cmd, text=True, capture_output=True)
+        print(json.dumps({"schema": "aios.lll.proxy.v1", "json_supported": False, "command": cmd, "exit_code": cp.returncode, "stdout_text": cp.stdout, "stderr_text": cp.stderr}, ensure_ascii=False, indent=2))
+        return cp.returncode
+    return subprocess.run(cmd).returncode
+
+
+def lll_list(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    paths = instance_paths(home)
+    helper = discover_lll(home, paths)
+    rows = list_lll_workdirs(home, limit=args.limit, include_all=args.all)
+    if args.json:
+        print(json.dumps({"schema": "aios.lll.workdirs.v1", "work_root": str(paths["work"]), "helper": {"kind": helper.get("kind"), "cmd": helper.get("cmd"), "source_dir": str(helper.get("source_dir")) if helper.get("source_dir") else None}, "workdirs": rows}, ensure_ascii=False, indent=2))
+        return
+    print(f"LLL helper: {helper.get('cmd') or 'missing'}")
+    print(f"Work root: {paths['work']}")
+    if not rows:
+        print("no LLL workdirs found")
+    for r in rows:
+        print(f"- {r['name']} [{'lll' if r['is_lll'] else 'dir'}] {r['path']}")
+
+
+def lll_status(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    if not args.workdir:
+        args.limit = getattr(args, "limit", 10)
+        args.json = getattr(args, "json", False)
+        args.all = False
+        lll_list(args)
+        return
+    wd = resolve_lll_workdir(home, args.workdir)
+    if wd is None:
+        raise SystemExit("workdir required")
+    cmd = ["status", str(wd)]
+    if args.all:
+        cmd.append("--all")
+    raise SystemExit(run_lll_proxy(home, cmd, json_mode=args.json))
+
+
+def lll_doctor(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    paths = instance_paths(home)
+    helper = discover_lll(home, paths)
+    ok = True
+    report: dict[str, Any] = {
+        "schema": "aios.lll.doctor.v1",
+        "aios_root": str(paths["root"]),
+        "work_root": str(paths["work"]),
+        "helper": {"kind": helper.get("kind"), "cmd": helper.get("cmd"), "source_dir": str(helper.get("source_dir")) if helper.get("source_dir") else None},
+        "checks": [],
+    }
+    def check(name: str, passed: bool, detail: str) -> None:
+        nonlocal ok
+        ok = ok and passed
+        report["checks"].append({"name": name, "ok": passed, "detail": detail})
+        if not args.json:
+            print(f"{name}: {'ok' if passed else 'missing'} - {detail}")
+    check("aios_root", paths["root"].exists(), str(paths["root"]))
+    check("work_root", paths["work"].exists(), str(paths["work"]))
+    check("lll_helper", bool(helper.get("cmd")), " ".join(helper.get("cmd") or []))
+    if helper.get("cmd"):
+        cp = subprocess.run(list(helper["cmd"]) + ["--help"], text=True, capture_output=True)
+        check("lll_help", cp.returncode == 0, cp.stdout.splitlines()[0] if cp.stdout else cp.stderr[:120])
+    if args.workdir:
+        wd = resolve_lll_workdir(home, args.workdir)
+        rc = run_lll_proxy(home, ["validate", str(wd), "--mode", "auto"], json_mode=args.json)
+        ok = ok and rc == 0
+        report["workdir_validate_exit_code"] = rc
+    elif args.all:
+        results = []
+        for row in list_lll_workdirs(home, limit=0):
+            rc = run_lll_proxy(home, ["validate", row["path"], "--mode", "auto"], json_mode=False)
+            results.append({"path": row["path"], "exit_code": rc})
+            ok = ok and rc == 0
+        report["workdir_validations"] = results
+    if args.json:
+        report["ok"] = ok
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    raise SystemExit(0 if ok else 1)
+
+
+def lll_new(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    paths = instance_paths(home)
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", args.slug.strip()).strip("-") or "work"
+    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    wd = paths["work"] / f"{stamp}_{slug}"
+    if args.dry_run:
+        print(wd)
+        return
+    cmd = ["init", str(wd), "--objective", args.objective]
+    if args.force:
+        cmd.append("--force")
+    raise SystemExit(run_lll_proxy(home, cmd, json_mode=False))
+
+
+def lll_open(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    wd = resolve_lll_workdir(home, args.workdir) if args.workdir else None
+    if wd is None:
+        rows = list_lll_workdirs(home, limit=1)
+        if not rows:
+            raise SystemExit("no LLL workdir found")
+        wd = Path(rows[0]["path"])
+    print(wd)
+    if args.editor:
+        editor = os.environ.get("EDITOR") or "vi"
+        raise SystemExit(subprocess.run([editor, str(wd)]).returncode)
+    if args.xdg_open:
+        raise SystemExit(subprocess.run(["xdg-open", str(wd)]).returncode)
+
+
 def doctor(args: argparse.Namespace) -> None:
     try:
         instance_doctor(args)
@@ -1069,6 +1263,37 @@ def build_parser() -> argparse.ArgumentParser:
     pal.set_defaults(func=project_alias)
     pv = psub.add_parser("validate")
     pv.set_defaults(func=project_validate)
+
+
+    lll = sub.add_parser("lll", help="discover/proxy Lin's Living Loop workdirs")
+    lll_sub = lll.add_subparsers(dest="lll_cmd", required=True)
+    ll = lll_sub.add_parser("list", help="list LLL workdirs under the AIOS work root")
+    ll.add_argument("--json", action="store_true")
+    ll.add_argument("--limit", type=int, default=20)
+    ll.add_argument("--all", action="store_true", help="include non-LLL directories under the work root")
+    ll.set_defaults(func=lll_list)
+    ls = lll_sub.add_parser("status", help="proxy to `lll status` for one workdir, or show summary")
+    ls.add_argument("workdir", nargs="?")
+    ls.add_argument("--all", action="store_true")
+    ls.add_argument("--json", action="store_true")
+    ls.add_argument("--limit", type=int, default=10)
+    ls.set_defaults(func=lll_status)
+    ld = lll_sub.add_parser("doctor", help="check LLL helper/work root or validate workdirs")
+    ld.add_argument("workdir", nargs="?")
+    ld.add_argument("--json", action="store_true")
+    ld.add_argument("--all", action="store_true", help="validate every detected LLL workdir")
+    ld.set_defaults(func=lll_doctor)
+    ln = lll_sub.add_parser("new", help="create a new LLL workdir under the AIOS work root")
+    ln.add_argument("slug")
+    ln.add_argument("--objective", default="")
+    ln.add_argument("--force", action="store_true")
+    ln.add_argument("--dry-run", action="store_true")
+    ln.set_defaults(func=lll_new)
+    lo = lll_sub.add_parser("open", help="resolve/print a LLL workdir path")
+    lo.add_argument("workdir", nargs="?")
+    lo.add_argument("--editor", action="store_true")
+    lo.add_argument("--xdg-open", action="store_true")
+    lo.set_defaults(func=lll_open)
 
     d = sub.add_parser("doctor", help="validate instance, skillpack, and assets")
     d.add_argument("--target", default="universal", choices=["universal", "hermes", "both"])
