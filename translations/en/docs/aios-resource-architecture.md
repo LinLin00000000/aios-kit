@@ -6,13 +6,13 @@
 
 # AIOS Resource Architecture
 
-AIOS is not one huge folder, but a **resource registry + context resolver + workflow layer**. It points to projects, devices, services, data assets, skills, and vaults, but does not need to own all of their content.
+AIOS is not a huge folder, but a **resource registry + context resolver + workflow layer**. It points to projects, devices, services, data assets, skills, and vaults, but does not need to own all of their contents.
 
 For the boundaries between repo, source, and runtime, see [architecture.md](architecture.md). This document only describes the semantics of the resource registry.
 
-## One-Sentence Architecture
+## One-sentence Architecture
 
-When a user says “LLL project,” the agent should resolve that phrase into a canonical resource ID, choose the currently most appropriate location, respect permission boundaries, and then act.
+When a user says “LLL project,” the agent should resolve that phrase into a standard resource ID, choose the currently most appropriate location, respect permission boundaries, and then act.
 
 ## Resource Boundaries
 
@@ -21,9 +21,9 @@ AIOS                 Overall personal digital operating system
 ├── AIOps            Operations/infrastructure subsystem
 ├── Project Graph    Creation/project asset subsystem
 ├── Data Assets      File/data governance subsystem
-├── Devices          Registry of central servers and edge nodes
+├── Devices          Central server and edge node registry
 ├── Workflows        LLL, Kanban, cron, agent runners
-├── Identity/Self    Preferences, narrative, digital-self context
+├── Identity/Self    Preferences, narratives, digital self context
 └── Worlds           Digital worlds / long-term creative world layer
 ```
 
@@ -66,7 +66,7 @@ Project/resource entries should be explicit and file-based:
 
 ## Resource/Project Registry CLI
 
-When the CLI is available, prefer the CLI and do not edit manually:
+When the CLI is available, prefer using the CLI instead of editing manually:
 
 ```bash
 aios project list
@@ -83,7 +83,7 @@ When resolving a resource mentioned by the user, the agent should:
 
 1. If the resource resolver skill is available, load it first;
 2. Query registry entries and aliases;
-3. Resolve the canonical resource ID;
+3. Resolve the standard resource ID;
 4. Prefer the local path when it exists and permissions allow it;
 5. Fall back to GitHub, remote devices, or other locations when necessary;
 6. Respect sensitivity and write permissions;

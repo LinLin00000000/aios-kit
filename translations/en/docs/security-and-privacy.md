@@ -12,7 +12,7 @@ Public `aios-kit` files must be portable:
 
 - You may commit examples, schemas, templates, reusable scripts, and general documentation.
 - Do not commit machine-specific manifests, live vault data, state files, logs, secrets, tokens, private hostnames, private IPs, or private agent skill content.
-- Do not commit proxy subscription URLs, node YAML containing UUIDs/passwords, provider tokens, or generated Mihomo configurations containing private nodes.
+- Do not commit proxy subscription URLs, node YAML containing UUID/password values, provider tokens, or generated Mihomo configurations that include private nodes.
 
 ## Local Override Files
 
@@ -27,7 +27,7 @@ registries/*.local.*
 
 They are used for local paths, private skills, the current device name, and non-public repositories.
 
-## Audit Checklist Before Public Push
+## Public Push Audit Checklist
 
 Run first:
 
@@ -43,4 +43,4 @@ git status --short --branch
 git ls-files
 ```
 
-If private local paths were mistakenly committed to the repository, rewrite history while the repository is still new and the impact is manageable. If a real secret has been exposed, immediately rotate or delete the relevant credentials.
+If private local paths were accidentally committed to the repository, rewrite the history while the repository is still new and the impact is manageable. If a real secret has been exposed, immediately rotate or remove the relevant credentials.
