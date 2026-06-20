@@ -25,7 +25,7 @@ manifests/local-assets.json
 registries/*.local.*
 ```
 
-They are used for local paths, private skills, current device names, and non-public repositories.
+They are used for local paths, private skills, the current device name, and non-public repositories.
 
 ## Audit Checklist Before Public Push
 
@@ -43,4 +43,4 @@ git status --short --branch
 git ls-files
 ```
 
-If private local paths were mistakenly committed to the repository, rewrite history while the repository is still new and the impact is manageable. If a real secret has been exposed, immediately rotate or delete the related credentials.
+If private local paths were mistakenly committed to the repository, rewrite history while the repository is still new and the impact is manageable. If a real secret has been exposed, immediately rotate or delete the relevant credentials.

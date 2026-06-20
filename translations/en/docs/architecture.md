@@ -10,29 +10,29 @@
 
 ## Core Decisions
 
-Keep independent projects independent, and connect them with manifests, modules, registries, and local links:
+Preserve the independence of separate projects, and connect them with manifests, modules, registries, and local links:
 
 - `aios-kit`: installer, CLI, public manifest, selected first-party skills, and documentation.
 - `lins-living-loop`: independent first-party workflow skill / project.
 - `aiops-vault-template`: independent public OPS vault template.
 - `~/aios/vault/ops`: the default live OPS vault for new AIOS instances.
-- `~/ai-ops`: author/history-compatible path; must not be used as the public installation default.
+- `~/ai-ops`: author/historical compatibility path; must not be the default for public installs.
 
 ## Source, Runtime, and State
 
 Do not move all repos under `aios-kit`. Boundaries should be clear:
 
-| Layer | Responsible For | Example |
+| Layer | Responsibility | Example |
 |---|---|---|
 | Distribution source | Installer, CLI, public docs/manifest | `~/projects/aios-kit` or `~/aios/modules/aios-kit` |
-| Modules | Updatable checkouts / templates | `~/aios/modules/lins-living-loop` |
+| Modules | Updatable checkout / template | `~/aios/modules/lins-living-loop` |
 | Runtime skills | Skills actually loaded by agents | `~/.agents/skills`, `~/.hermes/skills` |
 | Live vault | Private/current operational facts | `~/aios/vault/ops` |
 | Skillpack state | Safe update/prune records | `~/aios/vault/ops/state/aios-kit/install-state.json` |
 
-External skills are installed through `npx skills`. First-party skills can be installed by copying for regular users, or by symlink on the author’s development machine.
+External skills are installed via `npx skills`. First-party skills can be installed by copying for regular users, and by symlink on the author’s development machine.
 
-## Installation Mode and Development Mode
+## Install Mode and Development Mode
 
 Use the installer for friends or clean machines:
 
@@ -46,7 +46,7 @@ When the repository is already checked out:
 bash install.sh
 ```
 
-During author development, symlink skills one by one so edits in the runtime land in a Git-visible worktree:
+For author development, symlink skills one by one so edits in the runtime location are reflected in the Git-visible worktree:
 
 ```bash
 cd ~/projects/aios-kit
@@ -54,11 +54,11 @@ cd ~/projects/aios-kit
 ./aios skillpack doctor
 ```
 
-Do not symlink or replace the entire agent skills directory. Public installation copies/syncs selected skills one by one by default.
+Do not symlink or replace the entire agent skills directory. Public installs copy/sync selected skills one by one by default.
 
 ## Local Structure and Linking Strategy
 
-The standard development path is intentionally separate from the runtime installation path:
+The standard development path is intentionally separate from the runtime install path:
 
 | Object | Path | Strategy |
 |---|---|---|
@@ -67,21 +67,21 @@ The standard development path is intentionally separate from the runtime install
 | AIOps template | `~/projects/aiops-vault-template` | Public reusable template |
 | Live AIOps vault | `~/aios/vault/ops` | Default instance vault; private/current facts |
 | Historical live vault | `~/ai-ops` | Author/local compatibility path |
-| Universal skills | `~/.agents/skills` | Runtime installation target, not automatically the source of truth |
-| Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
+| Universal skills | `~/.agents/skills` | Runtime install target, not automatically the source of truth |
+| Hermes skills | `~/.hermes/skills` | Runtime skills for the Hermes profile |
 
 Rules:
 
 1. Templates are not live assets.
-2. Runtime directories become the source of truth only after explicit promotion.
+2. Runtime directories only become the source of truth after explicit promotion.
 3. Active first-party skills should be trackable by Git.
 4. Symlinks are for the author’s local development; copy/install is the public default behavior.
 5. Only paths recorded in the current install-state may be automatically pruned.
 
 ## Key Decisions
 
-- **Main project name**: Use `aios-kit`; the skillpack is a module, not a repo boundary.
+- **Main project name**: use `aios-kit`; skillpack is a module, not a repository boundary.
 - **LLL remains independent**: `aios-kit` references, links, or copies it, but does not vendor it.
 - **OPS template and live vault are separate**: the template is a reusable starting point; the live vault is user/private state.
-- **Symlink for author development, copy for public distribution**: author machines optimize for editability; public installation optimizes for portability.
+- **Symlink for author development, copy for public distribution**: the author’s machine optimizes for editability; public installs optimize for portability.
 - **Manifest + thin scripts, not a new package manager**: `aios-kit` reads `skillpack.yaml`, calls `npx skills` for external skills, and directly copies/symlinks first-party skills.
