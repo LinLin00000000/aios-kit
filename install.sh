@@ -46,6 +46,7 @@ DRY_RUN=0
 TARGET="universal"
 MODE="copy"
 FORCE=0
+INSTALL_WIZARD=0
 
 usage() {
   cat <<'EOF'
@@ -96,6 +97,7 @@ Automation:
   --interactive            Prompt even when stdin is not detected as TTY
   -y, --yes                Non-interactive yes for optional recommended steps
   --dry-run                Print actions without changing files
+  --wizard                 Launch the Go/huh AIOS installer wizard when available
   -h, --help               Show this help
 
 One-line install:
@@ -234,6 +236,7 @@ while [ $# -gt 0 ]; do
     --interactive) INTERACTIVE="yes"; shift ;;
     -y|--yes) ASSUME_YES=1; INTERACTIVE="no"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --wizard) INSTALL_WIZARD=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
   esac
@@ -244,6 +247,32 @@ case "$MODE" in copy|symlink) ;; *) echo "invalid --mode: $MODE" >&2; exit 2 ;; 
 case "$WITH_PROXY" in auto|yes|no) ;; *) echo "invalid --proxy: $WITH_PROXY" >&2; exit 2 ;; esac
 case "$ADD_TO_PATH" in yes|no|ask) ;; *) echo "invalid --add-to-path: $ADD_TO_PATH" >&2; exit 2 ;; esac
 case "$PROXY_AUTO_ENV" in auto|yes|no) ;; *) echo "invalid --proxy-auto-env: $PROXY_AUTO_ENV" >&2; exit 2 ;; esac
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || true)"
+run_installer_wizard() {
+  if ! is_interactive; then
+    warn "--wizard requires an interactive TTY; falling back to the Bash installer."
+    return 1
+  fi
+  if have_cmd aios-install; then
+    if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/install.sh" ]; then
+      command aios-install --script "$SCRIPT_DIR/install.sh" --wizard
+    else
+      command aios-install --wizard
+    fi
+    exit $?
+  fi
+  if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/go.mod" ] && [ -d "$SCRIPT_DIR/cmd/aios-install" ] && [ -f "$SCRIPT_DIR/install.sh" ] && have_cmd go; then
+    (cd "$SCRIPT_DIR" && command go run ./cmd/aios-install --script "$SCRIPT_DIR/install.sh" --wizard)
+    exit $?
+  fi
+  warn "AIOS Go installer wizard is not available yet. Install/build aios-install or use the Bash fallback."
+  return 1
+}
+
+if [ "$INSTALL_WIZARD" -eq 1 ]; then
+  run_installer_wizard || true
+fi
 
 if is_interactive; then
   log "AIOS interactive bootstrap"
@@ -262,6 +291,9 @@ fi
 
 AIOS_ROOT="$(validate_path AIOS_ROOT "$AIOS_ROOT")"
 if [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then KIT_DIR="$AIOS_ROOT/modules/aios-kit"; fi
+if [ -n "$SCRIPT_DIR" ] && [ -x "$SCRIPT_DIR/aios" ] && [ -f "$SCRIPT_DIR/skillpack.yaml" ] && [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then
+  KIT_DIR="$SCRIPT_DIR"
+fi
 if [ "$TEMPLATE_DIR_EXPLICIT" -eq 0 ]; then TEMPLATE_DIR="$AIOS_ROOT/modules/aiops-vault-template"; fi
 if [ "$LLL_DIR_EXPLICIT" -eq 0 ]; then LLL_DIR="$AIOS_ROOT/modules/lins-living-loop"; fi
 if [ "$VAULT_PATH_EXPLICIT" -eq 0 ]; then VAULT_PATH="$AIOS_ROOT/vault/ops"; fi
@@ -272,11 +304,6 @@ LLL_DIR="$(validate_path LLL_DIR "$LLL_DIR")"
 VAULT_PATH="$(validate_path VAULT_PATH "$VAULT_PATH")"
 SKILLS_DIR="$(validate_path SKILLS_DIR "$SKILLS_DIR")"
 AIOS_BIN_DIR="$AIOS_ROOT/bin"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || true)"
-if [ -n "$SCRIPT_DIR" ] && [ -x "$SCRIPT_DIR/aios" ] && [ -f "$SCRIPT_DIR/skillpack.yaml" ] && [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then
-  KIT_DIR="$SCRIPT_DIR"
-fi
 
 check_direct_network() {
   have_cmd curl || return 1

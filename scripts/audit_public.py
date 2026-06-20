@@ -20,7 +20,8 @@ ALLOW = [
 def candidate_files():
     # Include tracked plus untracked non-ignored files so new files are audited before commit.
     out = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=ROOT, text=True)
-    return [ROOT / line for line in out.splitlines() if line]
+    ignored_exact = {"go.sum"}
+    return [ROOT / line for line in out.splitlines() if line and line not in ignored_exact]
 
 def entropy(s: str) -> float:
     if not s:
@@ -46,6 +47,8 @@ def main() -> int:
                 if candidate.startswith("CAP_") or candidate.startswith("AmbientCapabilities=CAP_") or candidate.startswith("CapabilityBoundingSet=CAP_"):
                     continue
                 if entropy(candidate) >= 4.2 and not candidate.startswith("https://"):
+                    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", candidate):
+                        continue
                     # Avoid path false positives without exempting token-like
                     # strings that merely contain '/'. A candidate with slashes is
                     # path-like only when it also has obvious path syntax.

@@ -82,6 +82,16 @@ LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
+如果已经在 repo checkout 中，或已经安装了 `aios-install` 预编译二进制，也可以启动新的 Go/huh 安装向导：
+
+```bash
+bash install.sh --wizard
+# 或先只查看它会如何调用 install.sh
+aios-install --no-wizard --script ./install.sh --print-command --dry-run
+```
+
+`aios-install` 是交互前端，不复制安装逻辑；它收集选择后生成并执行 `install.sh --non-interactive ...`。没有可用向导时，`install.sh --wizard` 会回退到原 Bash 交互。后续 release 会提供 Linux/macOS/Windows 预编译安装器，让干净机器不需要先安装 Go。
+
 如果新机器暂时无法直连 GitHub，可以用你信任的 raw/release 镜像：
 
 ```bash

@@ -23,9 +23,13 @@ profiles/local-*.yaml
 profiles/local-*.json
 
 # Local generated reports
-internal/
-.tmp/
-.cache/
+/.tmp/
+/.cache/
+/lll-internal/
+
+# Local build outputs
+/aios-install
+/aios-install.exe
 
 # Secrets and private machine profiles
 .env

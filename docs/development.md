@@ -181,12 +181,34 @@ cd ~/projects/aios-kit
 
 `--apply` 和 `--dry-run` 互斥；低层 skillpack/assets 命令默认只预览，只有显式传入 `--apply` 才会实际修改。
 
+## 安装向导开发
+
+`aios-install` 是 Go/huh 交互前端，不拥有真实安装动作。维护原则：
+
+- `install.sh` 仍是安装后端和 automation contract；Go 只构造 `install.sh --non-interactive ...` 参数。
+- 私密参数（如 `--proxy-subscription-url`）在预览/JSON 报告中默认脱敏；实际 argv 才保留真实值。
+- 非 TTY/CI/Agent 场景优先使用 `--no-wizard --print-command` 或 `--json`。
+- 用户不应被要求预装 Go；Go 只用于开发构建，正式分发应提供预编译二进制。
+
+常用开发命令：
+
+```bash
+go test ./...
+go build ./cmd/aios-install
+./aios-install --no-wizard --script ./install.sh --print-command --dry-run --proxy no --no-dev-env --no-hermes --no-aiops
+./aios-install --no-wizard --script ./install.sh --json --dry-run
+```
+
+当前 `huh` v1 需要 Go 1.23+；开发机可使用 Go toolchain auto，发布 CI 应显式安装 Go 1.23 或更新版本。
+
 ## 发布检查清单
 
 发布前至少运行：
 
 ```bash
 bash -n install.sh
+go test ./...
+go build ./cmd/aios-install
 python3 -m py_compile scripts/aios.py scripts/audit_public.py
 python3 scripts/audit_public.py
 aios update --dry-run

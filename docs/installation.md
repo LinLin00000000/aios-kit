@@ -8,6 +8,28 @@
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
+## 现代安装向导（Go/huh）
+
+`aios-kit` 正在采用两阶段安装器：
+
+1. `install.sh` / 未来的 `install.ps1` 保持极薄 bootstrap 与稳定后端参数面；
+2. `aios-install` 是 Go/huh 交互前端，负责现代 CLI 向导，然后生成并执行 `install.sh --non-interactive ...`。
+
+在 repo checkout 中可以直接试用：
+
+```bash
+# 启动交互向导；没有 aios-install 二进制时会尝试 go run
+bash install.sh --wizard
+
+# Agent/CI 友好：不进入向导，只打印将执行的后端命令
+aios-install --no-wizard --script ./install.sh --print-command --dry-run
+
+# 机器可读计划
+aios-install --no-wizard --script ./install.sh --json --dry-run
+```
+
+当前 `--wizard` 只在本地已有 `aios-install` 或 checkout 中有 Go 工具链时启用；否则安全回退到原 Bash 交互。长期 release 会提供 Linux/macOS/Windows 预编译二进制，让干净机器无需预装 Go。
+
 如果新机器暂时无法直连 GitHub，可以用你信任的 raw/release 镜像：
 
 ```bash
