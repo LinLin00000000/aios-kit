@@ -10,6 +10,20 @@ on:
       - '.github/workflows/translate-docs.yml'
       - '!translations/**'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Translation mode: changed, all, or only'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - changed
+          - all
+          - only
+      only:
+        description: 'Space-separated source docs for mode=only, e.g. README.md docs/installation.md'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -34,23 +48,104 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Determine docs to translate
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mode='${{ github.event.inputs.mode || '' }}'
+          only='${{ github.event.inputs.only || '' }}'
+
+          if [[ '${{ github.event_name }}' == 'workflow_dispatch' ]]; then
+            case "${mode:-all}" in
+              all)
+                echo 'mode=all' >> "$GITHUB_OUTPUT"
+                echo 'args=' >> "$GITHUB_OUTPUT"
+                ;;
+              only)
+                if [[ -z "$only" ]]; then
+                  echo 'mode=only requires the only input' >&2
+                  exit 1
+                fi
+                args=''
+                for path in $only; do
+                  args+=" --only ${path}"
+                done
+                echo 'mode=only' >> "$GITHUB_OUTPUT"
+                echo "args=${args}" >> "$GITHUB_OUTPUT"
+                ;;
+              changed)
+                # For manual changed mode, compare the latest commit against its first parent.
+                base="$(git rev-parse HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)"
+                ;;
+              *)
+                echo "unknown mode: $mode" >&2
+                exit 1
+                ;;
+            esac
+            if [[ "${mode:-all}" != 'changed' ]]; then
+              exit 0
+            fi
+          else
+            base='${{ github.event.before }}'
+            if [[ -z "$base" || "$base" == '0000000000000000000000000000000000000000' ]]; then
+              base="$(git rev-list --max-parents=0 HEAD)"
+            fi
+          fi
+
+          mapfile -t changed < <(git diff --name-only "$base" '${{ github.sha }}' -- README.md 'docs/**/*.md' scripts/translate_docs.py .github/workflows/translate-docs.yml)
+          printf 'Changed files considered for translation:\n'
+          printf ' - %s\n' "${changed[@]:-}"
+
+          full=0
+          docs=()
+          for path in "${changed[@]}"; do
+            case "$path" in
+              scripts/translate_docs.py|.github/workflows/translate-docs.yml)
+                full=1
+                ;;
+              README.md|docs/*.md)
+                docs+=("$path")
+                ;;
+            esac
+          done
+
+          if [[ "$full" == '1' ]]; then
+            echo 'mode=all' >> "$GITHUB_OUTPUT"
+            echo 'args=' >> "$GITHUB_OUTPUT"
+          elif [[ "${#docs[@]}" == '0' ]]; then
+            echo 'mode=none' >> "$GITHUB_OUTPUT"
+            echo 'args=' >> "$GITHUB_OUTPUT"
+          else
+            args=''
+            for path in "${docs[@]}"; do
+              args+=" --only ${path}"
+            done
+            echo 'mode=changed' >> "$GITHUB_OUTPUT"
+            echo "args=${args}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check upstream AI API
+        if: steps.plan.outputs.mode != 'none'
         env:
           TRANSLATE_BASE_URL: ${{ secrets.TRANSLATE_BASE_URL }}
           TRANSLATE_API_KEY: ${{ secrets.TRANSLATE_API_KEY }}
           TRANSLATE_MODEL: ${{ secrets.TRANSLATE_MODEL }}
           TRANSLATE_API_MODE: ${{ secrets.TRANSLATE_API_MODE }}
-        run: python3 scripts/translate_docs.py --check-api --dry-run
+        run: python3 scripts/translate_docs.py --check-api --dry-run ${{ steps.plan.outputs.args }}
 
       - name: Generate English docs
+        if: steps.plan.outputs.mode != 'none'
         env:
           TRANSLATE_BASE_URL: ${{ secrets.TRANSLATE_BASE_URL }}
           TRANSLATE_API_KEY: ${{ secrets.TRANSLATE_API_KEY }}
           TRANSLATE_MODEL: ${{ secrets.TRANSLATE_MODEL }}
           TRANSLATE_API_MODE: ${{ secrets.TRANSLATE_API_MODE }}
-        run: python3 scripts/translate_docs.py --write
+        run: python3 scripts/translate_docs.py --write ${{ steps.plan.outputs.args }}
 
       - name: Commit generated translations
+        if: steps.plan.outputs.mode != 'none'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -147,6 +147,26 @@ def source_files() -> list[Path]:
     return [p for p in files if p.is_file() and not any(part in {"en", "translations"} for part in p.relative_to(ROOT).parts)]
 
 
+def resolve_only_sources(values: list[str]) -> list[Path]:
+    allowed = {p.relative_to(ROOT) for p in source_files()}
+    resolved: list[Path] = []
+    errors: list[str] = []
+    for raw in values:
+        rel = Path(raw)
+        if rel.is_absolute() or ".." in rel.parts:
+            errors.append(f"unsafe path: {raw}")
+            continue
+        if rel not in allowed:
+            errors.append(f"not a translatable source doc: {raw}")
+            continue
+        resolved.append(ROOT / rel)
+    if errors:
+        raise SystemExit("Invalid --only values:\n- " + "\n- ".join(errors))
+    # Keep deterministic source order and drop duplicates.
+    requested = set(resolved)
+    return [p for p in source_files() if p in requested]
+
+
 def target_path(source: Path, target_code: str) -> Path:
     rel = source.relative_to(ROOT)
     if rel == Path("README.md"):
@@ -279,8 +299,7 @@ def main() -> int:
 
     files = source_files()
     if args.only:
-        wanted = {Path(x) for x in args.only}
-        files = [ROOT / p for p in wanted if (ROOT / p).exists()]
+        files = resolve_only_sources(args.only)
     if args.limit:
         files = files[: args.limit]
 
