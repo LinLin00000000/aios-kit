@@ -116,6 +116,5 @@ first_party:
     skill: install-skill
     enabled: true
     default_mode: copy
-    targets: hermes
-    runtime_path: ~/.hermes/skills/skills/install-skill
-    reason: Lin-created Hermes skill for installing Agent/Hermes-compatible skills through npx skills.
+    targets: universal
+    reason: Lin-created universal skill for installing Agent/Hermes-compatible skills through npx skills.
