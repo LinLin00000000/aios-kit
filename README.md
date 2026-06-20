@@ -18,8 +18,26 @@ Personal AIOS 不是一个聊天窗口，也不是某个单一 agent。它更像
 - **从临时上下文到长期结构**：重要信息不困在某次对话里，而沉淀为 vault、registry、skills 和可审计日志。
 - **从单 Agent 到 Agent 生态**：Hermes 是默认中心，但 Codex、Claude Code、OpenClaw 或未来的 agent 都应能读懂同一套结构。
 - **从工具堆叠到个人主权**：公开模板可以复制，私人事实留在本地；系统应该帮助你迁移和扩展，而不是把你锁进某个平台。
+- **从人类手动操作到 Agent-first**：默认让 agent 读取结构、调用 CLI、执行检查和修复；人类主要表达目标、边界和验收标准，手动命令只是 agent 不可用时的 fallback。
 
 今天的 `aios-kit` 还只是起点：先让一台新机器获得可迁移、可维护、可被 agent 理解的 AIOS 骨架。路线图不是把所有东西塞进一个仓库，而是逐步形成一个清晰的个人 AI 基础设施协议。
+
+## 设计哲学：Agent 优先，人类 Fallback
+
+AIOS 的默认使用者不是“熟练记命令的人”，而是能持续替你工作的 agent。人类的主要输入应该是目标、约束、权限边界和验收标准；具体命令、路径、健康检查、更新、日志读取、错误恢复和文档查阅，应该由 agent 根据稳定结构自行完成。
+
+这带来几条设计约束：
+
+| 原则 | 含义 |
+|---|---|
+| **Agent-first** | CLI、文档、registry、vault 和日志都要让 agent 容易发现、调用、解析和恢复。 |
+| **Human fallback** | README 仍给出可复制命令，但这些命令是 agent 操作面与紧急手动入口，不是默认交互方式。 |
+| **机器可读优先** | 关键命令应提供 `--json`、`doctor`、`status`、`validate` 之类稳定探针；不要只输出给人看的长文本。 |
+| **文件是真源** | 私有事实、项目注册、运维状态和长任务记录应落到 vault/registry/LLL workdir，而不是停留在聊天上下文。 |
+| **薄控制面** | AIOS 负责发现、安装、更新和治理；具体状态机由对应工具负责，例如 LLL 管自己的任务队列和 runner。 |
+| **可审计可迁移** | 公开模板和私有状态分离，变更可检查，fresh clone / 新机器应能恢复同等能力。 |
+
+所以，文档里的命令示例可以直接给人执行，但更推荐复制给 Hermes/Codex/Claude Code/OpenClaw 等 agent，让 agent 先运行 `doctor/status`，再根据机器环境选择安全路径。
 
 ## LLL 工作流入口
 
@@ -119,16 +137,20 @@ Mihomo 默认安装到 `~/aios/network/mihomo`，TUN 默认开启；Linux/system
 
 ## 常用命令
 
+Agent 优先使用 JSON/doctor/status 探针；人类只在需要兜底排障时手动执行：
+
 ```bash
-aios status                 # 查看实例摘要
-aios doctor                 # 校验安装与链接状态
-aios update                 # 更新模块、OPS 模板和托管 skills
+aios status                 # 查看实例摘要（human-readable）
+aios doctor                 # 校验安装与链接状态（human-readable）
 aios update --dry-run       # 预览更新
+aios update                 # 更新模块、OPS 模板和托管 skills
 aios update skills          # 刷新托管 runtime skills
 aios project list           # 查看项目/资源注册表
+aios lll doctor --json      # Agent-first: 检查 LLL/Code Loop 能力
+aios lll list --json        # Agent-first: 枚举 LLL workdirs
 ```
 
-维护/调试入口：`aios skillpack doctor`、`aios skillpack sync --dry-run`、`aios assets doctor`。如果没有配置 PATH，可用 `~/aios/bin/aios status`。
+维护/调试入口：`aios skillpack doctor`、`aios skillpack sync --dry-run`、`aios assets doctor`。如果没有配置 PATH，可用 `~/aios/bin/aios status` 或 `~/aios/bin/lll --version`。
 
 ## 文档索引
 

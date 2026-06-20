@@ -12,6 +12,18 @@
 - `~/aios/vault/ops`：新 AIOS 实例默认 live OPS vault。
 - `~/ai-ops`：作者/历史兼容路径；不能作为公开安装默认值。
 
+## Agent-first / Human fallback
+
+AIOS 的架构假设是：**Agent 是默认操作者，人类是授权者、目标设定者和兜底操作者**。
+
+这不是“把所有东西自动化”的口号，而是具体影响仓库边界和命令设计：
+
+1. **稳定探针优先**：每个长期模块都应尽量暴露 `doctor`、`status`、`validate` 和 `--json`，方便 agent 判断能否继续。
+2. **人类命令是 fallback**：文档中的 shell 命令需要可复制，但主要价值是让 agent 有明确操作面；正常情况下人类不需要逐条理解。
+3. **控制面不吞状态机**：AIOS 可以代理 `aios lll ...`，但 LLL 的队列、lease、runner、artifacts 仍归 LLL 协议/CLI 管理。
+4. **文件化治理**：项目注册、OPS vault、安装状态、维护日志和 LLL workdir 是跨 agent 的共同事实层。
+5. **公开可恢复**：公开仓库必须能在 fresh clone / Docker / 新机器上恢复关键能力，不能只依赖作者机器上的隐式 symlink。
+
 ## Source、runtime 与 state
 
 不要把所有 repo 都移动到 `aios-kit` 下面。边界应清晰：
