@@ -60,7 +60,7 @@ Core options:
   --lll-dir PATH           lins-living-loop checkout (default: $AIOS_ROOT/modules/lins-living-loop)
   --vault PATH             OPS vault path (default: $AIOS_ROOT/vault/ops)
   --skills-dir PATH        Agent runtime skills dir (default: ~/.agents/skills)
-  --global-bin DIR         Link `aios` into DIR, e.g. ~/.local/bin; refuses conflicts
+  --global-bin DIR         Link `aios` and `lll` into DIR, e.g. ~/.local/bin; refuses conflicts
   --add-to-path yes|no|ask Add ~/aios/bin to shell PATH block (default: ask in interactive)
   --github-mirror PREFIX    Prefix GitHub/raw release URLs, e.g. https://gh-proxy.com/
 
@@ -736,6 +736,25 @@ if [ ! -f "$LLL_DIR/SKILL.md" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $(mirror_url "$LLL_REPO_URL") $LLL_DIR"; else mkdir -p "$(dirname "$LLL_DIR")"; git clone "$(mirror_url "$LLL_REPO_URL")" "$LLL_DIR"; fi
 else
   if [ -d "$LLL_DIR/.git" ]; then run_visible git -C "$LLL_DIR" pull --ff-only; else echo "using existing non-git LLL dir: $LLL_DIR"; fi
+fi
+
+log "Installing lll command shim"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "+ mkdir -p $AIOS_BIN_DIR"
+  echo "+ ln -sfn $LLL_DIR/lll $AIOS_BIN_DIR/lll"
+else
+  mkdir -p "$AIOS_BIN_DIR"
+  ln -sfn "$LLL_DIR/lll" "$AIOS_BIN_DIR/lll"
+fi
+
+if [ -n "$GLOBAL_BIN_DIR" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "+ ln -s $LLL_DIR/lll $GLOBAL_BIN_DIR/lll"
+  elif [ -e "$GLOBAL_BIN_DIR/lll" ] || [ -L "$GLOBAL_BIN_DIR/lll" ]; then
+    if [ -L "$GLOBAL_BIN_DIR/lll" ] && [ "$(readlink "$GLOBAL_BIN_DIR/lll")" = "$LLL_DIR/lll" ]; then :; else warn "refusing to replace existing $GLOBAL_BIN_DIR/lll"; fi
+  else
+    ln -s "$LLL_DIR/lll" "$GLOBAL_BIN_DIR/lll"
+  fi
 fi
 
 if [ "$WITH_HERMES" -eq 1 ]; then install_hermes_core; else log "Skipping Hermes Agent install/config (--no-hermes)"; fi

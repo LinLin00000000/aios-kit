@@ -23,17 +23,17 @@ Personal AIOS 不是一个聊天窗口，也不是某个单一 agent。它更像
 
 ## LLL 工作流入口
 
-LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立一等 CLI。`aios-kit` 负责发现、安装、更新和治理 LLL，不吞并 LLL 的核心状态机。
+LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立一等 CLI。`aios-kit` 负责发现、安装、更新和治理 LLL，不吞并 LLL 的核心状态机。这里同样以 Agent 为默认操作者：人类表达目标，Agent 调用 `aios lll ...` 发现 workdir、检查健康状态、创建新任务空间并交给 `lll` runner 执行；命令示例是 Agent 操作面和人类 fallback。
 
 ```bash
 ./aios update modules lins-living-loop
-./aios lll doctor
-./aios lll list
+./aios lll doctor --json
+./aios lll list --json
 ./aios lll new demo --objective "..."
-./aios lll status <workdir-or-name>
+./aios lll status <workdir-or-name> --json
 ```
 
-`aios lll ...` 的边界：默认只定位 `lll` CLI/helper、列出 AIOS work root 下的 LLL workdirs、创建新 workdir，或把 status/validate 代理给 `lll`；任务队列、runner、lease、reaper、artifacts 仍由 LLL CLI/协议负责。
+`aios lll ...` 的边界：默认只定位 `lll` CLI/helper、列出 AIOS work root 下的 LLL workdirs、创建新 workdir，或把 status/validate 代理给 `lll`；任务队列、runner、lease、reaper、artifacts 仍由 LLL CLI/协议负责。标准安装会在 `~/aios/bin/` 暴露 `aios` 与 `lll` 两个命令；`aios lll doctor --json` 会优先检查 AIOS module 内的 LLL，避免被 PATH 上的旧版本误导。
 
 ## 安装
 
