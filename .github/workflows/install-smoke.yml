@@ -1,0 +1,93 @@
+name: Install smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Syntax and Go tests
+        run: |
+          bash -n install.sh
+          python3 -m py_compile scripts/aios.py scripts/audit_public.py scripts/translate_docs.py scripts/export_translation_secrets.py
+          go test ./...
+      - name: Linux core dry-run
+        run: |
+          tmp=$(mktemp -d)
+          HOME="$tmp/home" bash install.sh \
+            --non-interactive -y --dry-run \
+            --root "$tmp/aios" \
+            --kit-dir "$GITHUB_WORKSPACE" \
+            --no-dev-env --no-hermes --no-aiops \
+            --proxy no --no-reset-sources --add-to-path no \
+            --skip-skillpack
+      - name: Linux core apply smoke
+        run: |
+          tmp=$(mktemp -d)
+          HOME="$tmp/home" bash install.sh \
+            --non-interactive -y \
+            --root "$tmp/aios" \
+            --kit-dir "$GITHUB_WORKSPACE" \
+            --no-dev-env --no-hermes --no-aiops \
+            --proxy no --no-reset-sources --add-to-path no \
+            --skip-skillpack
+          AIOS_ROOT="$tmp/aios" "$tmp/aios/bin/aios" --home "$tmp/home" status
+          test -x "$tmp/aios/bin/aios"
+          test -d "$tmp/aios/modules/lins-living-loop"
+          HOME="$tmp/home"
+          test -d "$HOME/.agents/skills"
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: macOS conservative checks
+        run: |
+          bash -n install.sh
+          go test ./...
+          tmp=$(mktemp -d)
+          HOME="$tmp/home" bash install.sh \
+            --non-interactive -y --dry-run \
+            --root "$tmp/aios" \
+            --kit-dir "$GITHUB_WORKSPACE" \
+            --no-dev-env --no-hermes --no-aiops \
+            --proxy no --no-reset-sources --add-to-path no \
+            --skip-skillpack
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Go tests
+        shell: pwsh
+        run: go test ./...
+      - name: PowerShell parse
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errs = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$env:GITHUB_WORKSPACE\install.ps1", [ref]$tokens, [ref]$errs) | Out-Null
+          if ($errs.Count -gt 0) { $errs | Format-List *; throw "PowerShell parse failed" }
+      - name: Windows native core dry-run
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "aios"
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -DryRun -NonInteractive -Yes -Root $root
+      - name: Windows platform command plan
+        shell: pwsh
+        run: |
+          go run .\cmd\aios-install --platform windows --no-wizard --script .\install.sh --print-command --dry-run --root "~/aios"

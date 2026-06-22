@@ -1,6 +1,14 @@
 # 安装指南
 
-当前安装器主要在 Ubuntu/Debian 系云服务器上验证。macOS/Windows 与其他发行版建议先使用 `--dry-run`，或让已有 Agent 读源码和文档后辅助安装。
+当前安装器按“能力分层”维护。核心特性面向全平台，当前优先支持 Ubuntu 与 Windows；附加特性面向 Linux/server，尤其是 Ubuntu/Debian 云服务器。macOS/Termux 与其他发行版建议先使用 `--dry-run`，或让已有 Agent 读源码和文档后辅助安装。
+
+## 能力分层
+
+| 层级 | 内容 | 安装策略 |
+|---|---|---|
+| 核心特性 | AIOS instance root、`aios-kit` 模块、LLL 模块、`aios` 命令入口、work/config/vault/skills/state/logs/cache 目录、runtime skills 目标目录 | 全平台设计；适合本地开机时使用，不要求 24 小时运行。Ubuntu 由 `install.sh` 安装，Windows 由 `install.ps1` 原生安装。Windows 完整 `lll` CLI 与 managed skillpack sync 暂建议通过 Git Bash/WSL/Linux 执行。 |
+| 附加特性 | Mihomo/TUN、开发/运行环境 bootstrap、Hermes、OPS vault 模板、Ubuntu 软件源恢复、systemd/24x7 服务化运行 | Linux/server 推荐；Windows 原生安装不显示不支持项。如需这些能力，请使用 Linux 或 WSL。 |
+
 
 ## 推荐入口
 
@@ -54,22 +62,34 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/
   --add-to-path yes
 ```
 
-## Windows PowerShell bootstrap（预览）
+## Windows PowerShell 原生核心安装
 
-Windows 入口是薄 bootstrap：下载 `aios-install.exe`、校验 checksum、下载 `install.sh` 作为后端，然后启动向导。它依赖 GitHub Release 中已经存在 `aios-install_windows_*.tar.gz` 和 `aios-install_checksums.txt`；如果当前版本还没有发布 release assets，请先使用 Git Bash/WSL 运行 `install.sh`，或等待 release 发布后再用 PowerShell 入口。
+Windows 入口现在是原生 PowerShell 核心安装器：它会创建 `~/aios`，安装/更新 `aios-kit` 与 LLL 模块，生成 `aios.ps1`/`aios.cmd`，并在检测到 Git Bash/WSL 时提供 `lll.ps1`/`lll.cmd` 代理，初始化 work/config/vault/skills/state/logs/cache 等核心目录，并可把 `~/aios/bin` 加入用户 PATH。它会检查 Python 3，因为 `aios` 命令依赖 Python。
 
 ```powershell
 iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 | iex
 ```
 
-当前真实安装后端仍是 `install.sh`，所以正式执行安装需要 Git Bash 或 WSL。没有 Bash 时，PowerShell bootstrap 会打印可复制的持久命令，避免假装完成安装。
+Windows 原生入口不会显示 Linux/server 不支持的附加能力，例如 systemd 24/7 服务、Mihomo TUN service、Ubuntu 源恢复、Docker/Caddy bootstrap、managed skillpack sync。需要完整 Linux/server 能力时，请在 WSL 或云服务器中运行 `install.sh`。
 
 更可审计的方式：
 
 ```powershell
 $script = "$env:TEMP\aios-kit-install.ps1"
 iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 -OutFile $script
-powershell -ExecutionPolicy Bypass -File $script -DryRun
+powershell -ExecutionPolicy Bypass -File $script -DryRun -PrintPlan
+```
+
+非交互核心安装示例：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File $script -NonInteractive -Yes -Root "$HOME\aios"
+```
+
+如只想打印 WSL/Git Bash 后端命令：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File $script -UseBashBackend -DryRun
 ```
 
 ## 现代向导启动顺序

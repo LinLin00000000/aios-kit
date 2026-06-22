@@ -6,12 +6,22 @@ import (
 )
 
 func Summary(o Options) string {
+	return SummaryForPlatform(o, CurrentPlatform())
+}
+
+func SummaryForPlatform(o Options, platform string) string {
+	platform = NormalizePlatform(platform)
 	var b strings.Builder
 	fmt.Fprintf(&b, "AIOS root: %s\n", o.Root)
-	fmt.Fprintf(&b, "Components: dev-env=%t, hermes=%t, aiops=%t\n", o.WithDevEnv, o.WithHermes, o.WithAIOps)
-	fmt.Fprintf(&b, "Network: proxy=%s, tun=%t, reset-sources=%t\n", o.Proxy, o.ProxyTun, o.ResetSources)
-	fmt.Fprintf(&b, "PATH: add-to-path=%s\n", o.AddToPath)
-	fmt.Fprintf(&b, "Skillpack: target=%s, mode=%s, force=%t\n", o.Target, o.Mode, o.Force)
+	fmt.Fprintf(&b, "Capability layer: core features always include local instance, modules, command shims, work/config/vault/skills/state dirs, and on-demand local use.\n")
+	fmt.Fprintf(&b, "Core: add-to-path=%s, skillpack target=%s, mode=%s, force=%t\n", o.AddToPath, o.Target, o.Mode, o.Force)
+	if platform == PlatformLinux {
+		fmt.Fprintf(&b, "Add-ons: dev-env=%t, hermes=%t, aiops=%t, proxy=%s, tun=%t, reset-sources=%t\n", o.WithDevEnv, o.WithHermes, o.WithAIOps, o.Proxy, o.ProxyTun, o.ResetSources)
+	} else if platform == PlatformWindows {
+		fmt.Fprintf(&b, "Add-ons: Windows native core install hides Linux/server-only add-ons; use WSL/install.sh for systemd/Mihomo/TUN/Docker/Caddy/Hermes bootstrap.\n")
+	} else {
+		fmt.Fprintf(&b, "Add-ons: platform-specific support is limited; prefer dry-run first.\n")
+	}
 	if o.GitHubMirror != "" {
 		fmt.Fprintf(&b, "GitHub mirror: %s\n", o.GitHubMirror)
 	}
