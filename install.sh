@@ -50,13 +50,26 @@ TARGET="universal"
 MODE="copy"
 FORCE=0
 INSTALL_WIZARD="auto"
+SKIP_SKILLPACK=0
 
 usage() {
   cat <<'EOF'
 Usage: install.sh [options]
 
-Default: run an interactive AIOS bootstrap for a new server. The same flow can
-be automated with flags for repeatable operations.
+Capability model:
+  Core features are the portable AIOS base: local instance root, aios-kit and
+  LLL modules, command shims, runtime skills target, work/vault/config/state
+  directories, and local-on-demand use when the machine is powered on. These
+  are intended to be cross-platform; this Bash backend currently targets
+  Ubuntu/Debian-style Linux, while install.ps1 provides the Windows native core.
+
+  Add-on features are platform/server capabilities: Mihomo/TUN, source reset,
+  Docker/Caddy/dev-env bootstrap, Hermes setup, OPS vault template install, and
+  Linux service/24x7 operation. They are useful on Linux servers but are not
+  required for the base AIOS install.
+
+Default: run an interactive AIOS bootstrap for a Linux machine. The same flow
+can be automated with flags for repeatable operations.
 
 Core options:
   --root PATH              AIOS instance root (default: $AIOS_ROOT or ~/aios)
@@ -94,6 +107,7 @@ Skillpack:
   --target TARGET          universal|hermes|both (default: universal)
   --mode MODE              copy|symlink (default: copy)
   --force                  Overwrite locally modified managed skill copies
+  --skip-skillpack         Skip skillpack sync/doctor; intended for core smoke tests only
 
 Automation:
   --non-interactive        Never prompt; use defaults/flags
@@ -258,6 +272,7 @@ while [ $# -gt 0 ]; do
     --target) require_arg "$1" "$#"; TARGET="$2"; shift 2 ;;
     --mode) require_arg "$1" "$#"; MODE="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
+    --skip-skillpack) SKIP_SKILLPACK=1; shift ;;
     --non-interactive) INTERACTIVE="no"; shift ;;
     --interactive) INTERACTIVE="yes"; shift ;;
     -y|--yes) ASSUME_YES=1; INTERACTIVE="no"; shift ;;
@@ -899,7 +914,11 @@ log "Preparing aios-kit at $KIT_DIR"
 if [ ! -f "$KIT_DIR/aios" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $(mirror_url "$AIOS_KIT_REPO_URL") $KIT_DIR"; else mkdir -p "$(dirname "$KIT_DIR")"; git clone "$(mirror_url "$AIOS_KIT_REPO_URL")" "$KIT_DIR"; fi
 else
-  if [ -d "$KIT_DIR/.git" ]; then run_visible git -C "$KIT_DIR" pull --ff-only; else echo "using existing non-git kit dir: $KIT_DIR"; fi
+  if [ -e "$KIT_DIR/.git" ]; then
+    if [ "$KIT_DIR_EXPLICIT" -eq 1 ]; then echo "using explicit git kit dir without auto-pull: $KIT_DIR"; else run_visible git -C "$KIT_DIR" pull --ff-only; fi
+  else
+    echo "using existing non-git kit dir: $KIT_DIR"
+  fi
 fi
 
 log "Installing aios command shim"
@@ -955,7 +974,11 @@ log "Preparing lins-living-loop module at $LLL_DIR"
 if [ ! -f "$LLL_DIR/SKILL.md" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $(mirror_url "$LLL_REPO_URL") $LLL_DIR"; else mkdir -p "$(dirname "$LLL_DIR")"; git clone "$(mirror_url "$LLL_REPO_URL")" "$LLL_DIR"; fi
 else
-  if [ -d "$LLL_DIR/.git" ]; then run_visible git -C "$LLL_DIR" pull --ff-only; else echo "using existing non-git LLL dir: $LLL_DIR"; fi
+  if [ -e "$LLL_DIR/.git" ]; then
+    if [ "$LLL_DIR_EXPLICIT" -eq 1 ]; then echo "using explicit git LLL dir without auto-pull: $LLL_DIR"; else run_visible git -C "$LLL_DIR" pull --ff-only; fi
+  else
+    echo "using existing non-git LLL dir: $LLL_DIR"
+  fi
 fi
 
 log "Installing lll command shim"
@@ -979,7 +1002,9 @@ fi
 
 if [ "$WITH_HERMES" -eq 1 ]; then install_hermes_core; else log "Skipping Hermes Agent install/config (--no-hermes)"; fi
 
-if ! have_cmd npx && [ "$DRY_RUN" -eq 0 ]; then
+if [ "$SKIP_SKILLPACK" -eq 1 ]; then
+  log "Skipping skillpack install (--skip-skillpack)"
+elif ! have_cmd npx && [ "$DRY_RUN" -eq 0 ]; then
   warn "npx is still missing; cannot install external skillpack entries. Re-run after Node/NVM shell reload."
 else
   log "Installing skillpack"
@@ -996,7 +1021,11 @@ if [ "$WITH_AIOPS" -eq 1 ]; then
   if [ ! -f "$TEMPLATE_DIR/scripts/install.py" ]; then
     if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $(mirror_url "$AIOPS_TEMPLATE_REPO_URL") $TEMPLATE_DIR"; else mkdir -p "$(dirname "$TEMPLATE_DIR")"; git clone "$(mirror_url "$AIOPS_TEMPLATE_REPO_URL")" "$TEMPLATE_DIR"; fi
   else
-    if [ -d "$TEMPLATE_DIR/.git" ]; then run_visible git -C "$TEMPLATE_DIR" pull --ff-only; else echo "using existing non-git template dir: $TEMPLATE_DIR"; fi
+    if [ -e "$TEMPLATE_DIR/.git" ]; then
+      if [ "$TEMPLATE_DIR_EXPLICIT" -eq 1 ]; then echo "using explicit git template dir without auto-pull: $TEMPLATE_DIR"; else run_visible git -C "$TEMPLATE_DIR" pull --ff-only; fi
+    else
+      echo "using existing non-git template dir: $TEMPLATE_DIR"
+    fi
   fi
   log "Installing OPS vault at $VAULT_PATH"
   if [ "$DRY_RUN" -eq 1 ]; then

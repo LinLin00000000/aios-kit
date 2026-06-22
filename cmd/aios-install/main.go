@@ -29,6 +29,7 @@ func main() {
 func run(argv []string) error {
 	opts := installer.DefaultOptions()
 	var script string
+	var platform string
 	var noWizard bool
 	var forceWizard bool
 	var printCommand bool
@@ -44,6 +45,7 @@ func run(argv []string) error {
 	fs := flag.NewFlagSet("aios-install", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&script, "script", "", "path to install.sh; defaults to discovering it from the current directory")
+	fs.StringVar(&platform, "platform", installer.PlatformAuto, "target platform profile: auto|linux|windows|darwin")
 	fs.BoolVar(&forceWizard, "wizard", false, "force interactive huh wizard")
 	fs.BoolVar(&noWizard, "no-wizard", false, "do not launch the interactive wizard")
 	fs.BoolVar(&printCommand, "print-command", false, "print the generated install.sh command instead of executing it")
@@ -93,6 +95,20 @@ func run(argv []string) error {
 		return nil
 	}
 
+	platform = installer.NormalizePlatform(platform)
+	if platform == installer.PlatformWindows {
+		// Native Windows install.ps1 owns the core install path. If this Go
+		// frontend is used directly on Windows, start from conservative core
+		// defaults and hide Linux/server add-ons in the interactive form.
+		defaults := installer.PlatformDefaults(platform)
+		opts.Proxy = defaults.Proxy
+		opts.ProxyTun = defaults.ProxyTun
+		opts.ResetSources = defaults.ResetSources
+		opts.WithDevEnv = defaults.WithDevEnv
+		opts.WithHermes = defaults.WithHermes
+		opts.WithAIOps = defaults.WithAIOps
+	}
+
 	if noProxyTun {
 		opts.ProxyTun = false
 	}
@@ -112,7 +128,7 @@ func run(argv []string) error {
 	interactive := forceWizard || (!noWizard && isTerminal(os.Stdin) && isTerminal(os.Stdout))
 	if interactive {
 		var err error
-		opts, execute, err = wizard.Run(opts)
+		opts, execute, err = wizard.RunForPlatform(opts, platform)
 		if err != nil {
 			return err
 		}
@@ -135,7 +151,7 @@ func run(argv []string) error {
 	}
 
 	if printCommand || !execute {
-		fmt.Println(installer.Summary(opts))
+		fmt.Println(installer.SummaryForPlatform(opts, platform))
 		fmt.Printf("Command:\n  %s\n", plan.RedactedPreview)
 		if !execute {
 			fmt.Println("\nNot executed. Re-run with --execute or confirm execution in the wizard.")

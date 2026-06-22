@@ -12,11 +12,19 @@
 
 ### 方式 1：一行交互式安装
 
+Ubuntu/Debian Linux：
+
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
-脚本启动后会先问是否使用现代 CLI 向导（默认 yes）。确认后才会下载向导；如果向导不可用，会自动回退到原生 Bash 交互。
+Windows PowerShell（原生核心安装）：
+
+```powershell
+iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 | iex
+```
+
+脚本启动后会先问是否使用现代 CLI 向导（默认 yes）。确认后才会下载向导；如果向导不可用，会自动回退到原生 Bash 交互。Windows 原生入口只安装核心能力；如果需要 Linux/server 附加能力，请使用 WSL 或 Linux 服务器上的 `install.sh`。
 
 如果 GitHub 访问不稳定，可以换成你信任的镜像：
 
@@ -85,6 +93,13 @@ LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立
 
 `aios lll ...` 的边界：默认只定位 `lll` CLI/helper、列出 AIOS work root 下的 LLL workdirs、创建新 workdir，或把 status/validate 代理给 `lll`；任务队列、runner、lease、reaper、artifacts 仍由 LLL CLI/协议负责。标准安装会在 `~/aios/bin/` 暴露 `aios` 与 `lll` 两个命令；`aios lll doctor --json` 会优先检查 AIOS module 内的 LLL，避免被 PATH 上的旧版本误导。
 
+## 能力分层
+
+| 层级 | 内容 | 平台策略 |
+|---|---|---|
+| 核心特性 | 本地 AIOS 实例、`aios-kit` 与 LLL 模块、`aios` 命令入口、work/config/vault/skills/state/logs/cache 目录、runtime skills 目标目录 | 设计为全平台支持；当前优先支持 Ubuntu 与 Windows。适合“本地开机时使用”，不要求 24 小时运行。Windows 原生会安装 LLL 模块，但完整 `lll` CLI 暂需 Git Bash/WSL。 |
+| 附加特性 | Mihomo/TUN、Docker/Caddy/Node/UV bootstrap、Hermes 安装配置、OPS vault 模板、Ubuntu 源恢复、systemd/24x7 服务化运行 | Linux/server 推荐；Windows 原生安装默认隐藏不支持项。如需完整 Linux/server 能力，请用 WSL 或云服务器。 |
+
 ## 默认会安装什么
 
 ```text
@@ -99,7 +114,7 @@ LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立
   state/ logs/ cache/
 ```
 
-Agent 真正加载的 runtime skills 仍安装到 agent 自己的目录，例如 `~/.agents/skills/<skill>` 或 `~/.hermes/skills/<skill>`。`aios-kit` 只逐个安装托管 skills，不接管整个 skills 目录。
+Agent 真正加载的 runtime skills 仍安装到 agent 自己的目录，例如 `~/.agents/skills/<skill>` 或 `~/.hermes/skills/<skill>`。Linux/WSL 后端会逐个安装托管 skills，不接管整个 skills 目录；Windows 原生安装目前先初始化 skills 目标目录，managed skillpack sync 仍建议通过 WSL/Linux 执行。
 
 ## 网络与 Mihomo
 
