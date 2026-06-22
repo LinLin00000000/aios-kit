@@ -6,13 +6,13 @@
 
 # aios-kit
 
-`aios-kit` is a lightweight, portable, Agent-friendly installation and distribution kit for a Personal AIOS.
+`aios-kit` is a lightweight, portable, Agent-friendly installation and distribution kit for Personal AIOS.
 
-It is not trying to solve the short-term problem of “how to install a few more AI tools.” Instead, it addresses a longer-term need: when AI starts reading documents, running commands, maintaining services, organizing knowledge, and continuing projects on your behalf, you need an operating-system layer of your own to organize memory, tools, resources, workflows, and boundaries.
+It is not trying to solve “how to install a few more AI tools,” but a longer-term problem: when AI starts reading documents, running commands, maintaining services, organizing knowledge, and continuing projects for you, you need an operating-system layer of your own to organize memory, tools, resources, workflows, and boundaries.
 
 ## Installation
 
-For now, the recommended approach is to remember just two entry points:
+For now, the two recommended entry points are:
 
 ### Method 1: One-line interactive installation
 
@@ -20,64 +20,64 @@ For now, the recommended approach is to remember just two entry points:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
-After the script starts, it will first ask whether to use the modern CLI wizard (default: yes). The wizard is downloaded only after confirmation; if the wizard is unavailable, it automatically falls back to native Bash interaction.
+After the script starts, it will first ask whether to use the modern CLI wizard (default: yes). The wizard is downloaded only after you confirm; if the wizard is unavailable, it automatically falls back to native Bash interaction.
 
-If GitHub access is unstable, you can switch to a mirror you trust:
+If GitHub access is unstable, you can use a mirror you trust:
 
 ```bash
 bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
 ```
 
-### Method 2: Let an existing Agent assist with installation
+### Method 2: Let an existing Agent help with installation
 
 Send the following lines to a terminal Agent such as Codex, Claude Code, OpenClaw, or Hermes:
 
 ```text
 Please help me install aios-kit: https://github.com/LinLin00000000/aios-kit
 Please first read README.md, docs/installation.md, and docs/security-and-privacy.md, and check install.sh --help.
-First generate and run a dry-run installation command, and explain which system configurations it will modify; execute the real installation only after I confirm.
+First generate and run a dry-run installation command, and explain which system configurations will be changed; execute the real installation only after I confirm.
 After installation, please run ~/aios/bin/aios status and ~/aios/bin/aios doctor.
 Do not leak or commit my subscription URLs, tokens, keys, or private configuration.
 ```
 
-For more platform, parameter, non-interactive, and troubleshooting details, see: [docs/installation.md](docs/installation.md).
+For more details on platforms, parameters, non-interactive installation, and troubleshooting, see: [docs/installation.md](docs/installation.md).
 
 ## Vision
 
-Personal AIOS is not a chat window, nor is it a single agent. It is more like the foundation of a personal digital world: it knows what projects, assets, services, and habits you have; it knows what can be public and what must stay local; and it knows how to turn one-off AI conversations into reusable workflows.
+Personal AIOS is not a chat window, nor is it a single agent. It is more like the foundation of a personal digital world: it knows what projects, assets, services, and habits you have; it knows what can be public and what must stay local; it knows how to turn one-off AI conversations into reusable workflows.
 
-`aios-kit` is the installation package and distribution skeleton for that foundation. It first brings up a minimal usable AIOS: directories, skills, an OPS vault, a project registry, network bootstrapping, and update commands. From there, it can continue to grow into multi-device collaboration, a personal knowledge and operations graph, long-running task loops, a context layer for digital twins, and infrastructure that allows different agents to share the same real-world anchors.
+`aios-kit` is the installation package and distribution skeleton for this foundation. It first sets up the minimum viable AIOS: directories, skills, an OPS vault, a project registry, network bootstrap, and update commands. From there, it can keep growing into multi-device collaboration, personal knowledge and operations graphs, long-running task loops, the context layer for a digital twin, and infrastructure that lets different agents share the same set of real-world anchors.
 
 Core directions:
 
-- **From chat to operating system**: AI does not just answer questions; it can continuously act around your projects, devices, documents, and services.
-- **From temporary context to long-term structure**: Important information is not trapped in a single conversation, but becomes vaults, registries, skills, and auditable logs.
+- **From chat to operating system**: AI does not just answer questions; it can continuously act around your projects, devices, materials, and services.
+- **From temporary context to long-term structure**: Important information is not trapped in a single conversation, but captured as vaults, registries, skills, and auditable logs.
 - **From a single Agent to an Agent ecosystem**: Hermes is the default center, but Codex, Claude Code, OpenClaw, and future agents should all be able to understand the same structure.
-- **From tool stacking to personal sovereignty**: Public templates can be copied, while private facts stay local; the system should help you migrate and expand, rather than lock you into a platform.
-- **From manual human operations to Agent-first**: By default, agents read the structure, call the CLI, run checks, and perform repairs; humans mainly express goals, boundaries, and acceptance criteria, while manual commands are only a fallback when agents are unavailable.
+- **From tool stacking to personal sovereignty**: Public templates can be copied, while private facts remain local; the system should help you migrate and expand, rather than lock you into a platform.
+- **From manual human operation to Agent-first**: By default, agents read the structure, call the CLI, run checks, and perform fixes; humans mainly express goals, boundaries, and acceptance criteria, while manual commands are only a fallback when agents are unavailable.
 
-Today, `aios-kit` is still only the starting point: it gives a new machine a portable, maintainable AIOS skeleton that agents can understand. The roadmap is not to cram everything into one repository, but to gradually form a clear protocol for personal AI infrastructure.
+Today, `aios-kit` is still just the starting point: it gives a new machine a portable, maintainable AIOS skeleton that agents can understand. The roadmap is not to cram everything into one repository, but to gradually form a clear personal AI infrastructure protocol.
 
 ## Design Philosophy: Agent First, Human Fallback
 
-The default user of AIOS is not “a person skilled at remembering commands,” but an agent that can continuously work on your behalf. Human input should primarily consist of goals, constraints, permission boundaries, and acceptance criteria; concrete commands, paths, health checks, updates, log reading, error recovery, and documentation lookup should be handled by the agent itself based on a stable structure.
+The default user of AIOS is not “someone skilled at memorizing commands,” but an agent that can continuously work for you. The main human inputs should be goals, constraints, permission boundaries, and acceptance criteria; specific commands, paths, health checks, updates, log reading, error recovery, and documentation lookup should be handled by the agent itself based on a stable structure.
 
 This leads to several design constraints:
 
 | Principle | Meaning |
 |---|---|
 | **Agent-first** | The CLI, documentation, registry, vault, and logs should all be easy for agents to discover, call, parse, and recover from. |
-| **Human fallback** | The README still provides copyable commands, but these commands are the agent operation surface and emergency manual entry points, not the default interaction mode. |
-| **Machine-readable first** | Key commands should provide stable probes such as `--json`, `doctor`, `status`, and `validate`; do not output only long human-oriented text. |
-| **Files are the source of truth** | Private facts, project registration, operations state, and long-running task records should land in the vault/registry/LLL workdir, not remain in chat context. |
-| **Thin control plane** | AIOS is responsible for discovery, installation, updates, and governance; concrete state machines are handled by the corresponding tools, such as LLL managing its own task queue and runner. |
-| **Auditable and portable** | Public templates and private state are separated, changes can be inspected, and a fresh clone / new machine should be able to restore equivalent capabilities. |
+| **Human fallback** | The README still provides copyable commands, but these commands are the agent operation surface and emergency manual entry point, not the default interaction mode. |
+| **Machine-readable first** | Key commands should provide stable probes such as `--json`, `doctor`, `status`, and `validate`; do not output only long text meant for humans. |
+| **Files are the source of truth** | Private facts, project registrations, operations state, and long-running task records should be written to the vault/registry/LLL workdir, not left in chat context. |
+| **Thin control plane** | AIOS is responsible for discovery, installation, updates, and governance; specific state machines are handled by their respective tools, for example LLL manages its own task queue and runner. |
+| **Auditable and portable** | Public templates and private state are separated, changes can be inspected, and a fresh clone / new machine should be able to recover equivalent capabilities. |
 
-Therefore, the command examples in the documentation can be executed directly by humans, but it is more recommended to copy them to agents such as Hermes/Codex/Claude Code/OpenClaw, let the agent run `doctor/status` first, and then choose a safe path based on the machine environment.
+So the command examples in the documentation can be run directly by humans, but it is recommended to copy them to agents such as Hermes/Codex/Claude Code/OpenClaw and let the agent run `doctor/status` first, then choose a safe path based on the machine environment.
 
 ## LLL Workflow Entry Point
 
-LLL (Lin's Living Loop) is one of the workflow foundations of AIOS, while still remaining an independent first-class CLI. `aios-kit` is responsible for discovering, installing, updating, and governing LLL, without absorbing LLL’s core state machine. Here too, the Agent is the default operator: the human expresses the goal, and the Agent calls `aios lll ...` to discover the workdir, check health status, create a new task space, and hand it over to the `lll` runner for execution; the command examples are the Agent operation surface and human fallback.
+LLL (Lin's Living Loop) is one of the workflow foundations of AIOS, but it remains an independent first-class CLI. `aios-kit` is responsible for discovering, installing, updating, and governing LLL, but it does not absorb LLL’s core state machine. Here as well, the Agent is the default operator: humans express goals, and the Agent calls `aios lll ...` to discover the workdir, check health, create a new task space, and hand it over to the `lll` runner for execution; the command examples are the Agent operation surface and human fallback.
 
 ```bash
 ./aios update modules lins-living-loop
@@ -87,7 +87,7 @@ LLL (Lin's Living Loop) is one of the workflow foundations of AIOS, while still 
 ./aios lll status <workdir-or-name> --json
 ```
 
-The boundary of `aios lll ...`: by default, it only locates the `lll` CLI/helper, lists LLL workdirs under the AIOS work root, creates new workdirs, or proxies status/validate to `lll`; the task queue, runner, lease, reaper, and artifacts are still handled by the LLL CLI/protocol. A standard installation exposes both `aios` and `lll` commands under `~/aios/bin/`; `aios lll doctor --json` preferentially checks the LLL inside the AIOS module to avoid being misled by an old version on PATH.
+The boundary of `aios lll ...`: by default, it only locates the `lll` CLI/helper, lists LLL workdirs under the AIOS work root, creates new workdirs, or proxies status/validate to `lll`; the task queue, runner, lease, reaper, and artifacts are still handled by the LLL CLI/protocol. A standard installation exposes both `aios` and `lll` commands in `~/aios/bin/`; `aios lll doctor --json` prioritizes checking the LLL inside the AIOS module to avoid being misled by an old version on PATH.
 
 ## What Gets Installed by Default
 
@@ -96,24 +96,24 @@ The boundary of `aios lll ...`: by default, it only locates the `lll` CLI/helper
   bin/                     # aios command entry point
   config/                  # instance configuration
   vault/ops/               # OPS vault initialized from public templates
-  work/                    # LLL / agent working directory
+  work/                    # LLL / agent work directories
   skills/                  # AIOS metadata/cache, not the runtime skills directory
   modules/                 # updatable module checkouts
   network/mihomo/          # optional Mihomo network component
   state/ logs/ cache/
 ```
 
-The runtime skills actually loaded by agents are still installed into the agents’ own directories, such as `~/.agents/skills/<skill>` or `~/.hermes/skills/<skill>`. `aios-kit` only installs managed skills one by one; it does not take over the entire skills directory.
+Runtime skills that Agents actually load are still installed into the agent’s own directory, for example `~/.agents/skills/<skill>` or `~/.hermes/skills/<skill>`. `aios-kit` only installs managed skills one by one; it does not take over the entire skills directory.
 
 ## Network and Mihomo
 
-The installer first tests external network access without setting proxy environment variables. If direct access fails, the interactive flow asks whether to install Mihomo, defaulting to yes; non-interactive `--proxy auto` installs it automatically.
+The installer first tests external network access without setting proxy environment variables. If direct connection fails, the interactive flow asks whether to install Mihomo, defaulting to yes; non-interactive `--proxy auto` installs it automatically.
 
 Mihomo is installed to `~/aios/network/mihomo` by default, and TUN is enabled by default; on Linux/systemd, it writes `aios-mihomo.service`. The TUN configuration is not absolutely universal across Windows/macOS/Linux; the current defaults are mainly intended for Ubuntu/Debian cloud servers. For details, see: [docs/mihomo-network.md](docs/mihomo-network.md).
 
 ## Common Commands
 
-Agents should prioritize JSON/doctor/status probes; humans should run commands manually only when fallback troubleshooting is needed:
+Agents should prioritize JSON/doctor/status probes; humans only run commands manually when fallback troubleshooting is needed:
 
 ```bash
 aios status                 # View instance summary (human-readable)

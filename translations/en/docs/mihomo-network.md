@@ -6,18 +6,18 @@
 
 # Mihomo Network Configuration
 
-AIOS's network bootstrap goal is: if a new cloud server cannot directly access the external network, it can quickly obtain a controllable, recoverable, and auditable proxy layer.
+AIOS’s network bootstrap goal is: if a new cloud server cannot directly access the external network, it can quickly obtain a controllable, recoverable, and auditable proxy layer.
 
 ## Current Scope
 
-The current installer mainly targets Ubuntu/Debian cloud servers:
+The current installer is mainly intended for Ubuntu/Debian cloud servers:
 
 - systemd service unit: `/etc/systemd/system/aios-mihomo.service`
 - Binary: `~/aios/network/mihomo/mihomo`
 - Configuration: `~/aios/network/mihomo/config.yaml`
 - Shell helper commands: `proxy_on`, `proxy_off`, `proxy_test`, `proxy_restart`
 
-Windows/macOS should not directly assume that the same systemd/CAP_NET_ADMIN/TUN behavior is available. You can use this document and agent-assisted installation as adaptation references.
+Windows/macOS should not directly assume that the same systemd/CAP_NET_ADMIN/TUN behavior is available. This document and agent-assisted installation can be used as adaptation references.
 
 ## Configuration Input
 
@@ -85,7 +85,7 @@ tun:
   endpoint-independent-nat: true
 ```
 
-Assessment: **Suitable as the default for Linux servers, but not an absolutely universal configuration across Windows/macOS/Linux.**
+Assessment: **Suitable as Linux server defaults, but not an absolutely universal configuration across Windows/macOS/Linux.**
 
 ### Linux Cloud Servers
 
@@ -105,44 +105,44 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 
 ### macOS
 
-Directly copying this is not recommended:
+Directly copying it is not recommended:
 
 - no systemd;
 - TUN/utun permissions and startup methods are different;
-- DNS hijack and route takeover may require user authorization or cooperation from a GUI client;
-- better managed through clients such as Mihomo-party or Clash Verge Rev.
+- DNS hijacking and route takeover may require user authorization or cooperation from a GUI client;
+- it is better managed through clients such as Mihomo-party or Clash Verge Rev.
 
 ### Windows
 
-Directly copying this is also not recommended:
+Directly copying it is also not recommended:
 
 - no systemd;
 - TUN depends on wintun/service/administrator privileges;
-- DNS hijack behavior is complex when coexisting with the Windows network stack, Hyper-V/WSL/VPN;
-- better to use a native Windows Mihomo/Clash client, or have an agent install it according to the local environment.
+- DNS hijacking behavior is complex when coexisting with the Windows network stack, Hyper-V/WSL/VPN;
+- it is better to use a native Windows Mihomo/Clash client, or have an agent install it according to the local environment.
 
 ## Current Optimizations
 
 The template already includes:
 
-- `allow-lan: true`, making it convenient for LAN devices to use;
+- `allow-lan: true`, convenient for use by LAN devices;
 - Tailscale/MagicDNS/fake-ip exceptions;
-- direct connections for private networks;
+- direct connection for private networks;
 - automatic geodata updates;
 - `AI`, `Auto`, `PROXY`, and `GLOBAL` groups;
 - `external-ui` and UI/geodata mirror URLs;
 - `fake-ip-filter` to avoid Tailscale;
-- `GEOSITE,ai,AI` to route AI-related traffic through a separate latency-tested group.
+- `GEOSITE,ai,AI` to route AI-related traffic through a separate latency-test group.
 
-## Not Generic Enough
+## Areas That Are Not Universal Enough
 
-- `allow-lan: true`: convenient for server scenarios, but exposes risk on untrusted LANs. A future `--mihomo-allow-lan yes|no` option can be added.
-- `stack: mixed`: usually works on Linux, but behavior may differ across Mihomo versions/platforms. Change to `system` or the platform-recommended value if necessary.
+- `allow-lan: true`: convenient for server scenarios, but has exposure risks on untrusted LANs. A future option could be added: `--mihomo-allow-lan yes|no`.
+- `stack: mixed`: usually works on Linux, but behavior may vary across different Mihomo versions/platforms. Change to `system` or the platform-recommended value when needed.
 - `dns-hijack`: useful for transparent proxying on servers, but may conflict with system DNS/VPN on desktop systems.
-- `strict-route: false`: more permissive and reduces the chance of new users losing network access; high-isolation scenarios may prefer true.
-- geodata URLs use GitHub mirrors: convenient for bootstrapping without a proxy, but mirror availability depends on the provider.
+- `strict-route: false`: more permissive and reduces the chance of network loss for beginners; high-isolation scenarios may prefer true.
+- geodata URLs use GitHub mirrors: convenient for starting without a proxy, but mirror availability depends on the provider.
 
-## Options to Add Later
+## Future Options to Add
 
 - `--mihomo-allow-lan yes|no`
 - `--mihomo-stack mixed|system|gvisor`

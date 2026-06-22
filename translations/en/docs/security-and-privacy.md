@@ -12,7 +12,7 @@ Public `aios-kit` files must be portable:
 
 - You may commit examples, schemas, templates, reusable scripts, and general documentation.
 - Do not commit machine-specific manifests, live vault data, state files, logs, secrets, tokens, private hostnames, private IPs, or private agent skill content.
-- Do not commit proxy subscription URLs, node YAML containing UUID/password values, provider tokens, or generated Mihomo configurations that include private nodes.
+- Do not commit proxy subscription URLs, node YAML containing UUIDs/passwords, provider tokens, or generated Mihomo configurations containing private nodes.
 
 ## Local Override Files
 
@@ -23,11 +23,15 @@ skillpack.local.yaml
 manifests/local-assets.local.json
 manifests/local-assets.json
 registries/*.local.*
+profiles/*.local.*
+profiles/local-*.yaml
+profiles/local-*.json
+secrets/
 ```
 
-They are used for local paths, private skills, the current device name, and non-public repositories.
+They are used for local paths, private skills, current device names, non-public repositories, and temporary/historical secret materialization. The official instance state of the AIOS Secret module is stored in `$AIOS_ROOT/vault/secrets` and should not be committed to the public `aios-kit` repository.
 
-## Public Push Audit Checklist
+## Pre-Public-Push Audit Checklist
 
 Run first:
 
@@ -43,4 +47,4 @@ git status --short --branch
 git ls-files
 ```
 
-If private local paths were accidentally committed to the repository, rewrite the history while the repository is still new and the impact is manageable. If a real secret has been exposed, immediately rotate or remove the relevant credentials.
+If private local paths were accidentally committed to the repository, rewrite history while the repository is still new and the blast radius is manageable. If real secrets have been exposed, rotate or delete the relevant credentials immediately.

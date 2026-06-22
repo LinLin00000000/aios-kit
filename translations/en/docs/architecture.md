@@ -12,11 +12,23 @@
 
 Keep independent projects independent, and connect them with manifests, modules, registries, and local links:
 
-- `aios-kit`: installer, CLI, public manifest, selected first-party skills, and documentation.
+- `aios-kit`: installer, CLI, public manifests, selected first-party skills, and documentation.
 - `lins-living-loop`: independent first-party workflow skill / project.
 - `aiops-vault-template`: independent public OPS vault template.
 - `~/aios/vault/ops`: the default live OPS vault for new AIOS instances.
 - `~/ai-ops`: author/historical compatibility path; must not be used as the public installation default.
+
+## Agent-first / Human fallback
+
+AIOS assumes the following architecture: **agents are the default operators; humans are authorizers, goal setters, and fallback operators**.
+
+This is not a slogan about "automating everything"; it specifically affects repository boundaries and command design:
+
+1. **Stable probes first**: every long-lived module should expose `doctor`, `status`, `validate`, and `--json` whenever possible, so agents can decide whether they can proceed.
+2. **Human commands are fallback**: shell commands in the documentation should be copyable, but their main value is to give agents a clear operating surface; under normal circumstances, humans do not need to understand them line by line.
+3. **The control plane does not absorb state machines**: AIOS can proxy `aios lll ...`, but LLL queues, leases, runners, and artifacts are still managed by the LLL protocol/CLI.
+4. **File-based governance**: project registries, OPS vaults, installation state, maintenance logs, and LLL workdirs are the shared fact layer across agents.
+5. **Publicly recoverable**: public repositories must be able to restore key capabilities from a fresh clone, Docker, or a new machine, and must not rely only on implicit symlinks on the author's machine.
 
 ## Source, Runtime, and State
 
@@ -24,13 +36,13 @@ Do not move every repo under `aios-kit`. Boundaries should be clear:
 
 | Layer | Responsibility | Example |
 |---|---|---|
-| Distribution source | Installer, CLI, public documentation/manifest | `~/projects/aios-kit` or `~/aios/modules/aios-kit` |
-| Modules | Updatable checkout / template | `~/aios/modules/lins-living-loop` |
+| Distribution source | Installer, CLI, public docs/manifests | `~/projects/aios-kit` or `~/aios/modules/aios-kit` |
+| Modules | Updatable checkouts / templates | `~/aios/modules/lins-living-loop` |
 | Runtime skills | Skills actually loaded by agents | `~/.agents/skills`, `~/.hermes/skills` |
-| Live vault | Private/current operational facts | `~/aios/vault/ops` |
+| Live vault | Private/current operations facts | `~/aios/vault/ops` |
 | Skillpack state | Safe update/prune records | `~/aios/vault/ops/state/aios-kit/install-state.json` |
 
-External skills are installed via `npx skills`. First-party skills can be installed by copying for regular users, or by symlinking on the author’s development machine.
+External skills are installed via `npx skills`. First-party skills can be installed by copying for regular users, and symlinked on the author's development machine.
 
 ## Installation Mode and Development Mode
 
@@ -40,13 +52,13 @@ Use the installer for friends or clean machines:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
-If the repository has already been checked out:
+When the repository is already checked out:
 
 ```bash
 bash install.sh
 ```
 
-For author development, symlink skills one by one so edits in runtime paths land in Git-visible worktrees:
+During author development, symlink each skill individually so edits in the runtime directory land in a Git-visible worktree:
 
 ```bash
 cd ~/projects/aios-kit
@@ -54,15 +66,15 @@ cd ~/projects/aios-kit
 ./aios skillpack doctor
 ```
 
-Do not symlink or replace the entire agent skills directory. Public installation copies/syncs selected skills one by one by default.
+Do not symlink or replace the entire agent skills directory. Public installation defaults to copying/syncing selected skills individually.
 
 ## Local Structure and Linking Strategy
 
-The standard development paths are intentionally separated from runtime installation paths:
+The standard development path is intentionally separated from the runtime installation path:
 
 | Object | Path | Strategy |
 |---|---|---|
-| Main suite | `~/projects/aios-kit` | Source of truth for assembly scripts, manifests, and documentation |
+| Main suite | `~/projects/aios-kit` | Source of truth for assembly scripts, manifests, and docs |
 | LLL | `~/projects/lins-living-loop` | Independent first-party source project |
 | AIOps template | `~/projects/aiops-vault-template` | Public reusable template |
 | Live AIOps vault | `~/aios/vault/ops` | Default instance vault; private/current facts |
@@ -72,16 +84,16 @@ The standard development paths are intentionally separated from runtime installa
 
 Rules:
 
-1. Templates are not live assets.
-2. Runtime directories only become the source of truth after explicit promotion.
+1. A template is not a live asset.
+2. Runtime directories become the source of truth only after explicit promotion.
 3. Active first-party skills should be trackable by Git.
-4. Symlinks are for local author development; copy/install is the public default behavior.
-5. Only paths recorded in the current install-state may be pruned automatically.
+4. Symlinks are for the author's local development; copy/install is the public default behavior.
+5. Only paths recorded in the current install-state may be automatically pruned.
 
 ## Key Decisions
 
 - **Main project name**: use `aios-kit`; skillpack is a module, not a repo boundary.
 - **LLL stays independent**: `aios-kit` references, links, or copies it, but does not vendor it.
-- **OPS template and live vault are separate**: the template is a reusable starting point; the live vault is user/private state.
-- **Symlink for author development, copy for public distribution**: optimize author machines for editability; optimize public installation for portability.
+- **OPS template and live vault are separated**: the template is a reusable starting point; the live vault is user/private state.
+- **Symlink for author development, copy for public distribution**: the author's machine is optimized for editability; public installation is optimized for portability.
 - **Manifest + thin scripts, not a new package manager**: `aios-kit` reads `skillpack.yaml`, calls `npx skills` for external skills, and directly copies/symlinks first-party skills.

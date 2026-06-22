@@ -6,66 +6,51 @@
 
 # Installation Guide
 
-The installer is currently validated mainly on Ubuntu/Debian-based cloud servers. For other distributions, we recommend using `--dry-run` first, or having an existing agent read the source code and documentation to assist with installation.
+The current installer has mainly been verified on Ubuntu/Debian-based cloud servers. For macOS/Windows and other distributions, it is recommended to use `--dry-run` first, or have an existing Agent read the source code and documentation to assist with installation.
 
-## Quick Install
+## Recommended Entry Points
+
+### One-line Interactive Installation
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
-If a new machine cannot connect directly to GitHub for now, you can use a raw/release mirror you trust:
+Default behavior: the script first asks in native Bash whether to enable the modern CLI wizard, defaulting to yes. Only after you choose yes will it download or start `aios-install`.
+
+`aios-install` is a modern CLI frontend written in Go/huh. It provides arrow-key selection, spacebar multi-select, and an installation plan preview. It does not duplicate the real installation logic; it only converts your choices into a stable:
 
 ```bash
-bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
+install.sh --non-interactive ...
 ```
 
-## What the Installer Does
-
-The installer is designed to be as idempotent as possible: it checks first, then executes. Main flow:
-
-1. Check minimum dependencies: `git`, `python3`, `curl`, etc.
-2. Test direct access to GitHub/the external network; install Mihomo if the test fails.
-3. Create the AIOS root, defaulting to `~/aios`, and directories such as `modules/`, `bin/`, `config/`, `state/`, and `logs/`.
-4. Prepare the `aios-kit` checkout: use the current repo when running from inside the repo; otherwise default to `~/aios/modules/aios-kit`.
-5. Write the `~/aios/bin/aios` command shim, with an option to add it to PATH.
-6. Optionally install Mihomo/Clash: generate config, download the core, and on Linux/systemd write and start `aios-mihomo.service`.
-7. Optionally restore official sources: npm, pip, Docker; Ubuntu apt backs up the old source and writes an official deb822 source.
-8. Optionally install the development environment: Python venv support, UV, NVM + Node 24, Docker, Caddy.
-9. Initialize the AIOS instance configuration.
-10. Clone/update modules such as LLL.
-11. Optionally install/check Hermes Agent; users of other agents can skip this with `--no-hermes`.
-12. Install the skillpack: default target `universal`, mode `copy`, while protecting local user changes.
-13. Initialize the OPS vault from the public template, defaulting to `~/aios/vault/ops`; it does not copy the maintainer’s private live vault.
-
-## Interactive Options and Non-Interactive Parameters
-
-| Interactive Prompt | Default | Non-Interactive Parameter | Description |
-|---|---:|---|---|
-| AIOS installation root directory | `~/aios` | `--root PATH` | AIOS instance root directory |
-| Proxy setting | `auto` | `--proxy auto|yes|no` | Test direct connection first; install Mihomo if it fails |
-| Whether to enable Mihomo TUN mode | `1` | `--proxy-tun` / `--no-proxy-tun` | TUN is enabled by default |
-| Whether to restore official apt/npm/pip/Docker sources | `1` | `--reset-sources` / `--no-reset-sources` | Ubuntu apt backs up old sources |
-| Proxy subscription URL | Empty | `--proxy-subscription-url URL` | Provider/airport subscription URL; this is private configuration. Recommended: first `export AIOS_PROXY_SUBSCRIPTION_URL='...'`, then use `--proxy-subscription-url "$AIOS_PROXY_SUBSCRIPTION_URL"` |
-| Local proxy YAML snippet path | Empty | `--proxy-proxies-file PATH` | Self-hosted node YAML snippet; this is private configuration |
-| Whether to install/check Python+UV, Node 24, Docker, Caddy | `1` | `--with-dev-env` / `--no-dev-env` | The external skillpack installation depends on `npx`; if you skip the dev env, make sure Node/npx is already available |
-| Whether to install/check Hermes Agent | `1` | `--with-hermes` / `--no-hermes` | Hermes is installed by default, but can be skipped |
-| Whether to install/update the OPS vault template | `1` | `--with-aiops` / `--no-aiops` | Initialize the operations knowledge base |
-| Whether to add AIOS bin to PATH | Interactive default yes | `--add-to-path yes|no|ask` | For non-interactive use, explicitly pass `yes` or `no` |
-
-Common non-interactive command:
+If you want to force using or skipping the modern wizard:
 
 ```bash
-bash install.sh --non-interactive -y \
-  --root ~/aios \
-  --proxy auto \
-  --reset-sources \
-  --add-to-path yes \
-  --target universal \
-  --mode copy
+bash install.sh --wizard
+bash install.sh --no-wizard
 ```
 
-If you have not cloned the repo yet, you can use the remote installer:
+### Agent-assisted Installation
+
+If you already have a terminal Agent such as Codex, Claude Code, OpenClaw, or Hermes, it is recommended to ask the Agent to generate a dry-run plan first, then run the real installation:
+
+```text
+Please help me install aios-kit: https://github.com/LinLin00000000/aios-kit
+Please first read README.md, docs/installation.md, docs/security-and-privacy.md, and check install.sh --help.
+First generate and run a dry-run installation command, and explain which system configurations will be changed; after I confirm, run the real installation.
+After installation, please run ~/aios/bin/aios status and ~/aios/bin/aios doctor.
+Do not leak or commit my subscription URL, token, keys, or private configuration.
+```
+
+The stable entry point for Agent/CI is not the interactive wizard, but:
+
+```bash
+bash install.sh --non-interactive -y --dry-run
+bash install.sh --non-interactive -y
+```
+
+If you have not cloned the repo yet:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- \
@@ -75,9 +60,96 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/
   --add-to-path yes
 ```
 
-## Full Parameters
+## Windows PowerShell Bootstrap (Preview)
 
-This document lists only common parameters. For complete, up-to-date parameter descriptions, refer to the installer:
+The Windows entry point is a thin bootstrap: it downloads `aios-install.exe`, verifies the checksum, downloads `install.sh` as the backend, and then starts the wizard. It depends on `aios-install_windows_*.tar.gz` and `aios-install_checksums.txt` already existing in the GitHub Release. If the current version has not published release assets yet, please use Git Bash/WSL to run `install.sh` first, or wait until the release is published before using the PowerShell entry point.
+
+```powershell
+iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 | iex
+```
+
+The real installation backend is still `install.sh`, so Git Bash or WSL is required to perform the actual installation. If Bash is unavailable, the PowerShell bootstrap will print a copyable persistent command instead of pretending the installation has completed.
+
+A more auditable approach:
+
+```powershell
+$script = "$env:TEMP\aios-kit-install.ps1"
+iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 -OutFile $script
+powershell -ExecutionPolicy Bypass -File $script -DryRun
+```
+
+## Modern Wizard Startup Order
+
+When `install.sh` starts the modern wizard, it will try the following in order:
+
+1. An existing `aios-install` on PATH: call it directly;
+2. A Go toolchain in the repo checkout: use `go run ./cmd/aios-install`;
+3. Download `aios-install_<os>_<arch>.tar.gz` for the current OS/arch from the GitHub Release, verify it against `aios-install_checksums.txt`, then start it;
+4. If none of the above are available, fall back to native Bash interaction.
+
+You can override the release source via environment variables:
+
+```bash
+AIOS_INSTALL_RELEASE_TAG=v0.1.0
+AIOS_INSTALL_RELEASE_BASE_URL=https://github.com/LinLin00000000/aios-kit/releases
+```
+
+## GitHub Mirror
+
+When a new machine cannot directly access GitHub, you can use:
+
+```bash
+bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
+```
+
+`--github-mirror` adds a prefix to GitHub/raw URLs, including aios-kit, LLL, OPS template clone, the Hermes/NVM installer, and GitHub URLs in the Mihomo release/UI/geodata.
+
+## What the Installer Does
+
+The installer is designed to be as idempotent as possible: detect first, then execute. Main flow:
+
+1. Check minimum dependencies: `git`, `python3`, `curl`, etc.
+2. Test direct access to GitHub/the external network; if it fails, Mihomo can be installed.
+3. Create the AIOS root, defaulting to `~/aios`, along with directories such as `modules/`, `bin/`, `config/`, `state/`, and `logs`.
+4. Prepare the `aios-kit` checkout: when run from inside the repo, use the current repo; otherwise, default to `~/aios/modules/aios-kit`.
+5. Write the `~/aios/bin/aios` command shim, and optionally add it to PATH.
+6. Optionally install Mihomo/Clash: generate configuration, download the core, and on Linux/systemd write and start `aios-mihomo.service`.
+7. Optionally restore official sources: npm, pip, Docker; Ubuntu apt backs up old sources and writes the official deb822 source.
+8. Optionally install a development environment: Python venv support, UV, NVM + Node 24, Docker, Caddy.
+9. Initialize AIOS instance configuration.
+10. Clone/update modules such as LLL.
+11. Optionally install/check Hermes Agent; users of other Agents can skip it with `--no-hermes`.
+12. Install the skillpack: default target `universal`, mode `copy`, protecting user local changes.
+13. Initialize the OPS vault from the public template, defaulting to `~/aios/vault/ops`; it does not copy the maintainer’s private live vault.
+
+## Interactive Options and Non-interactive Parameters
+
+| Interactive question | Default | Non-interactive parameter | Description |
+|---|---:|---|---|
+| Whether to use the modern CLI wizard | yes | `--wizard` / `--no-wizard` | Ask first by default; download/start only after confirmation |
+| AIOS installation root directory | `~/aios` | `--root PATH` | AIOS instance root directory |
+| Proxy settings | `auto` | `--proxy auto|yes|no` | Test direct connection first; install Mihomo if it fails |
+| Whether to enable Mihomo TUN mode | `1` | `--proxy-tun` / `--no-proxy-tun` | TUN is enabled by default |
+| Whether to restore official apt/npm/pip/Docker sources | `1` | `--reset-sources` / `--no-reset-sources` | Ubuntu apt backs up old sources |
+| Proxy subscription URL | empty | `--proxy-subscription-url URL` | Provider/airport subscription URL; private configuration |
+| Local proxy YAML snippet path | empty | `--proxy-proxies-file PATH` | Self-hosted node YAML snippet; private configuration |
+| Whether to install/check Python+UV, Node 24, Docker, Caddy | `1` | `--with-dev-env` / `--no-dev-env` | External skillpack installation depends on `npx`; if skipping dev env, make sure Node/npx already exists |
+| Whether to install/check Hermes Agent | `1` | `--with-hermes` / `--no-hermes` | Hermes is installed by default, but can be skipped |
+| Whether to install/update the OPS vault template | `1` | `--with-aiops` / `--no-aiops` | Initialize the operations knowledge base |
+| Whether to add AIOS bin to PATH | interactive default yes | `--add-to-path yes|no|ask` | For non-interactive use, explicitly pass `yes` or `no` |
+
+For private subscription URLs, it is recommended to export them to environment variables first, then pass them in double quotes:
+
+```bash
+export AIOS_PROXY_SUBSCRIPTION_URL='...'
+bash install.sh --non-interactive -y --proxy-subscription-url "$AIOS_PROXY_SUBSCRIPTION_URL"
+```
+
+Do not write real URLs into shareable records, and do not wrap environment variables that need expansion in single quotes.
+
+## Complete Parameters
+
+This document only lists common parameters. For complete and up-to-date parameter descriptions, refer to the installer:
 
 ```bash
 bash install.sh --help
@@ -87,23 +159,13 @@ Common advanced parameters:
 
 | Parameter | Purpose |
 |---|---|
-| `--kit-dir PATH` / `--lll-dir PATH` / `--vault PATH` | Override checkout or OPS vault locations |
+| `--kit-dir PATH` / `--lll-dir PATH` / `--vault PATH` | Override checkout or OPS vault location |
 | `--skills-dir PATH` | Override the agent runtime skills directory |
 | `--global-bin DIR` | Link `aios` into an existing PATH directory; refuses to overwrite on conflict |
-| `--proxy-auto-env auto|yes|no` | Control whether shell proxy helpers are enabled automatically |
+| `--proxy-auto-env auto|yes|no` | Control whether shell proxy helpers are automatically enabled |
 | `--mihomo-url URL` / `--mihomo-version VERSION` | Override the Mihomo core download source or version |
-| `--force` | Overwrite a managed skill copy that has been modified locally |
-| `--interactive` / `--dry-run` | Force interactive mode or only print actions |
-
-## GitHub Mirrors
-
-When a new server cannot connect directly to GitHub, you can use:
-
-```bash
---github-mirror https://gh-proxy.com/
-```
-
-It adds a prefix to GitHub/raw URLs, including aios-kit, LLL, OPS template clone, the Hermes/NVM installer, and GitHub URLs in Mihomo release/UI/geodata.
+| `--force` | Overwrite managed skill copies that have local modifications |
+| `--interactive` / `--dry-run` | Force interaction or only print actions |
 
 ## Restoring Official Sources
 
@@ -111,8 +173,8 @@ Default: `--reset-sources`. Current behavior:
 
 - npm: remove custom registry.
 - pip: remove `global.index-url`.
-- Docker: configure the official repository through Docker’s official installation script.
-- apt: on Ubuntu, back up old sources and write official `archive.ubuntu.com` / `security.ubuntu.com` deb822 sources; on non-Ubuntu systems, only a message is shown for now.
+- Docker: configure the official repository via Docker’s official installation script.
+- apt: on Ubuntu, back up old sources and write official `archive.ubuntu.com` / `security.ubuntu.com` deb822 sources; on non-Ubuntu, currently only prints a notice.
 
 apt restoration backs up to:
 
@@ -122,7 +184,7 @@ apt restoration backs up to:
 
 and disables old `.list` / `.sources` files as `.aios-disabled`.
 
-## Post-Installation Checks
+## Post-installation Checks
 
 ```bash
 aios status
