@@ -4,7 +4,7 @@
 
 `aios-kit` 是一个轻量、可迁移、Agent-friendly 的 Personal AIOS 安装与分发套件。
 
-它想解决的不是“怎么多装几个 AI 工具”，而是一个更长期的问题：当 AI 开始替你读文档、跑命令、维护服务、整理知识、延续项目时，你需要一个属于自己的操作系统层，把记忆、工具、资源、工作流和边界组织起来。
+它不是“再装几个 AI 工具”，而是给你的项目、知识、服务、脚本、skills 和长期任务建立一个可被 Agent 理解的本地底座：文件是真源，CLI 是控制面，Agent 是默认操作者，人类负责目标、边界和验收。
 
 ## 安装
 
@@ -46,42 +46,97 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 
 更多平台、参数、非交互和排障细节见：[docs/installation.md](docs/installation.md)。
 
-## 愿景
+## 安装后会得到什么
 
-Personal AIOS 不是一个聊天窗口，也不是某个单一 agent。它更像个人数字世界的底座：知道你有哪些项目、资产、服务和习惯；知道什么能公开、什么必须留在本地；知道怎样把一次性的 AI 对话沉淀成可复用的工作流。
+### 核心模块与目录
 
-`aios-kit` 是这个底座的安装包和分发骨架。它先把最小可用的 AIOS 搭起来：目录、技能、OPS vault、项目注册表、网络引导和更新命令。之后它可以继续长成：多设备协作、个人知识与运维图谱、长期任务循环、数字分身的上下文层，以及让不同 agent 共享同一套现实锚点的基础设施。
+| 模块 / 能力 | 安装位置 | 默认平台 | 作用 | 备注 |
+|---|---|---|---|---|
+| AIOS 实例根目录 | `~/aios` | Linux / Windows；macOS 可 dry-run 探路 | 把个人 AIOS 的状态、模块、工作目录和缓存收束到一个可迁移边界内 | 可用 `--root` 改路径 |
+| `aios-kit` 模块 | `~/aios/modules/aios-kit` | Linux / Windows | 安装器、`aios` CLI、skillpack manifest、文档与模板的来源 | Linux/WSL 可 `aios update modules` 更新 |
+| LLL 模块 | `~/aios/modules/lins-living-loop` | Linux / Windows | 文件化长期任务/Agent 工作流底座 | Windows 原生会安装模块；完整 `lll` CLI 当前仍建议 Git Bash/WSL/Linux |
+| 命令入口 | `~/aios/bin/aios`、`~/aios/bin/lll`；Windows 为 `.ps1/.cmd` shim | Linux / Windows | 给 Agent 和人类提供稳定入口，不依赖记住 repo 路径 | 可选择加入 PATH |
+| 工作目录 | `~/aios/work` | 全平台设计 | LLL / Agent 工作目录，承接长任务、调研、验证、交付物 | 对话外的持久工作层 |
+| 配置/状态/日志/缓存 | `~/aios/config`、`state`、`logs`、`cache` | 全平台设计 | 保存实例配置、安装状态、日志和缓存 | 避免散落在多个隐式位置 |
+| 私有 vault 边界 | `~/aios/vault/ops` | Linux 默认初始化；Windows 创建核心目录 | 放置 OPS vault、项目注册表、维护记录等私有事实 | 公共模板与真实私有数据分离 |
+| runtime skills 目标目录 | 默认 `~/.agents/skills`，可选 Hermes 目标 | Linux / WSL 完整同步；Windows 原生先初始化目标 | Agent 实际加载 skills 的位置 | 不接管整个 skills 目录，只逐个安装托管 skill |
 
-核心方向：
+### 默认托管 skills
 
-- **从聊天到操作系统**：AI 不只回答问题，而是能围绕你的项目、设备、资料和服务持续行动。
-- **从临时上下文到长期结构**：重要信息不困在某次对话里，而沉淀为 vault、registry、skills 和可审计日志。
-- **从单 Agent 到 Agent 生态**：Hermes 是默认中心，但 Codex、Claude Code、OpenClaw 或未来的 agent 都应能读懂同一套结构。
-- **从工具堆叠到个人主权**：公开模板可以复制，私人事实留在本地；系统应该帮助你迁移和扩展，而不是把你锁进某个平台。
-- **从人类手动操作到 Agent-first**：默认让 agent 读取结构、调用 CLI、执行检查和修复；人类主要表达目标、边界和验收标准，手动命令只是 agent 不可用时的 fallback。
+| 类别 | Skills | 用途 |
+|---|---|---|
+| 文档处理 | `docx`、`pptx`、`xlsx`、`pdf` | 让 Agent 能读写/检查常见办公文档与 PDF |
+| Skill 生态 | `find-skills`、`skill-creator`、`install-skill` | 发现、安装、创建和维护可复用 Agent skills |
+| MCP / 工具发现 | `awesome-mcp-servers-discovery` | 调研和筛选 MCP server |
+| 前端与设计 | `frontend-design`、`ui-ux-pro-max`、`vercel-composition-patterns`、`web-design-guidelines` | UI/UX、前端架构和 Web 设计审查 |
+| 方案打磨 | `grilling`、`grill-me`、`grill-with-docs`、`domain-modeling` | 追问需求、打磨计划、沉淀领域模型和 ADR |
+| AIOS 一等能力 | `aios-resource-resolver`、`lins-living-loop`、`github-repo-search` | 资源解析、长期任务工作流、GitHub 项目搜索推荐 |
 
-今天的 `aios-kit` 还只是起点：先让一台新机器获得可迁移、可维护、可被 agent 理解的 AIOS 骨架。路线图不是把所有东西塞进一个仓库，而是逐步形成一个清晰的个人 AI 基础设施协议。
+### `aios` CLI 能力
 
-## 设计哲学：Agent 优先，人类 Fallback
+| 命令 | 作用 | 典型使用者 |
+|---|---|---|
+| `aios status` | 查看实例根目录、vault、work、skills、modules 等摘要 | 人类 / Agent |
+| `aios doctor` | 校验实例、skillpack 与本地资产配置 | Agent 优先 |
+| `aios update` | 更新模块、OPS 模板和托管 skills | Agent / 维护者 |
+| `aios project ...` | 管理最小项目/资源注册表与 alias | Agent / 维护者 |
+| `aios lll ...` | 发现、创建、打开、检查 LLL workdir，并代理部分 LLL 命令 | Agent 优先 |
+| `aios skillpack ...` | 列出、同步、检查托管 runtime skills | 维护者 / Agent |
+| `aios assets ...` | 检查或链接本地资产发现 manifest | 维护者 |
 
-AIOS 的默认使用者不是“熟练记命令的人”，而是能持续替你工作的 agent。人类的主要输入应该是目标、约束、权限边界和验收标准；具体命令、路径、健康检查、更新、日志读取、错误恢复和文档查阅，应该由 agent 根据稳定结构自行完成。
+### Linux/server 附加能力
 
-这带来几条设计约束：
+| 附加能力 | 安装位置 / 影响范围 | 适用场景 | Windows 原生策略 |
+|---|---|---|---|
+| Mihomo 网络引导 | `~/aios/network/mihomo`、可选 shell proxy / TUN | 新服务器访问 GitHub、模型/API、包管理器不稳定时 | 不显示；需要时用 WSL/Linux |
+| TUN / systemd 服务 | Linux systemd service | 云服务器 24/7 运行、全局透明代理 | 不显示 |
+| dev/runtime bootstrap | Python/UV、NVM/Node、Docker、Caddy | 新 Ubuntu/Debian 服务器快速补齐基础运行环境 | 不显示 |
+| Hermes Agent 安装/配置 | 用户环境与 Hermes skills target | 把 Hermes 作为默认 Agent 中心 | Windows 原生暂不做；可用 WSL/Linux |
+| OPS vault 模板 | `~/aios/vault/ops` | 生成公开模板结构，真实私有事实仍留本地 | Windows 原生只创建核心目录 |
+| Ubuntu 源恢复 | apt/npm/pip/Docker source 配置 | 修复被镜像/旧配置污染的新服务器 | 不显示 |
 
-| 原则 | 含义 |
+## 愿景与设计哲学
+
+Personal AIOS 的目标很简单：让 AI 从“临时聊天助手”变成“能围绕你的真实数字世界持续工作的操作层”。它需要知道项目在哪里、服务怎么检查、资料和密钥边界是什么、哪些工作能自动化、哪些必须确认。
+
+`aios-kit` 只做这个操作层的最小骨架：统一目录、托管 skills、资源注册表、OPS vault、LLL 工作流入口、安装/更新/检查命令。它不试图吞并所有工具，而是给不同 Agent 和工具一套共同现实锚点。
+
+设计取舍：
+
+| 原则 | 取舍 |
 |---|---|
-| **Agent-first** | CLI、文档、registry、vault 和日志都要让 agent 容易发现、调用、解析和恢复。 |
-| **Human fallback** | README 仍给出可复制命令，但这些命令是 agent 操作面与紧急手动入口，不是默认交互方式。 |
-| **机器可读优先** | 关键命令应提供 `--json`、`doctor`、`status`、`validate` 之类稳定探针；不要只输出给人看的长文本。 |
-| **文件是真源** | 私有事实、项目注册、运维状态和长任务记录应落到 vault/registry/LLL workdir，而不是停留在聊天上下文。 |
-| **薄控制面** | AIOS 负责发现、安装、更新和治理；具体状态机由对应工具负责，例如 LLL 管自己的任务队列和 runner。 |
-| **可审计可迁移** | 公开模板和私有状态分离，变更可检查，fresh clone / 新机器应能恢复同等能力。 |
+| Agent-first | 命令、文档、registry、vault 和日志要让 Agent 容易发现、解析和恢复；人类命令是 fallback。 |
+| 文件是真源 | 重要事实沉淀到 vault / registry / workdir / manifest，不困在一次对话里。 |
+| 薄控制面 | `aios` 负责发现、安装、更新和健康检查；LLL、Hermes、Mihomo 等仍保持自己的状态机。 |
+| 私有与公开分离 | 公开 repo 只放模板、脚本、skills 和结构；真实资产、密钥、订阅、维护日志留在本地 vault。 |
+| 可迁移而非平台锁定 | 默认路径清晰、可备份、可重装；Hermes 是默认中心，但不是唯一 Agent。 |
 
-所以，文档里的命令示例可以直接给人执行，但更推荐复制给 Hermes/Codex/Claude Code/OpenClaw 等 agent，让 agent 先运行 `doctor/status`，再根据机器环境选择安全路径。
+## 能力分层
+
+| 层级 | 内容 | 平台策略 |
+|---|---|---|
+| 核心特性 | 本地 AIOS 实例、`aios-kit` 与 LLL 模块、`aios` 命令入口、work/config/vault/skills/state/logs/cache 目录、runtime skills 目标目录 | 设计为全平台支持；当前优先支持 Ubuntu 与 Windows。适合“本地开机时使用”，不要求 24 小时运行。Windows 原生会安装 LLL 模块，但完整 `lll` CLI 暂需 Git Bash/WSL。 |
+| 附加特性 | Mihomo/TUN、Docker/Caddy/Node/UV bootstrap、Hermes 安装配置、OPS vault 模板、Ubuntu 源恢复、systemd/24x7 服务化运行 | Linux/server 推荐；Windows 原生安装默认隐藏不支持项。如需完整 Linux/server 能力，请用 WSL 或云服务器。 |
+
+## 默认目录结构
+
+```text
+~/aios/
+  bin/                     # aios / lll 命令入口
+  config/                  # 实例配置
+  vault/ops/               # OPS vault 边界：模板结构 + 私有事实入口
+  work/                    # LLL / agent 工作目录
+  skills/                  # AIOS 元数据/缓存，不是 runtime skills 目录
+  modules/                 # 可更新的模块 checkout
+  network/mihomo/          # 可选 Mihomo 网络组件
+  state/ logs/ cache/
+```
+
+Agent 真正加载的 runtime skills 仍安装到 agent 自己的目录，例如 `~/.agents/skills/<skill>` 或 `~/.hermes/skills/<skill>`。Linux/WSL 后端会逐个安装托管 skills，不接管整个 skills 目录；Windows 原生安装目前先初始化 skills 目标目录，managed skillpack sync 仍建议通过 WSL/Linux 执行。
 
 ## LLL 工作流入口
 
-LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立一等 CLI。`aios-kit` 负责发现、安装、更新和治理 LLL，不吞并 LLL 的核心状态机。这里同样以 Agent 为默认操作者：人类表达目标，Agent 调用 `aios lll ...` 发现 workdir、检查健康状态、创建新任务空间并交给 `lll` runner 执行；命令示例是 Agent 操作面和人类 fallback。
+LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立一等 CLI。`aios-kit` 负责发现、安装、更新和治理 LLL，不吞并 LLL 的核心状态机。
 
 ```bash
 ./aios update modules lins-living-loop
@@ -92,29 +147,6 @@ LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立
 ```
 
 `aios lll ...` 的边界：默认只定位 `lll` CLI/helper、列出 AIOS work root 下的 LLL workdirs、创建新 workdir，或把 status/validate 代理给 `lll`；任务队列、runner、lease、reaper、artifacts 仍由 LLL CLI/协议负责。标准安装会在 `~/aios/bin/` 暴露 `aios` 与 `lll` 两个命令；`aios lll doctor --json` 会优先检查 AIOS module 内的 LLL，避免被 PATH 上的旧版本误导。
-
-## 能力分层
-
-| 层级 | 内容 | 平台策略 |
-|---|---|---|
-| 核心特性 | 本地 AIOS 实例、`aios-kit` 与 LLL 模块、`aios` 命令入口、work/config/vault/skills/state/logs/cache 目录、runtime skills 目标目录 | 设计为全平台支持；当前优先支持 Ubuntu 与 Windows。适合“本地开机时使用”，不要求 24 小时运行。Windows 原生会安装 LLL 模块，但完整 `lll` CLI 暂需 Git Bash/WSL。 |
-| 附加特性 | Mihomo/TUN、Docker/Caddy/Node/UV bootstrap、Hermes 安装配置、OPS vault 模板、Ubuntu 源恢复、systemd/24x7 服务化运行 | Linux/server 推荐；Windows 原生安装默认隐藏不支持项。如需完整 Linux/server 能力，请用 WSL 或云服务器。 |
-
-## 默认会安装什么
-
-```text
-~/aios/
-  bin/                     # aios 命令入口
-  config/                  # 实例配置
-  vault/ops/               # 从公开模板初始化的 OPS vault
-  work/                    # LLL / agent 工作目录
-  skills/                  # AIOS 元数据/缓存，不是 runtime skills 目录
-  modules/                 # 可更新的模块 checkout
-  network/mihomo/          # 可选 Mihomo 网络组件
-  state/ logs/ cache/
-```
-
-Agent 真正加载的 runtime skills 仍安装到 agent 自己的目录，例如 `~/.agents/skills/<skill>` 或 `~/.hermes/skills/<skill>`。Linux/WSL 后端会逐个安装托管 skills，不接管整个 skills 目录；Windows 原生安装目前先初始化 skills 目标目录，managed skillpack sync 仍建议通过 WSL/Linux 执行。
 
 ## 网络与 Mihomo
 
