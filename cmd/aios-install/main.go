@@ -116,7 +116,7 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		printCommand = !execute
+		printCommand = printCommand || !execute
 	}
 
 	scriptPath, err := installer.DiscoverScript(script)

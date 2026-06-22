@@ -49,7 +49,7 @@ DRY_RUN=0
 TARGET="universal"
 MODE="copy"
 FORCE=0
-INSTALL_WIZARD=0
+INSTALL_WIZARD="auto"
 
 usage() {
   cat <<'EOF'
@@ -100,7 +100,8 @@ Automation:
   --interactive            Prompt even when stdin is not detected as TTY
   -y, --yes                Non-interactive yes for optional recommended steps
   --dry-run                Print actions without changing files
-  --wizard                 Launch the Go/huh AIOS installer wizard; downloads release binary when needed
+  --wizard                 Launch the modern Go/huh AIOS installer wizard
+  --no-wizard              Use the built-in Bash prompts instead of the modern wizard
   -h, --help               Show this help
 
 One-line install:
@@ -187,6 +188,28 @@ ask_path() {
   eval "$var=\"$ans\""
 }
 
+
+ask_yes_no() {
+  prompt="$1"; default="$2"
+  if ! is_interactive; then
+    case "$default" in y|Y|yes|YES|1|true) return 0 ;; *) return 1 ;; esac
+  fi
+  while true; do
+    case "$default" in
+      y|Y|yes|YES|1|true) suffix="Y/n" ;;
+      *) suffix="y/N" ;;
+    esac
+    printf "%s [%s]: " "$prompt" "$suffix"
+    read -r ans || ans=""
+    ans="${ans:-$default}"
+    case "$ans" in
+      y|Y|yes|YES|1|true) return 0 ;;
+      n|N|no|NO|0|false) return 1 ;;
+    esac
+    printf 'Please enter yes or no.\n'
+  done
+}
+
 expand_path() {
   case "$1" in
     ~) printf '%s\n' "$HOME" ;;
@@ -239,7 +262,8 @@ while [ $# -gt 0 ]; do
     --interactive) INTERACTIVE="yes"; shift ;;
     -y|--yes) ASSUME_YES=1; INTERACTIVE="no"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --wizard) INSTALL_WIZARD=1; shift ;;
+    --wizard) INSTALL_WIZARD="yes"; shift ;;
+    --no-wizard) INSTALL_WIZARD="no"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
   esac
@@ -250,6 +274,7 @@ case "$MODE" in copy|symlink) ;; *) echo "invalid --mode: $MODE" >&2; exit 2 ;; 
 case "$WITH_PROXY" in auto|yes|no) ;; *) echo "invalid --proxy: $WITH_PROXY" >&2; exit 2 ;; esac
 case "$ADD_TO_PATH" in yes|no|ask) ;; *) echo "invalid --add-to-path: $ADD_TO_PATH" >&2; exit 2 ;; esac
 case "$PROXY_AUTO_ENV" in auto|yes|no) ;; *) echo "invalid --proxy-auto-env: $PROXY_AUTO_ENV" >&2; exit 2 ;; esac
+case "$INSTALL_WIZARD" in auto|yes|no) ;; *) echo "invalid wizard setting: $INSTALL_WIZARD" >&2; exit 2 ;; esac
 
 SCRIPT_DIR=""
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
@@ -370,6 +395,19 @@ cleanup_wizard_temp() {
   [ -z "${WIZARD_TEMP_DIR:-}" ] || rm -rf "$WIZARD_TEMP_DIR"
 }
 
+run_installer_wizard_command() {
+  set +e
+  "$@"
+  status=$?
+  set -e
+  cleanup_wizard_temp
+  if [ "$status" -eq 0 ]; then
+    exit 0
+  fi
+  warn "modern AIOS CLI wizard exited with status $status; falling back to the Bash installer."
+  return 1
+}
+
 run_installer_wizard() {
   if ! is_interactive; then
     warn "--wizard requires an interactive TTY; falling back to the Bash installer."
@@ -378,12 +416,7 @@ run_installer_wizard() {
   prepare_wizard_script || { warn "could not prepare install.sh backend for the Go wizard; falling back to the Bash installer."; return 1; }
   build_wizard_args
   if have_cmd aios-install; then
-    set +e
-    command aios-install "${WIZARD_ARGS[@]}"
-    status=$?
-    set -e
-    cleanup_wizard_temp
-    exit "$status"
+    run_installer_wizard_command command aios-install "${WIZARD_ARGS[@]}" || return 1
   fi
   if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/go.mod" ] && [ -d "$SCRIPT_DIR/cmd/aios-install" ] && [ -f "$SCRIPT_DIR/install.sh" ] && have_cmd go; then
     set +e
@@ -391,7 +424,11 @@ run_installer_wizard() {
     status=$?
     set -e
     cleanup_wizard_temp
-    exit "$status"
+    if [ "$status" -eq 0 ]; then
+      exit 0
+    fi
+    warn "modern AIOS CLI wizard exited with status $status; falling back to the Bash installer."
+    return 1
   fi
   if have_cmd curl && have_cmd tar; then
     downloaded_bin="$(download_aios_install)" || { cleanup_wizard_temp; warn "failed to download aios-install release binary; falling back to the Bash installer."; return 1; }
@@ -401,16 +438,34 @@ run_installer_wizard() {
     set -e
     rm -rf "$(dirname "$downloaded_bin")"
     cleanup_wizard_temp
-    exit "$status"
+    if [ "$status" -eq 0 ]; then
+      exit 0
+    fi
+    warn "modern AIOS CLI wizard exited with status $status; falling back to the Bash installer."
+    return 1
   fi
   cleanup_wizard_temp
   warn "AIOS Go installer wizard is not available. Install curl/tar, build aios-install, or use the Bash fallback."
   return 1
 }
 
-if [ "$INSTALL_WIZARD" -eq 1 ]; then
-  run_installer_wizard || true
-fi
+maybe_run_installer_wizard() {
+  case "$INSTALL_WIZARD" in
+    no) return 0 ;;
+    yes)
+      run_installer_wizard || true
+      return 0
+      ;;
+    auto)
+      if is_interactive && ask_yes_no "Use the modern AIOS CLI wizard?" "yes"; then
+        run_installer_wizard || true
+      fi
+      return 0
+      ;;
+  esac
+}
+
+maybe_run_installer_wizard
 
 if is_interactive; then
   log "AIOS interactive bootstrap"

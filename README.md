@@ -6,6 +6,38 @@
 
 它想解决的不是“怎么多装几个 AI 工具”，而是一个更长期的问题：当 AI 开始替你读文档、跑命令、维护服务、整理知识、延续项目时，你需要一个属于自己的操作系统层，把记忆、工具、资源、工作流和边界组织起来。
 
+## 安装
+
+当前最推荐只记住两个入口：
+
+### 方式 1：一行交互式安装
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
+```
+
+脚本启动后会先问是否使用现代 CLI 向导（默认 yes）。确认后才会下载向导；如果向导不可用，会自动回退到原生 Bash 交互。
+
+如果 GitHub 访问不稳定，可以换成你信任的镜像：
+
+```bash
+bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
+```
+
+### 方式 2：让已有 Agent 辅助安装
+
+把下面几行发给 Codex、Claude Code、OpenClaw、Hermes 等终端 Agent：
+
+```text
+请帮我安装 aios-kit：https://github.com/LinLin00000000/aios-kit
+请先阅读 README.md、docs/installation.md、docs/security-and-privacy.md，并查看 install.sh --help。
+先生成并运行 dry-run 安装命令，说明会改哪些系统配置；我确认后再执行正式安装。
+安装后请运行 ~/aios/bin/aios status 和 ~/aios/bin/aios doctor。
+不要泄露或提交我的订阅 URL、token、密钥或私人配置。
+```
+
+更多平台、参数、非交互和排障细节见：[docs/installation.md](docs/installation.md)。
+
 ## 愿景
 
 Personal AIOS 不是一个聊天窗口，也不是某个单一 agent。它更像个人数字世界的底座：知道你有哪些项目、资产、服务和习惯；知道什么能公开、什么必须留在本地；知道怎样把一次性的 AI 对话沉淀成可复用的工作流。
@@ -52,79 +84,6 @@ LLL（Lin's Living Loop）是 AIOS 的工作流基底之一，但仍保持独立
 ```
 
 `aios lll ...` 的边界：默认只定位 `lll` CLI/helper、列出 AIOS work root 下的 LLL workdirs、创建新 workdir，或把 status/validate 代理给 `lll`；任务队列、runner、lease、reaper、artifacts 仍由 LLL CLI/协议负责。标准安装会在 `~/aios/bin/` 暴露 `aios` 与 `lll` 两个命令；`aios lll doctor --json` 会优先检查 AIOS module 内的 LLL，避免被 PATH 上的旧版本误导。
-
-## 安装
-
-当前安装器主要在 Ubuntu/Debian 系云服务器上验证过；其他发行版建议先 `--dry-run` 或使用 agent-assisted 安装。
-
-### 方式 1：让已有 agent 辅助安装
-
-如果你已经有 Codex、Claude Code、OpenClaw、Hermes 等 agent，推荐先让 agent 读仓库、检测机器，再把你的选择转换成非交互安装命令。
-
-<details>
-<summary>复制给 agent 的精简提示词</summary>
-
-```text
-请帮我安装这个项目：https://github.com/LinLin00000000/aios-kit
-
-不要直接盲跑安装脚本。请先浏览 README.md 和 docs/installation.md、docs/mihomo-network.md、docs/security-and-privacy.md，再运行或阅读 bash install.sh --help 获取完整参数，并检测当前 OS、网络、权限、systemd、sudo、Python、git、curl、node/npx、Docker、Caddy、Hermes、HOME 和 PATH。
-
-请把安装选项整理成确认清单，并给默认值和建议：AIOS root；是否安装 Mihomo/Clash；是否开启 TUN；是否恢复 apt/npm/pip/Docker 官方源；代理订阅 URL 或本地 proxies YAML；GitHub 镜像前缀；是否安装 dev env；是否安装 Hermes；是否安装 OPS vault；是否加入 PATH；skillpack target/mode。若跳过 dev env 但仍要安装 skillpack，请先确认已有 node/npx。
-
-等我确认后，把配置转换成 install.sh 的非交互参数执行。私人订阅 URL 建议先 export 到环境变量，再用双引号传入，例如：`export AIOS_PROXY_SUBSCRIPTION_URL='...'`，然后使用 `--proxy-subscription-url "$AIOS_PROXY_SUBSCRIPTION_URL"`。不要把真实 URL 写进可分享记录，也不要用单引号包住需要展开的环境变量。安装完成后运行 ~/aios/bin/aios status 和 ~/aios/bin/aios doctor；如果安装了 Mihomo，再检查 systemd service 或平台等价状态。不要泄露或提交我的订阅 URL、UUID、token、密钥或私人配置。
-```
-
-</details>
-
-### 方式 2：一行交互式安装
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
-```
-
-如果想使用上下键选择、空格复选的现代 CLI 向导，可以加 `--wizard`：
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --wizard
-
-# 已经在 repo checkout 里时
-bash install.sh --wizard
-# 或先只查看它会如何调用 install.sh
-aios-install --no-wizard --script ./install.sh --print-command --dry-run
-```
-
-`aios-install` 是交互前端，不复制安装逻辑；它收集选择后生成并执行 `install.sh --non-interactive ...`。`install.sh --wizard` 会优先使用本地 `aios-install`，其次使用 checkout 内的 `go run`，最后在干净 Linux/macOS 机器上下载 GitHub Release 预编译二进制并校验 `aios-install_checksums.txt`。如果向导不可用，会回退到原 Bash 交互。
-
-如果新机器暂时无法直连 GitHub，可以用你信任的 raw/release 镜像：
-
-```bash
-bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
-```
-
-### 方式 3：非交互自动安装
-
-还没有 clone repo 时：
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- \
-  --non-interactive -y \
-  --root ~/aios \
-  --proxy auto \
-  --reset-sources \
-  --add-to-path yes \
-  --target universal \
-  --mode copy
-```
-
-已经在 repo checkout 里时，把第一行替换为 `bash install.sh`。dev env、Hermes、OPS vault 默认开启；如需跳过用 `--no-dev-env` / `--no-hermes` / `--no-aiops`。
-
-如果你已经使用其他 agent，不想安装 Hermes：
-
-```bash
-bash install.sh --non-interactive -y --no-hermes --target universal --mode copy
-```
-
-详细流程、交互问题和非交互参数见：[docs/installation.md](docs/installation.md)。
 
 ## 默认会安装什么
 
