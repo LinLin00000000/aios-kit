@@ -9,7 +9,7 @@ import (
 )
 
 func Run(opts installer.Options) (installer.Options, bool, error) {
-	addPath := opts.AddToPath == installer.ChoiceYes
+	addPath := opts.AddToPath != installer.ChoiceNo
 	useTun := opts.ProxyTun
 	resetSources := opts.ResetSources
 	dryRun := opts.DryRun

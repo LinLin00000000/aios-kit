@@ -55,7 +55,7 @@ def main() -> int:
                     if "/" in candidate and (
                         candidate.startswith(('./', '../', '~/'))
                         or re.search(r"(^|/)[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+($|/)", candidate)
-                        or re.search(r"(^|/)(home|tmp|projects|modules|templates|vault|skills|scripts|docs|registries|aios|ai-ops)(/|$)", candidate)
+                        or re.search(r"(^|/)(home|tmp|projects|modules|templates|vault|skills|scripts|docs|registries|aios|ai-ops|releases|download|latest)(/|$)", candidate)
                     ):
                         continue
                     findings.append((str(rel), i, "high-entropy-string", candidate[:120]))

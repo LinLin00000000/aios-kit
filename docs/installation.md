@@ -18,8 +18,11 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/
 在 repo checkout 中可以直接试用：
 
 ```bash
-# 启动交互向导；没有 aios-install 二进制时会尝试 go run
+# 启动交互向导；没有 aios-install 二进制时会尝试 go run 或下载 release binary
 bash install.sh --wizard
+
+# 干净 Linux/macOS 机器也可直接从 raw installer 启动 wizard
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --wizard
 
 # Agent/CI 友好：不进入向导，只打印将执行的后端命令
 aios-install --no-wizard --script ./install.sh --print-command --dry-run
@@ -28,7 +31,14 @@ aios-install --no-wizard --script ./install.sh --print-command --dry-run
 aios-install --no-wizard --script ./install.sh --json --dry-run
 ```
 
-当前 `--wizard` 只在本地已有 `aios-install` 或 checkout 中有 Go 工具链时启用；否则安全回退到原 Bash 交互。长期 release 会提供 Linux/macOS/Windows 预编译二进制，让干净机器无需预装 Go。
+`--wizard` 的启动顺序：
+
+1. 如果 PATH 上已有 `aios-install`，直接调用；
+2. 如果在 repo checkout 中且有 Go 工具链，使用 `go run ./cmd/aios-install`；
+3. 否则按当前 OS/arch 下载 GitHub Release 中的 `aios-install_<os>_<arch>.tar.gz`，校验 `aios-install_checksums.txt` 后启动；
+4. 如果以上都不可用，则安全回退到原 Bash 交互。
+
+可通过环境变量覆盖 release 来源：`AIOS_INSTALL_RELEASE_TAG=v0.1.0` 或 `AIOS_INSTALL_RELEASE_BASE_URL=<mirror/releases>`。`--github-mirror` 会同时影响 release 下载 URL 和后续安装中用到的 GitHub/raw URL。
 
 如果新机器暂时无法直连 GitHub，可以用你信任的 raw/release 镜像：
 

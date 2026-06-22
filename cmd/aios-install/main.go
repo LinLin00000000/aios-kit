@@ -10,7 +10,7 @@ import (
 	"github.com/LinLin00000000/aios-kit/internal/wizard"
 )
 
-const version = "0.1.0"
+var version = "0.1.0"
 
 type jsonOutput struct {
 	Version string                `json:"version"`

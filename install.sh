@@ -17,6 +17,9 @@ PROXY_PROXIES_FILE="${PROXY_PROXIES_FILE:-}"
 PROXY_AUTO_ENV="${PROXY_AUTO_ENV:-auto}"
 MIHOMO_EXTERNAL_UI_URL="${MIHOMO_EXTERNAL_UI_URL:-https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip}"
 MIHOMO_GEO_BASE_URL="${MIHOMO_GEO_BASE_URL:-https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata}"
+AIOS_INSTALL_RELEASE_TAG="${AIOS_INSTALL_RELEASE_TAG:-latest}"
+AIOS_INSTALL_RELEASE_BASE_URL="${AIOS_INSTALL_RELEASE_BASE_URL:-https://github.com/LinLin00000000/aios-kit/releases}"
+AIOS_INSTALL_SCRIPT_URL="${AIOS_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh}"
 
 AIOS_ROOT="${AIOS_ROOT:-$HOME/aios}"
 KIT_DIR="${AIOS_KIT_DIR:-}"
@@ -97,7 +100,7 @@ Automation:
   --interactive            Prompt even when stdin is not detected as TTY
   -y, --yes                Non-interactive yes for optional recommended steps
   --dry-run                Print actions without changing files
-  --wizard                 Launch the Go/huh AIOS installer wizard when available
+  --wizard                 Launch the Go/huh AIOS installer wizard; downloads release binary when needed
   -h, --help               Show this help
 
 One-line install:
@@ -248,25 +251,160 @@ case "$WITH_PROXY" in auto|yes|no) ;; *) echo "invalid --proxy: $WITH_PROXY" >&2
 case "$ADD_TO_PATH" in yes|no|ask) ;; *) echo "invalid --add-to-path: $ADD_TO_PATH" >&2; exit 2 ;; esac
 case "$PROXY_AUTO_ENV" in auto|yes|no) ;; *) echo "invalid --proxy-auto-env: $PROXY_AUTO_ENV" >&2; exit 2 ;; esac
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || true)"
+SCRIPT_DIR=""
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+SCRIPT_BASENAME="${SCRIPT_SOURCE##*/}"
+case "$SCRIPT_BASENAME" in bash|sh|-bash|-sh) SCRIPT_SOURCE="" ;; esac
+if [ -n "$SCRIPT_SOURCE" ] && [ -f "$SCRIPT_SOURCE" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" 2>/dev/null && pwd -P || true)"
+fi
+aios_install_platform() {
+  os="$(uname -s 2>/dev/null || true)"
+  arch="$(uname -m 2>/dev/null || true)"
+  case "$os" in
+    Linux) goos="linux" ;;
+    Darwin) goos="darwin" ;;
+    *) return 1 ;;
+  esac
+  case "$arch" in
+    x86_64|amd64) goarch="amd64" ;;
+    aarch64|arm64) goarch="arm64" ;;
+    *) return 1 ;;
+  esac
+  printf '%s_%s\n' "$goos" "$goarch"
+}
+
+aios_install_release_url() {
+  asset="$1"
+  case "$AIOS_INSTALL_RELEASE_TAG" in
+    latest) printf '%s\n' "$(mirror_url "$AIOS_INSTALL_RELEASE_BASE_URL/latest/download/$asset")" ;;
+    *) printf '%s\n' "$(mirror_url "$AIOS_INSTALL_RELEASE_BASE_URL/download/$AIOS_INSTALL_RELEASE_TAG/$asset")" ;;
+  esac
+}
+
+verify_sha256_file() {
+  checksum_file="$1"
+  archive="$2"
+  expected_name="$3"
+  expected="$(awk -v name="$expected_name" '$2 == name { print $1; found=1; exit } END { if (!found) exit 1 }' "$checksum_file" || true)"
+  if [ -z "$expected" ]; then
+    echo "checksum entry not found for $expected_name" >&2
+    return 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$expected" "$archive" | sha256sum -c - >/dev/null
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$archive" | awk '{print $1}')"
+    [ "$actual" = "$expected" ]
+  else
+    echo "missing sha256sum or shasum for checksum verification" >&2
+    return 1
+  fi
+}
+
+download_aios_install() {
+  platform="$(aios_install_platform)" || { warn "unsupported OS/arch for aios-install release binary: $(uname -s 2>/dev/null || echo unknown)/$(uname -m 2>/dev/null || echo unknown)"; return 1; }
+  asset="aios-install_${platform}.tar.gz"
+  archive_url="$(aios_install_release_url "$asset")"
+  checksums_url="$(aios_install_release_url aios-install_checksums.txt)"
+  tmp_dir="$(mktemp -d)"
+  archive="$tmp_dir/$asset"
+  checksums="$tmp_dir/aios-install_checksums.txt"
+  bin="$tmp_dir/aios-install"
+
+  echo "Downloading aios-install wizard: $archive_url" >&2
+  curl -fsSL "$archive_url" -o "$archive" || { rm -rf "$tmp_dir"; return 1; }
+  curl -fsSL "$checksums_url" -o "$checksums" || { rm -rf "$tmp_dir"; return 1; }
+  verify_sha256_file "$checksums" "$archive" "$asset" || { rm -rf "$tmp_dir"; return 1; }
+  tar -xzf "$archive" -C "$tmp_dir" || { rm -rf "$tmp_dir"; return 1; }
+  chmod +x "$bin" || { rm -rf "$tmp_dir"; return 1; }
+  printf '%s\n' "$bin"
+}
+
+build_wizard_args() {
+  WIZARD_ARGS=(--wizard)
+  if [ -n "${WIZARD_SCRIPT:-}" ]; then
+    WIZARD_ARGS+=(--script "$WIZARD_SCRIPT")
+  fi
+  WIZARD_ARGS+=(--root "$AIOS_ROOT")
+  [ "$KIT_DIR_EXPLICIT" -eq 1 ] && WIZARD_ARGS+=(--kit-dir "$KIT_DIR")
+  [ "$LLL_DIR_EXPLICIT" -eq 1 ] && WIZARD_ARGS+=(--lll-dir "$LLL_DIR")
+  [ "$VAULT_PATH_EXPLICIT" -eq 1 ] && WIZARD_ARGS+=(--vault "$VAULT_PATH")
+  [ "$SKILLS_DIR_EXPLICIT" -eq 1 ] && WIZARD_ARGS+=(--skills-dir "$SKILLS_DIR")
+  [ "$GLOBAL_BIN_EXPLICIT" -eq 1 ] && WIZARD_ARGS+=(--global-bin "$GLOBAL_BIN_DIR")
+  WIZARD_ARGS+=(--add-to-path "$ADD_TO_PATH")
+  [ -n "$AIOS_GITHUB_MIRROR_PREFIX" ] && WIZARD_ARGS+=(--github-mirror "$AIOS_GITHUB_MIRROR_PREFIX")
+  WIZARD_ARGS+=(--proxy "$WITH_PROXY")
+  if [ "$PROXY_TUN" -eq 1 ]; then WIZARD_ARGS+=(--proxy-tun); else WIZARD_ARGS+=(--no-proxy-tun); fi
+  [ -n "$PROXY_SUBSCRIPTION_URL" ] && WIZARD_ARGS+=(--proxy-subscription-url "$PROXY_SUBSCRIPTION_URL")
+  [ -n "$PROXY_PROXIES_FILE" ] && WIZARD_ARGS+=(--proxy-proxies-file "$PROXY_PROXIES_FILE")
+  WIZARD_ARGS+=(--proxy-auto-env "$PROXY_AUTO_ENV")
+  [ -n "$MIHOMO_DOWNLOAD_URL" ] && WIZARD_ARGS+=(--mihomo-url "$MIHOMO_DOWNLOAD_URL")
+  WIZARD_ARGS+=(--mihomo-version "$MIHOMO_VERSION")
+  if [ "$RESET_SOURCES" -eq 1 ]; then WIZARD_ARGS+=(--reset-sources); else WIZARD_ARGS+=(--no-reset-sources); fi
+  if [ "$WITH_DEV_ENV" -eq 1 ]; then WIZARD_ARGS+=(--with-dev-env); else WIZARD_ARGS+=(--no-dev-env); fi
+  if [ "$WITH_HERMES" -eq 1 ]; then WIZARD_ARGS+=(--with-hermes); else WIZARD_ARGS+=(--no-hermes); fi
+  if [ "$WITH_AIOPS" -eq 1 ]; then WIZARD_ARGS+=(--with-aiops); else WIZARD_ARGS+=(--no-aiops); fi
+  WIZARD_ARGS+=(--target "$TARGET" --mode "$MODE")
+  [ "$FORCE" -eq 1 ] && WIZARD_ARGS+=(--force)
+  [ "$ASSUME_YES" -eq 1 ] && WIZARD_ARGS+=(--yes)
+  [ "$DRY_RUN" -eq 1 ] && WIZARD_ARGS+=(--dry-run)
+}
+
+prepare_wizard_script() {
+  if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/install.sh" ]; then
+    WIZARD_SCRIPT="$SCRIPT_DIR/install.sh"
+    WIZARD_TEMP_DIR=""
+    return 0
+  fi
+  have_cmd curl || return 1
+  WIZARD_TEMP_DIR="$(mktemp -d)"
+  WIZARD_SCRIPT="$WIZARD_TEMP_DIR/install.sh"
+  script_url="$(mirror_url "$AIOS_INSTALL_SCRIPT_URL")"
+  echo "Downloading install.sh backend for wizard: $script_url" >&2
+  curl -fsSL "$script_url" -o "$WIZARD_SCRIPT" || { rm -rf "$WIZARD_TEMP_DIR"; WIZARD_TEMP_DIR=""; WIZARD_SCRIPT=""; return 1; }
+  chmod +x "$WIZARD_SCRIPT"
+}
+
+cleanup_wizard_temp() {
+  [ -z "${WIZARD_TEMP_DIR:-}" ] || rm -rf "$WIZARD_TEMP_DIR"
+}
+
 run_installer_wizard() {
   if ! is_interactive; then
     warn "--wizard requires an interactive TTY; falling back to the Bash installer."
     return 1
   fi
+  prepare_wizard_script || { warn "could not prepare install.sh backend for the Go wizard; falling back to the Bash installer."; return 1; }
+  build_wizard_args
   if have_cmd aios-install; then
-    if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/install.sh" ]; then
-      command aios-install --script "$SCRIPT_DIR/install.sh" --wizard
-    else
-      command aios-install --wizard
-    fi
-    exit $?
+    set +e
+    command aios-install "${WIZARD_ARGS[@]}"
+    status=$?
+    set -e
+    cleanup_wizard_temp
+    exit "$status"
   fi
   if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/go.mod" ] && [ -d "$SCRIPT_DIR/cmd/aios-install" ] && [ -f "$SCRIPT_DIR/install.sh" ] && have_cmd go; then
-    (cd "$SCRIPT_DIR" && command go run ./cmd/aios-install --script "$SCRIPT_DIR/install.sh" --wizard)
-    exit $?
+    set +e
+    (cd "$SCRIPT_DIR" && command go run ./cmd/aios-install "${WIZARD_ARGS[@]}")
+    status=$?
+    set -e
+    cleanup_wizard_temp
+    exit "$status"
   fi
-  warn "AIOS Go installer wizard is not available yet. Install/build aios-install or use the Bash fallback."
+  if have_cmd curl && have_cmd tar; then
+    downloaded_bin="$(download_aios_install)" || { cleanup_wizard_temp; warn "failed to download aios-install release binary; falling back to the Bash installer."; return 1; }
+    set +e
+    command "$downloaded_bin" "${WIZARD_ARGS[@]}"
+    status=$?
+    set -e
+    rm -rf "$(dirname "$downloaded_bin")"
+    cleanup_wizard_temp
+    exit "$status"
+  fi
+  cleanup_wizard_temp
+  warn "AIOS Go installer wizard is not available. Install curl/tar, build aios-install, or use the Bash fallback."
   return 1
 }
 

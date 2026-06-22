@@ -30,6 +30,7 @@ profiles/local-*.json
 # Local build outputs
 /aios-install
 /aios-install.exe
+/dist/
 
 # Secrets and private machine profiles
 .env
