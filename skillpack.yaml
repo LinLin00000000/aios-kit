@@ -126,3 +126,19 @@ first_party:
     default_mode: copy
     targets: universal
     reason: AIOS Secret/Credential Control Plane procedure skill for metadata-first secret workflows without exposing values.
+  - id: aiops-vault
+    path: modules/aiops-vault-template
+    source: LinLin00000000/aios-kit
+    skill: aiops-vault
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: OPS vault companion skill; procedure layer for ~/aios/vault/ops truth sources.
+  - id: aiops-service-operations
+    path: modules/aiops-vault-template/skills/aiops-service-operations
+    source: LinLin00000000/aios-kit
+    skill: aiops-service-operations
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: Service operations workflow skill for OPS vault-backed local/cloud services.

@@ -32,7 +32,7 @@ AIOps 是 AIOS 的一个子系统，不是整个 AIOS。
 ~/aios/vault/ops/projects/aliases.yaml
 ```
 
-`~/ai-ops` 可以作为作者/历史兼容路径存在，但新的公开安装应把 `~/aios/vault/ops` 视为默认 live vault。
+`~/ai-ops` 只作为历史路径被识别和迁移；新的公开安装应把 `~/aios/vault/ops` 视为默认 live vault，且不要新建 `~/ai-ops` 兼容链接。
 
 ## 资源结构
 

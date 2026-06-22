@@ -141,16 +141,16 @@ If multi-device interconnection, central Agents, or remote execution become publ
 
 ## Difference Between AIOps Skills
 
-`aiops-vault` is the entry/companion skill for the OPS vault. It defines how to read the vault, respect secret boundaries, and maintain `resources.md`, `maintenance-log.jsonl`, `secrets-location.md`, and so on. Its `SKILL.md` is located at the root of the `aiops-vault-template` repository, so the development-machine runtime symlink points to the repository root:
+`aiops-vault` is the entry/companion skill for the OPS vault. It defines how to read the vault, respect secret boundaries, maintain `resources.md`, `maintenance-log.jsonl`, `secrets-location.md`, and so on. Its `SKILL.md` is located at the root of the bundled `aios-kit` module `modules/aiops-vault-template`, so the development-machine runtime symlink points to that module root:
 
 ```text
-~/.agents/skills/aiops-vault -> ~/projects/aiops-vault-template
+~/.agents/skills/aiops-vault -> ~/projects/aios-kit/modules/aiops-vault-template
 ```
 
-`aiops-service-operations` is a narrower service operations workflow skill, located in a subdirectory of the template repository:
+`aiops-service-operations` is a narrower service operations workflow skill, located in a subdirectory of the bundled template module:
 
 ```text
-~/.agents/skills/aiops-service-operations -> ~/projects/aiops-vault-template/skills/aiops-service-operations
+~/.agents/skills/aiops-service-operations -> ~/projects/aios-kit/modules/aiops-vault-template/skills/aiops-service-operations
 ```
 
 ## How to Ask AI to Add a Module

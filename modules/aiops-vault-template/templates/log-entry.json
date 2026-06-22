@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "ts": "YYYY-MM-DDTHH:MM:SS+00:00",
+  "date": "YYYY-MM-DD",
+  "actor": "human|agent|script|cron",
+  "type": "maintenance|decision|inventory|check|incident|correction|supersede",
+  "scope": "service-or-host-or-repo",
+  "summary": "One sentence summary",
+  "objects": [],
+  "changes": [],
+  "verification": [],
+  "impact": [],
+  "followups": [],
+  "artifacts": [],
+  "status": "done|pending|failed|superseded",
+  "tags": []
+}

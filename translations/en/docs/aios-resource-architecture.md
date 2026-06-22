@@ -38,7 +38,7 @@ The default project registry is located inside the instance OPS vault:
 ~/aios/vault/ops/projects/aliases.yaml
 ```
 
-`~/ai-ops` may exist as an author/history-compatible path, but new public installations should treat `~/aios/vault/ops` as the default live vault.
+`~/ai-ops` is only recognized as a legacy path to migrate away from; new public installations should treat `~/aios/vault/ops` as the default live vault and should not create a `~/ai-ops` compatibility link.
 
 ## Resource Structure
 

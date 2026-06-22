@@ -135,16 +135,16 @@ local overlay 用于维护者自己的机器、私有基础设施、中央控制
 
 ## AIOps skills 的区别
 
-`aiops-vault` 是 OPS vault 的入口/伴随 skill。它定义如何读取 vault、遵守密钥边界、维护 `resources.md`、`maintenance-log.jsonl`、`secrets-location.md` 等。它的 `SKILL.md` 位于 `aiops-vault-template` 仓库根目录，所以开发机 runtime symlink 指向仓库根目录：
+`aiops-vault` 是 OPS vault 的入口/伴随 skill。它定义如何读取 vault、遵守密钥边界、维护 `resources.md`、`maintenance-log.jsonl`、`secrets-location.md` 等。它的 `SKILL.md` 位于 `aios-kit` 内置模块 `modules/aiops-vault-template` 根目录，所以开发机 runtime symlink 指向该模块根目录：
 
 ```text
-~/.agents/skills/aiops-vault -> ~/projects/aiops-vault-template
+~/.agents/skills/aiops-vault -> ~/projects/aios-kit/modules/aiops-vault-template
 ```
 
-`aiops-service-operations` 是更窄的服务运维 workflow skill，位于模板仓库的子目录：
+`aiops-service-operations` 是更窄的服务运维 workflow skill，位于内置模板模块的子目录：
 
 ```text
-~/.agents/skills/aiops-service-operations -> ~/projects/aiops-vault-template/skills/aiops-service-operations
+~/.agents/skills/aiops-service-operations -> ~/projects/aios-kit/modules/aiops-vault-template/skills/aiops-service-operations
 ```
 
 ## 如何让 AI 添加模块

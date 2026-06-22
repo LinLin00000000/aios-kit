@@ -1,0 +1,16 @@
+# Private vault files
+secrets-location.md
+.env
+*.env
+
+# Python/cache/test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local evidence and temporary files
+evidence/private/
+*.log
+.DS_Store

@@ -8,9 +8,8 @@
 
 - `aios-kit`：安装器、CLI、公开 manifest、选定的一方 skills 和文档。
 - `lins-living-loop`：独立的一方 workflow skill / project。
-- `aiops-vault-template`：独立的公开 OPS vault 模板。
-- `~/aios/vault/ops`：新 AIOS 实例默认 live OPS vault。
-- `~/ai-ops`：作者/历史兼容路径；不能作为公开安装默认值。
+- `aiops-vault-template`：内置于 `aios-kit/modules/aiops-vault-template` 的公开 OPS vault 模板模块。
+- `~/aios/vault/ops`：新 AIOS 实例默认且唯一的 live OPS vault。
 
 ## Agent-first / Human fallback
 
@@ -70,9 +69,9 @@ cd ~/projects/aios-kit
 |---|---|---|
 | 主套件 | `~/projects/aios-kit` | 装配脚本、manifest、文档的真源 |
 | LLL | `~/projects/lins-living-loop` | 独立一方源项目 |
-| AIOps 模板 | `~/projects/aiops-vault-template` | 公开可复用模板 |
+| AIOps 模板 | `~/projects/aios-kit/modules/aiops-vault-template` | 公开可复用模板 |
 | Live AIOps vault | `~/aios/vault/ops` | 默认实例 vault；私有/当前事实 |
-| 历史 live vault | `~/ai-ops` | 作者/本地兼容路径 |
+| 历史 live vault | `~/ai-ops` | 已废弃；发现时迁移到 `~/aios/vault/ops`，不要新建兼容链接 |
 | Universal skills | `~/.agents/skills` | runtime 安装目标，不自动等于真源 |
 | Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
 

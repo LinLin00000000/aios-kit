@@ -2,4 +2,6 @@ aliases:
   LLL: lins-living-loop
   DOP: lins-living-loop
   aiops template: aiops-vault-template
-  ai-ops: ai-ops-live-vault
+  ops template: aiops-vault-template
+  OPS vault: ops-vault
+  AIOps: ops-vault

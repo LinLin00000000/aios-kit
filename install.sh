@@ -6,7 +6,6 @@ set -euo pipefail
 
 AIOS_GITHUB_MIRROR_PREFIX="${AIOS_GITHUB_MIRROR_PREFIX:-}"
 AIOS_KIT_REPO_URL="${AIOS_KIT_REPO_URL:-https://github.com/LinLin00000000/aios-kit.git}"
-AIOPS_TEMPLATE_REPO_URL="${AIOPS_TEMPLATE_REPO_URL:-https://github.com/LinLin00000000/aiops-vault-template.git}"
 LLL_REPO_URL="${LLL_REPO_URL:-https://github.com/LinLin00000000/lins-living-loop.git}"
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh}"
 MIHOMO_DOWNLOAD_URL="${MIHOMO_DOWNLOAD_URL:-}"
@@ -502,7 +501,7 @@ if [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then KIT_DIR="$AIOS_ROOT/modules/aios-kit"; fi
 if [ -n "$SCRIPT_DIR" ] && [ -x "$SCRIPT_DIR/aios" ] && [ -f "$SCRIPT_DIR/skillpack.yaml" ] && [ "$KIT_DIR_EXPLICIT" -eq 0 ]; then
   KIT_DIR="$SCRIPT_DIR"
 fi
-if [ "$TEMPLATE_DIR_EXPLICIT" -eq 0 ]; then TEMPLATE_DIR="$AIOS_ROOT/modules/aiops-vault-template"; fi
+if [ "$TEMPLATE_DIR_EXPLICIT" -eq 0 ]; then TEMPLATE_DIR="$KIT_DIR/modules/aiops-vault-template"; fi
 if [ "$LLL_DIR_EXPLICIT" -eq 0 ]; then LLL_DIR="$AIOS_ROOT/modules/lins-living-loop"; fi
 if [ "$VAULT_PATH_EXPLICIT" -eq 0 ]; then VAULT_PATH="$AIOS_ROOT/vault/ops"; fi
 if [ "$SKILLS_DIR_EXPLICIT" -eq 0 ]; then SKILLS_DIR="$HOME/.agents/skills"; fi
@@ -880,10 +879,19 @@ install_hermes_core() {
 record_aiops_resource() {
   [ -f "$VAULT_PATH/scripts/aiops.py" ] || return 0
   component="$1"
-  echo "Recording $component in OPS vault is template-specific; current fallback appends maintenance log."
-  log_file="$VAULT_PATH/maintenance-log.jsonl"
-  entry="{\"ts\":\"$(date -Iseconds)\",\"component\":\"$component\",\"event\":\"installed-or-present-by-aios-installer\"}"
-  if [ "$DRY_RUN" -eq 1 ]; then echo "+ append $log_file: $entry"; else printf '%s\n' "$entry" >> "$log_file"; fi
+  echo "Recording $component in OPS vault maintenance log."
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "+ AIOPS_ROOT=$VAULT_PATH python3 $VAULT_PATH/scripts/aiops.py append-log --actor aios-installer --type maintenance --scope component:$component --summary installed-or-present-by-aios-installer --status done --object $component --tag installer"
+  else
+    AIOPS_ROOT="$VAULT_PATH" python3 "$VAULT_PATH/scripts/aiops.py" append-log \
+      --actor aios-installer \
+      --type maintenance \
+      --scope "component:$component" \
+      --summary installed-or-present-by-aios-installer \
+      --status done \
+      --object "$component" \
+      --tag installer
+  fi
 }
 
 log "Checking minimal prerequisites"
@@ -1017,26 +1025,25 @@ else
 fi
 
 if [ "$WITH_AIOPS" -eq 1 ]; then
-  log "Preparing OPS vault template at $TEMPLATE_DIR"
+  log "Using bundled OPS vault template at $TEMPLATE_DIR"
   if [ ! -f "$TEMPLATE_DIR/scripts/install.py" ]; then
-    if [ "$DRY_RUN" -eq 1 ]; then echo "+ git clone $(mirror_url "$AIOPS_TEMPLATE_REPO_URL") $TEMPLATE_DIR"; else mkdir -p "$(dirname "$TEMPLATE_DIR")"; git clone "$(mirror_url "$AIOPS_TEMPLATE_REPO_URL")" "$TEMPLATE_DIR"; fi
-  else
-    if [ -e "$TEMPLATE_DIR/.git" ]; then
-      if [ "$TEMPLATE_DIR_EXPLICIT" -eq 1 ]; then echo "using explicit git template dir without auto-pull: $TEMPLATE_DIR"; else run_visible git -C "$TEMPLATE_DIR" pull --ff-only; fi
-    else
-      echo "using existing non-git template dir: $TEMPLATE_DIR"
-    fi
+    echo "missing bundled OPS vault template: $TEMPLATE_DIR/scripts/install.py" >&2
+    echo "Your aios-kit checkout is incomplete; update or reclone $KIT_DIR." >&2
+    exit 1
   fi
   log "Installing OPS vault at $VAULT_PATH"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "+ python3 $TEMPLATE_DIR/scripts/install.py --vault $VAULT_PATH --agent auto --skills-dir $SKILLS_DIR"
-    echo "+ AIOPS_ROOT=$VAULT_PATH python3 $VAULT_PATH/scripts/aiops.py check"
+    echo "+ python3 $TEMPLATE_DIR/scripts/install.py --vault $VAULT_PATH --agent none"
   else
-    python3 "$TEMPLATE_DIR/scripts/install.py" --vault "$VAULT_PATH" --agent auto --skills-dir "$SKILLS_DIR"
-    AIOPS_ROOT="$VAULT_PATH" python3 "$VAULT_PATH/scripts/aiops.py" check
+    python3 "$TEMPLATE_DIR/scripts/install.py" --vault "$VAULT_PATH" --agent none
   fi
   record_aiops_resource docker
   record_aiops_resource caddy
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "+ AIOPS_ROOT=$VAULT_PATH python3 $VAULT_PATH/scripts/aiops.py check"
+  else
+    AIOPS_ROOT="$VAULT_PATH" python3 "$VAULT_PATH/scripts/aiops.py" check
+  fi
 else
   log "Skipping OPS vault install (--no-aiops)"
 fi

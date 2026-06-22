@@ -2,12 +2,12 @@
 
 Registries describe resources. They are the fact layer for AIOS resource resolution.
 
-Public files here are examples/schemas only. Real registries can live in a private vault such as `~/ai-ops/projects/` or a future `~/aios/registries/`.
+Public files here are examples/schemas only. Real registries can live in a private vault such as `~/aios/vault/ops/projects/` or a future `~/aios/registries/`.
 
 Recommended first real registry:
 
 ```text
-~/ai-ops/projects/
+~/aios/vault/ops/projects/
   README.md
   registry.jsonl
   aliases.yaml
@@ -17,6 +17,6 @@ Recommended first real registry:
 Later this can move or link into:
 
 ```text
-~/aios/projects -> ~/ai-ops/projects
-~/aios/ops -> ~/ai-ops
+~/aios/projects -> ~/aios/vault/ops/projects
+~/aios/ops -> ~/aios/vault/ops
 ```

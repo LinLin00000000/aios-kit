@@ -1,0 +1,19 @@
+{
+  "name": "aiops-vault-template",
+  "version": "0.1.0",
+  "description": "Local-first, agent-friendly AIOps vault template with Markdown/JSONL truth sources and thin companion skills.",
+  "license": "MIT",
+  "keywords": [
+    "aiops",
+    "agent-skills",
+    "ops",
+    "markdown",
+    "jsonl",
+    "local-first"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LinLin00000000/aios-kit.git",
+    "directory": "modules/aiops-vault-template"
+  }
+}

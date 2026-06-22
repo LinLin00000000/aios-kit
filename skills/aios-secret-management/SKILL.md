@@ -44,7 +44,7 @@ Classify every sensitive item before acting:
 
 ## Canonical layout
 
-Resolve `$AIOS_ROOT` from the environment or AIOS instance config. Do not hardcode `~/ai-ops` as canonical; it may be a compatibility link into the AIOS instance.
+Resolve `$AIOS_ROOT` from the environment or AIOS instance config. Do not hardcode the legacy `~/ai-ops` path; the default OPS vault is `$AIOS_ROOT/vault/ops` (normally `~/aios/vault/ops`).
 
 Recommended state layout:
 

@@ -14,9 +14,8 @@ Keep independent projects independent, and connect them with manifests, modules,
 
 - `aios-kit`: installer, CLI, public manifests, selected first-party skills, and documentation.
 - `lins-living-loop`: independent first-party workflow skill / project.
-- `aiops-vault-template`: independent public OPS vault template.
-- `~/aios/vault/ops`: the default live OPS vault for new AIOS instances.
-- `~/ai-ops`: author/historical compatibility path; must not be used as the public installation default.
+- `aiops-vault-template`: public OPS vault template module bundled under `aios-kit/modules/aiops-vault-template`.
+- `~/aios/vault/ops`: the default and only live OPS vault for new AIOS instances.
 
 ## Agent-first / Human fallback
 
@@ -76,9 +75,9 @@ The standard development path is intentionally separated from the runtime instal
 |---|---|---|
 | Main suite | `~/projects/aios-kit` | Source of truth for assembly scripts, manifests, and docs |
 | LLL | `~/projects/lins-living-loop` | Independent first-party source project |
-| AIOps template | `~/projects/aiops-vault-template` | Public reusable template |
+| AIOps template | `~/projects/aios-kit/modules/aiops-vault-template` | Public reusable template |
 | Live AIOps vault | `~/aios/vault/ops` | Default instance vault; private/current facts |
-| Historical live vault | `~/ai-ops` | Author/local compatibility path |
+| Historical live vault | `~/ai-ops` | Deprecated; migrate to `~/aios/vault/ops` when discovered, and do not create compatibility links |
 | Universal skills | `~/.agents/skills` | Runtime installation target, not automatically the source of truth |
 | Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
 

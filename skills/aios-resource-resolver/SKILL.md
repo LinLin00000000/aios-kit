@@ -8,7 +8,7 @@ license: MIT
 
 # AIOS Resource Resolver
 
-Use this skill when the user refers to a project, repo, service, device, vault, data asset, workflow, skill, or ambiguous personal resource such as “LLL 项目”, “那个 bot”, “Windows 边缘节点”, “ai-ops”, “数字花园”, or “之前那个 GitHub 项目”.
+Use this skill when the user refers to a project, repo, service, device, vault, data asset, workflow, skill, or ambiguous personal resource such as “LLL 项目”, “那个 bot”, “Windows 边缘节点”, “OPS vault”, “数字花园”, or “之前那个 GitHub 项目”.
 
 ## Principle
 
@@ -22,10 +22,9 @@ Do not store large project/resource facts in this skill.
 ## Lookup order
 
 1. Locate the active AIOS registry root:
-   - preferred local/private: `~/aios/vault/ops/projects/`;
-   - legacy-compatible local/private: `~/ai-ops/projects/`;
-   - possible future locations: `~/aios/vault/projects/` or `~/aios/registries/`;
+   - local/private truth source: `~/aios/vault/ops/projects/`;
    - public examples only: `registries/*.example.*` inside `aios-kit`.
+   - if a legacy `~/ai-ops/projects/` path is discovered, treat it as stale and recommend migration instead of using it as canonical.
 2. Read `registry.jsonl` and `aliases.yaml` if available.
 3. Match against `id`, `name`, `aliases`, GitHub repo name, local path basename, and notes.
 4. If there is exactly one match, resolve to its canonical `id`.

@@ -24,16 +24,15 @@
     },
     {
       "id": "aiops-vault-template",
-      "kind": "template-repo",
-      "canonical_path": "~/projects/aiops-vault-template",
-      "remote": "https://github.com/<owner>/aiops-vault-template.git",
-      "role": "reusable template for new ai-ops vaults; never contains a machine's live secrets/assets"
+      "kind": "bundled-template-module",
+      "canonical_path": "~/projects/aios-kit/modules/aiops-vault-template",
+      "remote": "https://github.com/<owner>/aios-kit.git",
+      "role": "bundled reusable OPS vault template module; never contains a machine's live secrets/assets"
     },
     {
-      "id": "ai-ops",
+      "id": "ops-vault",
       "kind": "real-asset-vault",
-      "canonical_path": "~/ai-ops",
-      "discovery_link": "~/projects/ai-ops",
+      "canonical_path": "~/aios/vault/ops",
       "remote": null,
       "role": "live operational facts, maintenance log, resource registry, and secret locations"
     }

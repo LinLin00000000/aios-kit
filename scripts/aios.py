@@ -619,16 +619,17 @@ paths:
   cache: {display_path(paths['cache'], home)}
 compat:
   default: none
-  note: legacy symlinks are local migration choices, not public install defaults
+  note: legacy symlinks are not created by public installs; use canonical AIOS paths directly
 """
     write_if_missing(paths["config"] / "instance.yaml", instance_yaml, apply=apply)
     write_if_missing(paths["projects"] / "registry.jsonl", "", apply=apply)
     write_if_missing(paths["projects"] / "aliases.yaml", "aliases: {}\n", apply=apply)
     if getattr(args, "compat_links", False):
-        compat_symlink(paths["ops"], home / "ai-ops", apply=apply)
         compat_symlink(paths["work"], home / "lll-work", apply=apply)
-        # Never symlink the whole agent skills directory. Skills are installed
-        # one-by-one by skillpack sync so existing user skills are preserved.
+        # Never create a ~/ai-ops compatibility link; the canonical OPS vault is
+        # <AIOS_ROOT>/vault/ops. Never symlink the whole agent skills directory.
+        # Skills are installed one-by-one by skillpack sync so existing user
+        # skills are preserved.
     print(f"AIOS root: {paths['root']}")
 
 
@@ -1468,12 +1469,15 @@ def instance_doctor(args: argparse.Namespace) -> None:
         exists = paths[key].exists()
         print(f"{key}: {paths[key]} {'exists' if exists else 'missing'}")
         ok = ok and exists
-    for label, link, target in [("ai-ops", home / "ai-ops", paths["ops"]), ("lll-work", home / "lll-work", paths["work"] )]:
-        good = link.is_symlink() and link.resolve() == target.resolve()
-        if link.exists() or link.is_symlink():
-            print(f"local compat {label}: {link} -> {link.resolve() if link.is_symlink() else 'not-symlink'} {'ok' if good else 'local-only/check'}")
-        else:
-            print(f"local compat {label}: not configured")
+    legacy_ops = home / "ai-ops"
+    if legacy_ops.exists() or legacy_ops.is_symlink():
+        print(f"legacy path warning: {legacy_ops} exists; canonical OPS vault is {paths['ops']}")
+    legacy_work = home / "lll-work"
+    if legacy_work.exists() or legacy_work.is_symlink():
+        good = legacy_work.is_symlink() and legacy_work.resolve() == paths["work"].resolve()
+        print(f"local compat lll-work: {legacy_work} -> {legacy_work.resolve() if legacy_work.is_symlink() else 'not-symlink'} {'ok' if good else 'local-only/check'}")
+    else:
+        print("local compat lll-work: not configured")
     ok = validate_projects(home) and ok
     raise SystemExit(0 if ok else 1)
 
@@ -1532,12 +1536,15 @@ def update_ops(args: argparse.Namespace, *, paths: dict[str, Path] | None = None
     paths = paths or instance_paths(home)
     apply = (not bool(args.dry_run)) if apply is None else apply
     print("== ops vault template ==")
-    tpl = paths["modules"] / "aiops-vault-template"
+    tpl = ROOT / "modules" / "aiops-vault-template"
     script = tpl / "scripts" / "install.py"
     if script.exists():
-        return run(["python3", str(script), "--vault", str(paths["ops"]), "--agent", "auto", "--skills-dir", str(paths["agent_skills"])], apply=apply)
-    print(f"skip ops template install; missing {script}")
-    return 0
+        # Runtime skills are owned by skillpack sync. Keep update_ops focused on
+        # refreshing the vault template so `aios update all` does not create
+        # unmanaged skill directories before the skillpack phase runs.
+        return run(["python3", str(script), "--vault", str(paths["ops"]), "--agent", "none"], apply=apply)
+    print(f"missing bundled ops template installer: {script}")
+    return 1
 
 
 def update_skills(args: argparse.Namespace, *, apply: bool | None = None) -> int:
@@ -1910,7 +1917,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--root", help="AIOS instance root (default: ~/aios or $AIOS_ROOT)")
     init.add_argument("--ops", help="OPS vault path (default: <root>/vault/ops)")
     init.add_argument("--skills-dir", help="agent runtime skills dir (default: ~/.agents/skills; installs skills one-by-one)")
-    init.add_argument("--compat-links", action="store_true", help="local migration only: create ~/ai-ops and ~/lll-work symlinks when safe; never links the whole skills dir")
+    init.add_argument("--compat-links", action="store_true", help="local migration only: create ~/lll-work symlink when safe; never creates ~/ai-ops or links the whole skills dir")
     init.add_argument("--dry-run", action="store_true")
     init.set_defaults(func=init_instance)
 
