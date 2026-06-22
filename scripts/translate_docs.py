@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Translate AIOS Kit Chinese Markdown docs to English using an OpenAI-compatible API.
 
-Secrets are read from environment variables or a private env file. The script
-never prints API key values.
+Secrets are read from environment variables. For legacy/private compatibility,
+--secret-file may load an env file explicitly, but no project-specific env file
+is read by default. The script never prints API key values.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SECRET_FILE = Path.home() / "aios" / "config" / "secrets" / "aios-kit-translation.env"
+DEFAULT_SECRET_FILE: Path | None = None
 DEFAULT_TARGET_LANG = "English"
 DEFAULT_TARGET_CODE = "en"
 SOURCE_FILES = [Path("README.md")]
@@ -281,7 +282,7 @@ def check_api(cfg: dict[str, str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--secret-file", type=Path, default=DEFAULT_SECRET_FILE)
+    parser.add_argument("--secret-file", type=Path, default=DEFAULT_SECRET_FILE, help="optional legacy/private env file to load before reading TRANSLATE_* from the environment")
     parser.add_argument("--target-code", default=DEFAULT_TARGET_CODE)
     parser.add_argument("--target-language", default=DEFAULT_TARGET_LANG)
     parser.add_argument("--check-api", action="store_true")
@@ -291,11 +292,8 @@ def main() -> int:
     parser.add_argument("--only", action="append", default=[], help="relative source path to translate; may be repeated")
     args = parser.parse_args()
 
-    load_env_file(args.secret_file)
-    cfg = api_config()
-
-    if args.check_api:
-        check_api(cfg)
+    if args.secret_file:
+        load_env_file(args.secret_file)
 
     files = source_files()
     if args.only:
@@ -309,7 +307,13 @@ def main() -> int:
         print(f"- {src.relative_to(ROOT)} -> {dst.relative_to(ROOT)}")
 
     if args.dry_run and not args.write:
+        if args.check_api:
+            cfg = api_config()
+            check_api(cfg)
         return 0
+    cfg = api_config()
+    if args.check_api:
+        check_api(cfg)
     if not args.write:
         print("No files written. Pass --write to generate translations.")
         return 0

@@ -118,3 +118,11 @@ first_party:
     default_mode: copy
     targets: universal
     reason: Lin-created universal skill for installing Agent/Hermes-compatible skills through npx skills.
+  - id: aios-secret-management
+    path: skills/aios-secret-management
+    source: LinLin00000000/aios-kit
+    skill: aios-secret-management
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: AIOS Secret/Credential Control Plane procedure skill for metadata-first secret workflows without exposing values.

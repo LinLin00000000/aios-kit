@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import getpass
 import json
 import os
 import re
@@ -16,6 +17,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -627,6 +631,649 @@ compat:
         # one-by-one by skillpack sync so existing user skills are preserved.
     print(f"AIOS root: {paths['root']}")
 
+
+
+# ---------------------------------------------------------------------------
+# Secret / Credential Control Plane MVP
+# ---------------------------------------------------------------------------
+
+SECRET_SCHEMA = "aios.secret.v1"
+SECRET_VALUE_SCHEMA = "aios.secret.values.v1"
+
+
+def now_iso() -> str:
+    return _dt.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def safe_secret_id(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip("-.")
+    if not cleaned:
+        raise SystemExit("invalid empty secret id")
+    return cleaned
+
+
+def secret_root(home: Path) -> Path:
+    return instance_paths(home)["vault"] / "secrets"
+
+
+def secret_dirs(home: Path) -> dict[str, Path]:
+    root = secret_root(home)
+    return {
+        "root": root,
+        "items": root / "items",
+        "consumers": root / "consumers",
+        "replicas": root / "replicas",
+        "requests": root / "requests",
+        "pending": root / "requests" / "pending",
+        "done": root / "requests" / "done",
+        "expired": root / "requests" / "expired",
+        "receipts": root / "receipts",
+        "values": root / "values",
+        "policies": root / "policies",
+        "audit": root / "audit.jsonl",
+    }
+
+
+def chmod_private(path: Path, mode: int) -> None:
+    try:
+        path.chmod(mode)
+    except PermissionError:
+        print(f"warning: could not chmod {path}", file=sys.stderr)
+
+
+def ensure_secret_layout(home: Path, *, verbose: bool = False) -> dict[str, Path]:
+    dirs = secret_dirs(home)
+    for key, path in dirs.items():
+        if key == "audit":
+            continue
+        path.mkdir(parents=True, exist_ok=True)
+        chmod_private(path, 0o700)
+    if not dirs["audit"].exists():
+        fd = os.open(dirs["audit"], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+    chmod_private(dirs["audit"], 0o600)
+    if verbose:
+        print(f"secret root: {dirs['root']}")
+        for key in ["items", "consumers", "replicas", "pending", "done", "expired", "receipts", "values", "policies", "audit"]:
+            print(f"- {key}: {dirs[key]}")
+    return dirs
+
+
+def load_yaml_doc(path: Path) -> dict[str, Any]:
+    text = path.read_text(encoding="utf-8")
+    try:
+        import yaml  # type: ignore
+        data = yaml.safe_load(text)
+    except Exception:
+        data = json.loads(text)
+    if not isinstance(data, dict):
+        raise SystemExit(f"{path}: expected object")
+    return data
+
+
+def dump_yaml_doc(data: dict[str, Any]) -> str:
+    try:
+        import yaml  # type: ignore
+        return yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+    except Exception:
+        # JSON is valid YAML 1.2 and keeps the CLI stdlib-first when PyYAML is absent.
+        return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False) + "\n"
+
+
+def write_private_text(path: Path, text: str, *, mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    chmod_private(path, mode)
+
+
+def write_yaml_doc(path: Path, data: dict[str, Any], *, mode: int = 0o600) -> None:
+    write_private_text(path, dump_yaml_doc(data), mode=mode)
+
+
+def secret_item_path(home: Path, secret_id: str) -> Path:
+    return secret_dirs(home)["items"] / f"{safe_secret_id(secret_id)}.yaml"
+
+
+def secret_consumer_path(home: Path, consumer_id: str) -> Path:
+    return secret_dirs(home)["consumers"] / f"{safe_secret_id(consumer_id)}.yaml"
+
+
+def secret_replica_path(home: Path, replica_id: str) -> Path:
+    return secret_dirs(home)["replicas"] / f"{safe_secret_id(replica_id)}.yaml"
+
+
+def secret_value_path(home: Path, secret_id: str) -> Path:
+    return secret_dirs(home)["values"] / f"{safe_secret_id(secret_id)}.json"
+
+
+def find_request_path(home: Path, request_id: str, *, include_done: bool = True) -> Path:
+    dirs = secret_dirs(home)
+    roots = [dirs["pending"]]
+    if include_done:
+        roots.extend([dirs["done"], dirs["expired"]])
+    for root in roots:
+        for suffix in (".yaml", ".yml", ".json"):
+            path = root / f"{safe_secret_id(request_id)}{suffix}"
+            if path.exists():
+                return path
+    raise SystemExit(f"request not found: {request_id}")
+
+
+def append_secret_audit(home: Path, event: dict[str, Any]) -> None:
+    dirs = ensure_secret_layout(home)
+    event = {"ts": now_iso(), "schema": SECRET_SCHEMA, **event, "secret_values_exposed": False}
+    with dirs["audit"].open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+    chmod_private(dirs["audit"], 0o600)
+
+
+def field_is_secret(field: dict[str, Any]) -> bool:
+    return bool(field.get("secret")) or str(field.get("type", "")).lower() in {"password", "secret", "token"}
+
+
+def redacted_item_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    out = json.loads(json.dumps(item, ensure_ascii=False))
+    fields = out.get("fields")
+    if isinstance(fields, dict):
+        for meta in fields.values():
+            if isinstance(meta, dict) and meta.get("secret"):
+                meta.pop("value", None)
+                meta["value_status"] = meta.get("value_status") or "stored_redacted"
+    out["secret_values_exposed"] = False
+    return out
+
+
+def load_secret_values(home: Path, secret_id: str) -> dict[str, Any]:
+    path = secret_value_path(home, secret_id)
+    if not path.exists():
+        raise SystemExit(f"secret value backend missing for {secret_id}; run `aios secret intake <request-id>` first")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("values"), dict):
+        raise SystemExit(f"invalid secret value backend: {path}")
+    return data
+
+
+def secret_layout_init(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    ensure_secret_layout(home, verbose=True)
+
+
+def secret_request_show(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    path = find_request_path(home, args.request_id)
+    data = load_yaml_doc(path)
+    print(json.dumps({"path": str(path), "request": data, "secret_values_exposed": False}, ensure_ascii=False, indent=2))
+
+
+def default_translation_request(request_id: str = "req_ai_api_translation_default") -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "request_id": request_id,
+        "kind": "secret_intake",
+        "secret_id": "ai-api.translation.default",
+        "title": "AI API profile for AIOS Kit documentation translation",
+        "created_by": "agent",
+        "created_at": now_iso(),
+        "fields": [
+            {"name": "provider", "label": "Provider name", "type": "string", "secret": False, "required": True, "default": "custom"},
+            {"name": "base_url", "label": "OpenAI-compatible Base URL", "type": "url", "secret": False, "required": True},
+            {"name": "model", "label": "Model name", "type": "string", "secret": False, "required": True},
+            {"name": "api_mode", "label": "API mode", "type": "enum", "choices": ["chat_completions", "responses"], "default": "chat_completions", "secret": False, "required": True},
+            {"name": "api_key", "label": "API Key", "type": "password", "secret": True, "required": True, "confirm": True},
+        ],
+        "routes": {"canonical": {"backend": "aios-local", "item_path": "$AIOS_ROOT/vault/secrets/items/ai-api.translation.default.yaml"}},
+        "item": {"kind": "ai_api_profile", "intended_use": ["docs-translation", "batch-text-generation"], "metadata": {"agent_can_read_plaintext": False}},
+        "consumers": [
+            {
+                "id": "aios-kit.translation",
+                "kind": "consumer",
+                "uses_secret": "ai-api.translation.default",
+                "env_map": {
+                    "TRANSLATE_PROVIDER": "provider",
+                    "TRANSLATE_BASE_URL": "base_url",
+                    "TRANSLATE_MODEL": "model",
+                    "TRANSLATE_API_MODE": "api_mode",
+                    "TRANSLATE_API_KEY": "api_key",
+                },
+                "local_run": {"preferred": "aios secret run --consumer aios-kit.translation -- python3 scripts/translate_docs.py"},
+                "legacy_materialization": {"path": "~/aios/config/secrets/aios-kit-translation.env", "status": "remove-after-secret-module-mvp"},
+            }
+        ],
+        "replicas": [
+            {
+                "id": "github.aios-kit.translation",
+                "kind": "external_replica",
+                "backend": "github_actions",
+                "repo": "LinLin00000000/aios-kit",
+                "source_secret_ref": "ai-api.translation.default",
+                "keys": {
+                    "TRANSLATE_PROVIDER": "provider",
+                    "TRANSLATE_BASE_URL": "base_url",
+                    "TRANSLATE_MODEL": "model",
+                    "TRANSLATE_API_MODE": "api_mode",
+                    "TRANSLATE_API_KEY": "api_key",
+                },
+                "sync": "manual",
+                "status": "pending_sync",
+            }
+        ],
+    }
+
+
+def secret_request_init_translation(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    dirs = ensure_secret_layout(home)
+    request_id = args.request_id or "req_ai_api_translation_default"
+    path = dirs["pending"] / f"{safe_secret_id(request_id)}.yaml"
+    if path.exists() and not args.force:
+        raise SystemExit(f"request already exists: {path}; pass --force to overwrite")
+    data = default_translation_request(request_id)
+    write_yaml_doc(path, data)
+    append_secret_audit(home, {"event": "request_created", "request_id": request_id, "secret_id": data["secret_id"], "status": "pending"})
+    print("Created secret intake request")
+    print(f"- request_id: {request_id}")
+    print(f"- path: {path}")
+    print("Next: run `aios secret request show {}` then `aios secret intake {}` in a real shell/TTY.".format(request_id, request_id))
+
+
+def prompt_field(field: dict[str, Any]) -> str:
+    name = str(field.get("name"))
+    label = str(field.get("label") or name)
+    default = field.get("default")
+    choices = field.get("choices") or []
+    suffix = f" [{default}]" if default not in (None, "") else ""
+    if choices:
+        suffix += " choices=" + ",".join(str(x) for x in choices)
+    while True:
+        if field_is_secret(field):
+            value = getpass.getpass(f"{label}: ")
+            if field.get("confirm"):
+                again = getpass.getpass(f"Confirm {label}: ")
+                if value != again:
+                    print("values did not match; try again", file=sys.stderr)
+                    continue
+        else:
+            value = input(f"{label}{suffix}: ").strip()
+            if not value and default not in (None, ""):
+                value = str(default)
+        if not value and field.get("required"):
+            print(f"{name} is required", file=sys.stderr)
+            continue
+        if choices and value and value not in [str(x) for x in choices]:
+            print(f"{name} must be one of: {', '.join(str(x) for x in choices)}", file=sys.stderr)
+            continue
+        return value
+
+
+def write_consumer_from_request(home: Path, secret_id: str, consumer: dict[str, Any]) -> str:
+    cid = str(consumer.get("id") or "")
+    if not cid:
+        return ""
+    data = {"schema_version": 1, "id": cid, "kind": "consumer", "uses_secret": secret_id, "updated_at": now_iso(), **consumer}
+    write_yaml_doc(secret_consumer_path(home, cid), data)
+    return cid
+
+
+def write_replica_from_request(home: Path, secret_id: str, replica: dict[str, Any]) -> str:
+    rid = str(replica.get("id") or "")
+    if not rid:
+        return ""
+    data = {"schema_version": 1, "id": rid, "kind": "external_replica", "source_secret_ref": secret_id, "updated_at": now_iso(), **replica}
+    write_yaml_doc(secret_replica_path(home, rid), data)
+    return rid
+
+
+def secret_intake(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    dirs = ensure_secret_layout(home)
+    req_path = find_request_path(home, args.request_id, include_done=False)
+    req = load_yaml_doc(req_path)
+    fields = req.get("fields") or []
+    if not isinstance(fields, list) or not fields:
+        raise SystemExit(f"request has no fields: {req_path}")
+    secret_id = str(req.get("secret_id") or "")
+    if not secret_id:
+        raise SystemExit("request missing secret_id")
+    if args.dry_run:
+        print("Secret intake dry-run")
+        print(f"- request: {req_path}")
+        print(f"- secret_id: {secret_id}")
+        print("- fields: " + ", ".join(str(f.get("name")) + ("(secret)" if field_is_secret(f) else "") for f in fields if isinstance(f, dict)))
+        print("- secret_values_exposed: false")
+        return
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        raise SystemExit("refusing non-TTY secret intake; run this command in a real local shell/TTY")
+    val_path = secret_value_path(home, secret_id)
+    item_path = secret_item_path(home, secret_id)
+    if (val_path.exists() or item_path.exists()) and not args.force:
+        raise SystemExit(f"secret already exists for {secret_id}; pass --force to rotate/update")
+    print(f"Secret intake: {req.get('title') or secret_id}")
+    print(f"Secret id: {secret_id}")
+    print("Values will be stored locally; secret fields are hidden and never printed.")
+    values: dict[str, str] = {}
+    field_meta: dict[str, Any] = {}
+    for field in fields:
+        if not isinstance(field, dict):
+            raise SystemExit("invalid field entry in request")
+        name = str(field.get("name") or "")
+        if not name:
+            raise SystemExit("field missing name")
+        value = prompt_field(field)
+        values[name] = value
+        meta = {"type": field.get("type", "string"), "secret": field_is_secret(field), "required": bool(field.get("required")), "value_status": "stored"}
+        if not meta["secret"]:
+            meta["value"] = value
+        field_meta[name] = meta
+    consumers = [write_consumer_from_request(home, secret_id, c) for c in (req.get("consumers") or []) if isinstance(c, dict)]
+    replicas = [write_replica_from_request(home, secret_id, r) for r in (req.get("replicas") or []) if isinstance(r, dict)]
+    consumers = [x for x in consumers if x]
+    replicas = [x for x in replicas if x]
+    item_info = req.get("item") if isinstance(req.get("item"), dict) else {}
+    item = {
+        "schema_version": 1,
+        "id": secret_id,
+        "kind": item_info.get("kind", req.get("secret_kind", "generic_secret")),
+        "ownership": "aios_owned",
+        "backend": "aios-local-file",
+        "status": "configured",
+        "fields": field_meta,
+        "backend_ref": f"values/{safe_secret_id(secret_id)}.json",
+        "intended_use": item_info.get("intended_use", []),
+        "consumers": consumers,
+        "replicas": replicas,
+        "metadata": {"agent_can_read_plaintext": False, **(item_info.get("metadata", {}) if isinstance(item_info.get("metadata"), dict) else {})},
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    value_doc = {"schema_version": 1, "schema": SECRET_VALUE_SCHEMA, "secret_id": secret_id, "stored_at": now_iso(), "values": values}
+    write_private_text(val_path, json.dumps(value_doc, ensure_ascii=False, indent=2) + "\n", mode=0o600)
+    write_yaml_doc(item_path, item)
+    receipt = {
+        "schema_version": 1,
+        "request_id": req.get("request_id", args.request_id),
+        "secret_id": secret_id,
+        "status": "stored",
+        "stored_at": now_iso(),
+        "backend": "aios-local-file",
+        "fields": list(values.keys()),
+        "secret_fields": [k for k, v in field_meta.items() if v.get("secret")],
+        "consumer_ids": consumers,
+        "replica_ids": replicas,
+        "secret_values_exposed": False,
+    }
+    receipt_path = dirs["receipts"] / f"{safe_secret_id(str(req.get('request_id', args.request_id)))}.json"
+    receipt["receipt_path"] = str(receipt_path)
+    write_private_text(receipt_path, json.dumps(receipt, ensure_ascii=False, indent=2) + "\n")
+    done_path = dirs["done"] / req_path.name
+    if done_path.exists():
+        done_path.unlink()
+    req_path.rename(done_path)
+    append_secret_audit(home, {"event": "intake_completed", "request_id": req.get("request_id", args.request_id), "secret_id": secret_id, "fields": list(values.keys()), "consumer_ids": consumers, "replica_ids": replicas, "receipt": str(receipt_path)})
+    print("Secret intake completed")
+    print(f"- secret_id: {secret_id}")
+    print(f"- item: {item_path}")
+    print(f"- receipt: {receipt_path}")
+    print("- secret_values_exposed: false")
+
+
+def secret_list(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    ensure_secret_layout(home)
+    rows = []
+    for path in sorted(secret_dirs(home)["items"].glob("*.yaml")):
+        item = load_yaml_doc(path)
+        rows.append({"id": item.get("id"), "kind": item.get("kind"), "status": item.get("status"), "consumers": item.get("consumers", []), "replicas": item.get("replicas", []), "path": str(path)})
+    if args.json:
+        print(json.dumps({"schema": SECRET_SCHEMA, "items": rows, "secret_values_exposed": False}, ensure_ascii=False, indent=2))
+        return
+    if not rows:
+        print("no secret items")
+        return
+    for row in rows:
+        print(f"- {row['id']} [{row.get('status')}] {row.get('kind')} consumers={len(row.get('consumers') or [])} replicas={len(row.get('replicas') or [])}")
+
+
+def secret_show(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    path = secret_item_path(home, args.secret_id)
+    if not path.exists():
+        raise SystemExit(f"secret metadata not found: {args.secret_id}")
+    if not args.metadata:
+        raise SystemExit("refusing to show secret values; pass --metadata to show redacted metadata")
+    item = load_yaml_doc(path)
+    print(json.dumps(redacted_item_metadata(item), ensure_ascii=False, indent=2))
+
+
+def api_health_request(values: dict[str, Any], timeout: int) -> dict[str, str]:
+    base_url = str(values.get("base_url") or "").rstrip("/")
+    credential = str(values.get("api_key") or "")
+    model = str(values.get("model") or "")
+    mode = str(values.get("api_mode") or "chat_completions").strip().lower() or "chat_completions"
+    if not base_url or not credential or not model:
+        raise RuntimeError("missing base_url/api_key/model")
+    if mode in {"responses", "codex_responses", "openai_responses"}:
+        url = base_url + "/responses"
+        payload = {"model": model, "input": [{"role": "user", "content": "Reply with exactly: ok"}]}
+    else:
+        url = base_url + "/chat/completions"
+        payload = {"model": model, "messages": [{"role": "user", "content": "Reply with exactly: ok"}], "temperature": 0}
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST", headers={"Authorization": f"Bearer {credential}", "Content-Type": "application/json", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = str(resp.status)
+            resp.read(2048)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"API HTTP {exc.code}") from exc
+    parsed = urllib.parse.urlparse(base_url)
+    return {"status": status, "base_url_host": parsed.netloc or "<unknown>", "model": model, "api_mode": mode}
+
+
+def secret_verify(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    path = secret_item_path(home, args.secret_id)
+    if not path.exists():
+        raise SystemExit(f"secret metadata not found: {args.secret_id}")
+    item = load_yaml_doc(path)
+    kind = str(item.get("kind") or "")
+    if kind == "ai_api_profile":
+        fields = item.get("fields") or {}
+        required = ["base_url", "api_key", "model"]
+        missing_meta = [x for x in required if x not in fields]
+        if missing_meta:
+            raise SystemExit("missing metadata fields: " + ", ".join(missing_meta))
+        if args.offline:
+            val_path = secret_value_path(home, args.secret_id)
+            print("AI API metadata check passed")
+            print(f"- secret_id: {args.secret_id}")
+            print(f"- value_backend: {'present' if val_path.exists() else 'missing'}")
+            print("- secret_values_exposed: false")
+            raise SystemExit(0 if val_path.exists() else 1)
+        values = load_secret_values(home, args.secret_id).get("values", {})
+        try:
+            result = api_health_request(values, args.timeout)
+        except Exception as exc:
+            print("AI API verify failed")
+            print(f"- secret_id: {args.secret_id}")
+            print(f"- error: {exc}")
+            print("- secret_values_exposed: false")
+            raise SystemExit(1)
+        print("AI API verify passed")
+        for key in ["base_url_host", "model", "api_mode", "status"]:
+            print(f"- {key}: {result[key]}")
+        print("- secret_values_exposed: false")
+        return
+    if item.get("ownership") == "app_owned":
+        loc = expand(str(item.get("canonical_location") or ""), home=home)
+        ok = bool(loc and path_exists_no_secret_read(loc))
+        print("App-owned secret metadata check")
+        print(f"- secret_id: {args.secret_id}")
+        print(f"- canonical_location: {loc}")
+        print(f"- exists: {ok}")
+        print(f"- do_not_move: {item.get('do_not_move', True)}")
+        print(f"- do_not_symlink: {item.get('do_not_symlink', True)}")
+        print("- secret_values_exposed: false")
+        raise SystemExit(0 if ok or args.allow_missing_app_owned else 1)
+    print("Generic metadata check passed")
+    print(f"- secret_id: {args.secret_id}")
+    print("- secret_values_exposed: false")
+
+
+def secret_sync_github(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    item = load_yaml_doc(secret_item_path(home, args.secret_id))
+    replica_path = secret_replica_path(home, args.replica)
+    if not replica_path.exists():
+        raise SystemExit(f"replica metadata not found: {args.replica}")
+    replica = load_yaml_doc(replica_path)
+    if replica.get("backend") != "github_actions":
+        raise SystemExit(f"replica backend is not github_actions: {replica.get('backend')}")
+    repo = str(replica.get("repo") or "")
+    keys = replica.get("keys") or {}
+    if not repo or not isinstance(keys, dict) or not keys:
+        raise SystemExit("replica missing repo or keys")
+    print(f"GitHub secret sync {'dry-run' if args.dry_run else 'apply'}")
+    print(f"- repo: {repo}")
+    print(f"- replica: {args.replica}")
+    if args.dry_run:
+        for env_name, field in keys.items():
+            print(f"- would_set: {env_name} <- {field}")
+        print("- source_values_read: false")
+        print("- secret_values_exposed: false")
+        return
+    if not args.yes:
+        raise SystemExit("refusing external GitHub write without --yes; run again from a trusted shell after reviewing `--dry-run`")
+    values = load_secret_values(home, args.secret_id).get("values", {})
+    missing = [field for field in keys.values() if str(field) not in values]
+    if missing:
+        raise SystemExit("missing source fields: " + ", ".join(str(x) for x in missing))
+    if shutil.which("gh") is None:
+        raise SystemExit("gh CLI not found")
+    for env_name, field in keys.items():
+        cp = subprocess.run(["gh", "secret", "set", str(env_name), "--repo", repo], input=str(values[str(field)]), text=True, capture_output=True)
+        if cp.returncode != 0:
+            print(cp.stdout, end="")
+            print(cp.stderr, end="", file=sys.stderr)
+            raise SystemExit(cp.returncode)
+        print(f"- set: {env_name}")
+    replica["status"] = "synced"
+    replica["last_synced_at"] = now_iso()
+    write_yaml_doc(replica_path, replica)
+    append_secret_audit(home, {"event": "github_sync", "secret_id": args.secret_id, "replica_id": args.replica, "repo": repo, "keys": list(keys.keys()), "status": "synced"})
+    print("- secret_values_exposed: false")
+
+
+def redact_output(text: str, secret_values: list[str]) -> str:
+    out = text
+    for value in sorted((v for v in secret_values if v and len(v) >= 4), key=len, reverse=True):
+        out = out.replace(value, "***REDACTED***")
+    return out
+
+
+def secret_run(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    consumer_path = secret_consumer_path(home, args.consumer)
+    if not consumer_path.exists():
+        raise SystemExit(f"consumer metadata not found: {args.consumer}")
+    consumer = load_yaml_doc(consumer_path)
+    secret_id = str(consumer.get("uses_secret") or "")
+    if not secret_id:
+        raise SystemExit("consumer missing uses_secret")
+    item = load_yaml_doc(secret_item_path(home, secret_id))
+    value_doc = load_secret_values(home, secret_id)
+    values = value_doc.get("values", {})
+    env_map = consumer.get("env_map") or {}
+    if not isinstance(env_map, dict) or not env_map:
+        raise SystemExit("consumer missing env_map")
+    cmd = list(args.command or [])
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        raise SystemExit("command required after --")
+    env = os.environ.copy()
+    for env_name, field_name in env_map.items():
+        field_name = str(field_name)
+        if field_name not in values:
+            raise SystemExit(f"source field missing for consumer env {env_name}: {field_name}")
+        env[str(env_name)] = str(values[field_name])
+    secret_fields = []
+    fields_meta = item.get("fields") or {}
+    if isinstance(fields_meta, dict):
+        for field_name, meta in fields_meta.items():
+            if isinstance(meta, dict) and meta.get("secret") and field_name in values:
+                secret_fields.append(str(values[field_name]))
+    cp = subprocess.run(cmd, env=env, text=True, capture_output=True)
+    stdout = redact_output(cp.stdout, secret_fields)
+    stderr = redact_output(cp.stderr, secret_fields)
+    if stdout:
+        print(stdout, end="")
+    if stderr:
+        print(stderr, end="", file=sys.stderr)
+    append_secret_audit(home, {"event": "consumer_run", "secret_id": secret_id, "consumer_id": args.consumer, "command": cmd[:1], "exit_code": cp.returncode})
+    raise SystemExit(cp.returncode)
+
+
+def path_exists_no_secret_read(path: Path) -> bool:
+    try:
+        return path.exists()
+    except PermissionError:
+        return True
+
+
+def secret_index_native(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    ensure_secret_layout(home)
+    written: list[str] = []
+    if args.ssh:
+        ssh_dir = home / ".ssh"
+        item = {
+            "schema_version": 1,
+            "id": "ssh.local-directory",
+            "kind": "ssh_secret_directory",
+            "ownership": "app_owned",
+            "owner": "openssh",
+            "canonical_location": str(ssh_dir),
+            "aios_role": "indexed_only",
+            "expected_mode": "0700",
+            "do_not_move": True,
+            "do_not_symlink": True,
+            "verification": ["directory_exists", "stat_mode", "native_ssh_checks_when_needed"],
+            "status": "indexed" if path_exists_no_secret_read(ssh_dir) else "missing",
+            "updated_at": now_iso(),
+            "metadata": {"agent_can_read_plaintext": False, "note": "AIOS indexes the native SSH directory without enumerating or reading private key values."},
+        }
+        write_yaml_doc(secret_item_path(home, item["id"]), item)
+        append_secret_audit(home, {"event": "app_owned_indexed", "secret_id": item["id"], "kind": item["kind"], "status": item["status"]})
+        written.append(item["id"])
+    if args.caddy:
+        candidates = [Path("/var/lib/caddy/.local/share/caddy"), home / ".local" / "share" / "caddy"]
+        found = next((p for p in candidates if path_exists_no_secret_read(p)), candidates[0])
+        item = {
+            "schema_version": 1,
+            "id": "tls.caddy.auto-managed",
+            "kind": "tls_certificate_private_key",
+            "ownership": "app_owned",
+            "owner": "caddy",
+            "canonical_location": str(found),
+            "aios_role": "indexed_only",
+            "managed_by": "caddy",
+            "do_not_move": True,
+            "do_not_symlink": True,
+            "verification": ["caddy_storage_path_exists", "certificate_expiry_check_when_needed"],
+            "status": "indexed" if path_exists_no_secret_read(found) else "missing",
+            "updated_at": now_iso(),
+            "metadata": {"agent_can_read_plaintext": False, "note": "AIOS records Caddy-managed storage location only; Caddy remains the canonical owner."},
+        }
+        write_yaml_doc(secret_item_path(home, item["id"]), item)
+        append_secret_audit(home, {"event": "app_owned_indexed", "secret_id": item["id"], "kind": item["kind"], "status": item["status"]})
+        written.append(item["id"])
+    if not written:
+        raise SystemExit("choose at least one native secret class: --ssh and/or --caddy")
+    print("Indexed app/OS-owned secret locations")
+    for item_id in written:
+        print(f"- {item_id}")
+    print("- secret_values_exposed: false")
 
 def project_paths(home: Path) -> tuple[Path, Path]:
     projects = instance_paths(home)["projects"]
@@ -1281,6 +1928,67 @@ def build_parser() -> argparse.ArgumentParser:
     upd.add_argument("--no-skills", action="store_true", help="with `update all`, skip managed skills")
     upd.add_argument("--no-ops", action="store_true", help="with `update all`, skip re-running the OPS vault template installer")
     upd.set_defaults(func=update)
+
+
+    sec = sub.add_parser("secret", help="manage AIOS secret metadata, requests, receipts, replicas, and safe runtime injection")
+    sec_sub = sec.add_subparsers(dest="secret_cmd", required=True)
+    sec_layout = sec_sub.add_parser("layout", help="initialize/check the AIOS secret vault layout")
+    sec_layout_sub = sec_layout.add_subparsers(dest="layout_cmd", required=True)
+    sec_layout_init = sec_layout_sub.add_parser("init")
+    sec_layout_init.set_defaults(func=secret_layout_init)
+
+    sec_req = sec_sub.add_parser("request", help="manage short-lived secret intake request manifests")
+    sec_req_sub = sec_req.add_subparsers(dest="request_cmd", required=True)
+    sec_req_show = sec_req_sub.add_parser("show")
+    sec_req_show.add_argument("request_id")
+    sec_req_show.set_defaults(func=secret_request_show)
+    sec_req_init = sec_req_sub.add_parser("init-translation", help="create the default AI API translation profile intake request")
+    sec_req_init.add_argument("--request-id")
+    sec_req_init.add_argument("--force", action="store_true")
+    sec_req_init.set_defaults(func=secret_request_init_translation)
+
+    sec_intake = sec_sub.add_parser("intake", help="complete a request manifest through a real TTY without printing secret values")
+    sec_intake.add_argument("request_id")
+    sec_intake.add_argument("--dry-run", action="store_true", help="validate request shape without prompting for values")
+    sec_intake.add_argument("--force", action="store_true", help="rotate/update an existing local secret item")
+    sec_intake.set_defaults(func=secret_intake)
+
+    sec_list = sec_sub.add_parser("list", help="list secret item metadata")
+    sec_list.add_argument("--json", action="store_true")
+    sec_list.set_defaults(func=secret_list)
+
+    sec_show = sec_sub.add_parser("show", help="show redacted secret metadata only")
+    sec_show.add_argument("secret_id")
+    sec_show.add_argument("--metadata", action="store_true", help="required: show metadata and never secret values")
+    sec_show.set_defaults(func=secret_show)
+
+    sec_verify = sec_sub.add_parser("verify", help="verify secret metadata or backend without exposing values")
+    sec_verify.add_argument("secret_id")
+    sec_verify.add_argument("--offline", action="store_true", help="metadata/backend presence check only; do not call external APIs")
+    sec_verify.add_argument("--timeout", type=int, default=60)
+    sec_verify.add_argument("--allow-missing-app-owned", action="store_true", help="for indexed native secrets, treat missing paths as non-fatal")
+    sec_verify.set_defaults(func=secret_verify)
+
+    sec_sync = sec_sub.add_parser("sync", help="sync local canonical secret values to external replicas")
+    sec_sync_sub = sec_sync.add_subparsers(dest="sync_cmd", required=True)
+    sec_sync_gh = sec_sync_sub.add_parser("github", help="sync to GitHub Actions secrets through gh CLI")
+    sec_sync_gh.add_argument("secret_id")
+    sec_sync_gh.add_argument("--replica", required=True)
+    sec_sync_gh.add_argument("--dry-run", action="store_true")
+    sec_sync_gh.add_argument("--yes", action="store_true", help="required for external write after reviewing --dry-run")
+    sec_sync_gh.set_defaults(func=secret_sync_github)
+
+    sec_run = sec_sub.add_parser("run", help="inject a consumer's secret fields into a child process environment")
+    sec_run.add_argument("--consumer", required=True)
+    sec_run.add_argument("command", nargs=argparse.REMAINDER)
+    sec_run.set_defaults(func=secret_run)
+
+    sec_index = sec_sub.add_parser("index", help="index app/OS-owned secret locations without reading secret values")
+    sec_index_sub = sec_index.add_subparsers(dest="index_cmd", required=True)
+    sec_native = sec_index_sub.add_parser("native", help="index native SSH/Caddy secret locations")
+    sec_native.add_argument("--ssh", action="store_true")
+    sec_native.add_argument("--caddy", action="store_true")
+    sec_native.set_defaults(func=secret_index_native)
 
     proj = sub.add_parser("project", help="manage the minimal AIOS project registry")
     psub = proj.add_subparsers(dest="project_cmd", required=True)

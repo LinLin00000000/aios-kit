@@ -17,9 +17,13 @@ skillpack.local.yaml
 manifests/local-assets.local.json
 manifests/local-assets.json
 registries/*.local.*
+profiles/*.local.*
+profiles/local-*.yaml
+profiles/local-*.json
+secrets/
 ```
 
-它们用于本地路径、私有 skills、当前设备名和非公开仓库。
+它们用于本地路径、私有 skills、当前设备名、非公开仓库和临时/历史 secret materialization。AIOS Secret 模块的正式实例状态在 `$AIOS_ROOT/vault/secrets`，不应提交到 `aios-kit` 公开仓库。
 
 ## 公开推送前审计清单
 
