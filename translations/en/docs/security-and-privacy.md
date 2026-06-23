@@ -29,9 +29,9 @@ profiles/local-*.json
 secrets/
 ```
 
-They are used for local paths, private skills, current device names, non-public repositories, and temporary/historical secret materialization. The official instance state of the AIOS Secret module is stored in `$AIOS_ROOT/vault/secrets` and should not be committed to the public `aios-kit` repository.
+They are used for local paths, private skills, the current device name, non-public repositories, and temporary/historical secret materialization. The official instance state of the AIOS Secret module is stored in `$AIOS_ROOT/vault/secrets` and should not be committed to the public `aios-kit` repository.
 
-## Pre-Public-Push Audit Checklist
+## Audit Checklist Before Public Push
 
 Run first:
 
@@ -47,4 +47,4 @@ git status --short --branch
 git ls-files
 ```
 
-If private local paths were accidentally committed to the repository, rewrite history while the repository is still new and the blast radius is manageable. If real secrets have been exposed, rotate or delete the relevant credentials immediately.
+If private local paths were accidentally committed to the repository, rewrite history while the repository is still new and the impact is manageable. If an actual secret has been exposed, immediately rotate or delete the relevant credentials.

@@ -28,7 +28,7 @@ Windows PowerShell (native core installation):
 iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 | iex
 ```
 
-After the script starts, it will first ask whether to use the modern CLI wizard (default: yes). The wizard is downloaded only after confirmation; if the wizard is unavailable, it automatically falls back to native Bash interaction. The Windows native entry point installs only the core capabilities. If you need additional Linux/server capabilities, use WSL or `install.sh` on a Linux server.
+After the script starts, it will first ask whether to use the modern CLI wizard (default: yes). The wizard is downloaded only after confirmation; if the wizard is unavailable, it automatically falls back to native Bash interaction. The Windows native entry point installs only core capabilities. If you need Linux/server add-on capabilities, use WSL or `install.sh` on a Linux server.
 
 If GitHub access is unstable, you can switch to a mirror you trust:
 
@@ -42,105 +42,105 @@ Send the following lines to a terminal Agent such as Codex, Claude Code, OpenCla
 
 ```text
 Please help me install aios-kit: https://github.com/LinLin00000000/aios-kit
-Please read README.md, docs/installation.md, and docs/security-and-privacy.md first, and check install.sh --help.
-First generate and run a dry-run installation command, and explain which system configurations will be changed; execute the real installation only after I confirm.
-After installation, please run ~/aios/bin/aios status and ~/aios/bin/aios doctor.
+First read README.md, docs/installation.md, and docs/security-and-privacy.md, and check install.sh --help.
+First generate and run a dry-run installation command, and explain what system configuration it will change; execute the real installation only after I confirm.
+After installation, run ~/aios/bin/aios status and ~/aios/bin/aios doctor.
 Do not leak or commit my subscription URLs, tokens, keys, or private configuration.
 ```
 
 For more platform, parameter, non-interactive, and troubleshooting details, see: [docs/installation.md](docs/installation.md).
 
-## What you get after installation
+## What You Get After Installation
 
-### Core modules and directories
+### Core Modules and Directories
 
-| Module / capability | Installation location | Default platform | Purpose | Notes |
+| Module / Capability | Installation location | Default platforms | Purpose | Notes |
 |---|---|---|---|---|
-| AIOS instance root | `~/aios` | Linux / Windows; macOS can be explored with dry-run | Keeps the state, modules, work directories, and cache of your Personal AIOS within a portable boundary | Use `--root` to change the path |
-| `aios-kit` module | `~/aios/modules/aios-kit` | Linux / Windows | Source of the installer, `aios` CLI, skillpack manifest, documentation, and templates | On Linux/WSL, update with `aios update modules` |
-| LLL module | `~/aios/modules/lins-living-loop` | Linux / Windows | File-based foundation for long-running tasks / Agent workflows | The module is installed on native Windows; the full `lll` CLI is still currently recommended via Git Bash/WSL/Linux |
-| Command entry points | `~/aios/bin/aios`, `~/aios/bin/lll`; `.ps1/.cmd` shims on Windows | Linux / Windows | Provides stable entry points for Agents and humans without requiring them to remember repo paths | Can optionally be added to PATH |
+| AIOS instance root directory | `~/aios` | Linux / Windows; macOS can use dry-run to explore | Collects the state, modules, work directories, and cache of your Personal AIOS into a portable boundary | Use `--root` to change the path |
+| `aios-kit` module | `~/aios/modules/aios-kit` | Linux / Windows | Source of the installer, `aios` CLI, skillpack manifest, documentation, and templates | On Linux/WSL, use `aios update modules` to update |
+| LLL module | `~/aios/modules/lins-living-loop` | Linux / Windows | File-based foundation for long-running tasks / Agent workflows | The module is installed natively on Windows; the full `lll` CLI is currently still recommended with Git Bash/WSL/Linux |
+| Command entry points | `~/aios/bin/aios`, `~/aios/bin/lll`; on Windows, `.ps1/.cmd` shims | Linux / Windows | Provides stable entry points for Agents and humans without requiring them to remember repo paths | Can optionally be added to PATH |
 | Work directory | `~/aios/work` | Designed for all platforms | LLL / Agent work directory for long-running tasks, research, validation, and deliverables | Persistent work layer outside conversations |
 | Config/state/logs/cache | `~/aios/config`, `state`, `logs`, `cache` | Designed for all platforms | Stores instance configuration, installation state, logs, and cache | Avoids scattering data across multiple implicit locations |
-| Private vault boundary | `~/aios/vault/ops` | Initialized by default on Linux; core directories created on Windows | Stores OPS vault, project registry, maintenance records, and other private facts | Public templates are separated from real private data |
-| runtime skills target directory | Default `~/.agents/skills`, optional Hermes target | Full sync on Linux / WSL; native Windows initializes the target first | Location where Agents actually load skills | Does not take over the entire skills directory; installs managed skills individually |
+| Private vault boundary | `~/aios/vault/ops` | Initialized by default on Linux; Windows creates core directories | Stores the OPS vault, project registry, maintenance records, and other private facts | Separates public templates from real private data |
+| Runtime skills target directory | Default: `~/.agents/skills`; optional Hermes target | Full sync on Linux / WSL; Windows native initializes the target first | Location where Agents actually load skills | Does not take over the entire skills directory; installs managed skills one by one |
 
-### Default managed skills
+### Default Managed Skills
 
 | Category | Skills | Purpose |
 |---|---|---|
-| Document processing | `docx`, `pptx`, `xlsx`, `pdf` | Enables Agents to read/write/check common office documents and PDFs |
+| Document processing | `docx`, `pptx`, `xlsx`, `pdf` | Enables Agents to read, write, and inspect common office documents and PDFs |
 | Skill ecosystem | `find-skills`, `skill-creator`, `install-skill` | Discover, install, create, and maintain reusable Agent skills |
 | MCP / tool discovery | `awesome-mcp-servers-discovery` | Research and filter MCP servers |
-| Frontend and design | `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines` | UI/UX, frontend architecture, and Web design review |
-| Plan refinement | `grilling`, `grill-me`, `grill-with-docs`, `domain-modeling` | Probe requirements, refine plans, and distill domain models and ADRs |
+| Frontend and design | `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines` | UI/UX, frontend architecture, and web design review |
+| Solution refinement | `grilling`, `grill-me`, `grill-with-docs`, `domain-modeling` | Probe requirements, refine plans, and capture domain models and ADRs |
 | First-class AIOS capabilities | `aios-resource-resolver`, `lins-living-loop`, `github-repo-search` | Resource resolution, long-running task workflows, and GitHub project search/recommendation |
 
-### `aios` CLI capabilities
+### `aios` CLI Capabilities
 
-| Command | Purpose | Typical user |
+| Command | Purpose | Typical users |
 |---|---|---|
-| `aios status` | View a summary of the instance root, vault, work, skills, modules, and more | Human / Agent |
-| `aios doctor` | Validate the instance, skillpack, and local asset configuration | Agent first |
-| `aios update` | Update modules, OPS templates, and managed skills | Agent / maintainer |
-| `aios project ...` | Manage the minimal project/resource registry and aliases | Agent / maintainer |
-| `aios lll ...` | Discover, create, open, and check LLL workdirs, and proxy some LLL commands | Agent first |
-| `aios skillpack ...` | List, sync, and check managed runtime skills; maintainers can use `adopt` to promote locally created skills into the Git-backed source of truth | Maintainer / Agent |
-| `aios assets ...` | Check or link the local asset discovery manifest | Maintainer |
+| `aios status` | View a summary of the instance root, vault, work, skills, modules, and more | Humans / Agents |
+| `aios doctor` | Validate the instance, skillpack, and local asset configuration | Agent-first |
+| `aios update` | Update modules, OPS templates, and managed skills | Agents / maintainers |
+| `aios project ...` | Manage the minimal project/resource registry and aliases | Agents / maintainers |
+| `aios lll ...` | Discover, create, open, and check LLL workdirs, and proxy some LLL commands | Agent-first |
+| `aios skillpack ...` | List, sync, and check managed runtime skills; maintainers can use `adopt` to bring a newly created local skill under the Git source of truth | Maintainers / Agents |
+| `aios assets ...` | Check or link the local asset discovery manifest | Maintainers |
 
-### Additional Linux/server capabilities
+### Linux/server Add-on Capabilities
 
-| Additional capability | Installation location / scope | Use case | Native Windows strategy |
+| Add-on capability | Installation location / scope | Use case | Windows native strategy |
 |---|---|---|---|
-| Mihomo network bootstrap | `~/aios/network/mihomo`, optional shell proxy / TUN | When access to GitHub, model/API services, or package managers is unstable on a new server | Not shown; use WSL/Linux when needed |
-| TUN / systemd service | Linux systemd service | 24/7 cloud server operation, global transparent proxy | Not shown |
-| dev/runtime bootstrap | Python/UV, NVM/Node, Docker, Caddy | Quickly fill in the basic runtime environment on a new Ubuntu/Debian server | Not shown |
-| Hermes Agent installation/configuration | User environment and Hermes skills target | Use Hermes as the default Agent hub | Not done natively on Windows for now; use WSL/Linux |
-| OPS vault templates | `~/aios/vault/ops` | Generate the public template structure while keeping real private facts local | Native Windows only creates core directories |
-| Ubuntu source recovery | apt/npm/pip/Docker source configuration | Repair a new server polluted by mirrors or old configuration | Not shown |
+| Mihomo network bootstrap | `~/aios/network/mihomo`, optional shell proxy / TUN | When a new server has unstable access to GitHub, model/API endpoints, or package managers | Not shown; use WSL/Linux when needed |
+| TUN / systemd service | Linux systemd service | 24/7 operation on cloud servers, global transparent proxy | Not shown |
+| dev/runtime bootstrap | Python/UV, NVM/Node, Docker, Caddy | Quickly supplement the basic runtime environment on new Ubuntu/Debian servers | Not shown |
+| Hermes Agent installation/configuration | User environment and Hermes skills target | Use Hermes as the default Agent hub | Not currently done on native Windows; use WSL/Linux |
+| OPS vault templates | `~/aios/vault/ops` | Generate a public template structure while real private facts remain local | Windows native only creates core directories |
+| Ubuntu source restoration | apt/npm/pip/Docker source configuration | Fix new servers polluted by mirrors or old configuration | Not shown |
 
-## Vision and design philosophy
+## Vision and Design Philosophy
 
-The goal of a Personal AIOS is simple: turn AI from a "temporary chat assistant" into an "operating layer that can continuously work around your real digital world." It needs to know where projects are, how services are checked, what the boundaries are for documents and keys, which work can be automated, and which actions require confirmation.
+The goal of Personal AIOS is simple: turn AI from a "temporary chat assistant" into an "operating layer that can continuously work around your real digital world." It needs to know where projects are, how to check services, what the boundaries are for documents and keys, which work can be automated, and which actions require confirmation.
 
-`aios-kit` provides only the minimal skeleton for this operating layer: unified directories, managed skills, resource registry, OPS vault, LLL workflow entry points, and install/update/check commands. It does not try to absorb every tool; instead, it gives different Agents and tools a shared anchor in reality.
+`aios-kit` only provides the minimal skeleton for this operating layer: unified directories, managed skills, resource registry, OPS vault, LLL workflow entry points, and installation/update/check commands. It does not try to absorb all tools; instead, it gives different Agents and tools a shared anchor in reality.
 
 Design trade-offs:
 
 | Principle | Trade-off |
 |---|---|
 | Agent-first | Commands, documentation, registries, vaults, and logs should be easy for Agents to discover, parse, and recover from; human commands are the fallback. |
-| Files are the source of truth | Important facts are persisted into the vault / registry / workdir / manifest, not trapped in a single conversation. |
-| Thin control plane | `aios` is responsible for discovery, installation, updates, and health checks; LLL, Hermes, Mihomo, and others still keep their own state machines. |
-| Separate private and public data | The public repo contains only templates, scripts, skills, and structure; real assets, keys, subscriptions, and maintenance logs stay in the local vault. |
+| Files are the source of truth | Important facts are captured in the vault / registry / workdir / manifest instead of being trapped in a single conversation. |
+| Thin control plane | `aios` handles discovery, installation, updates, and health checks; LLL, Hermes, Mihomo, and others keep their own state machines. |
+| Separate private from public | The public repo contains only templates, scripts, skills, and structure; real assets, keys, subscriptions, and maintenance logs stay in the local vault. |
 | Portable, not platform-locked | Default paths are clear, backup-friendly, and reinstallable; Hermes is the default hub, but not the only Agent. |
 
-## Capability layers
+## Capability Layers
 
-| Layer | Content | Platform strategy |
+| Layer | Contents | Platform strategy |
 |---|---|---|
-| Core features | Local AIOS instance, `aios-kit` and LLL modules, `aios` command entry point, work/config/vault/skills/state/logs/cache directories, runtime skills target directory | Designed for cross-platform support; currently prioritizes Ubuntu and Windows. Suitable for "use when the local machine is on" and does not require 24-hour operation. Native Windows installs the LLL module, but the full `lll` CLI currently requires Git Bash/WSL. |
-| Additional features | Mihomo/TUN, Docker/Caddy/Node/UV bootstrap, Hermes installation/configuration, OPS vault templates, Ubuntu source recovery, systemd/24x7 service operation | Recommended for Linux/server; unsupported items are hidden by default in native Windows installation. For full Linux/server capabilities, use WSL or a cloud server. |
+| Core features | Local AIOS instance, `aios-kit` and LLL modules, `aios` command entry point, work/config/vault/skills/state/logs/cache directories, runtime skills target directory | Designed for cross-platform support; currently prioritizes Ubuntu and Windows. Suitable for "use while the local machine is on" and does not require 24-hour operation. Windows native installation installs the LLL module, but the full `lll` CLI currently requires Git Bash/WSL. |
+| Add-on features | Mihomo/TUN, Docker/Caddy/Node/UV bootstrap, Hermes installation/configuration, OPS vault templates, Ubuntu source restoration, systemd/24x7 service operation | Recommended for Linux/server; native Windows installation hides unsupported items by default. For full Linux/server capabilities, use WSL or a cloud server. |
 
-## Default directory structure
+## Default Directory Structure
 
 ```text
 ~/aios/
   bin/                     # aios / lll command entry points
-  config/                  # Instance configuration
+  config/                  # instance configuration
   vault/ops/               # OPS vault boundary: template structure + private fact entry point
   work/                    # LLL / agent work directory
   skills/                  # AIOS metadata/cache, not the runtime skills directory
-  modules/                 # Updatable module checkouts
-  network/mihomo/          # Optional Mihomo network component
+  modules/                 # updatable module checkouts
+  network/mihomo/          # optional Mihomo network component
   state/ logs/ cache/
 ```
 
-The runtime skills that Agents actually load are still installed into the Agent's own directories, such as `~/.agents/skills/<skill>` or `~/.hermes/skills/<skill>`. The Linux/WSL backend installs managed skills one by one and does not take over the entire skills directory; native Windows installation currently initializes the skills target directory first, and managed skillpack sync is still recommended via WSL/Linux.
+Runtime skills actually loaded by Agents are still installed into the Agent's own directory, such as `~/.agents/skills/<skill>` or `~/.hermes/skills/<skill>`. The Linux/WSL backend installs managed skills one by one and does not take over the entire skills directory; native Windows installation currently initializes the skills target directory first, and managed skillpack sync is still recommended through WSL/Linux.
 
-## LLL workflow entry point
+## LLL Workflow Entry Point
 
-LLL (Lin's Living Loop) is one of the workflow foundations of AIOS, but it remains an independent first-class CLI. `aios-kit` is responsible for discovering, installing, updating, and governing LLL, not absorbing LLL's core state machine.
+LLL (Lin's Living Loop) is one of the workflow foundations of AIOS, but it remains an independent first-class CLI. `aios-kit` is responsible for discovering, installing, updating, and governing LLL; it does not absorb LLL's core state machine.
 
 ```bash
 ./aios update modules lins-living-loop
@@ -150,17 +150,17 @@ LLL (Lin's Living Loop) is one of the workflow foundations of AIOS, but it remai
 ./aios lll status <workdir-or-name> --json
 ```
 
-Boundary of `aios lll ...`: by default, it only locates the `lll` CLI/helper, lists LLL workdirs under the AIOS work root, creates new workdirs, or proxies status/validate to `lll`; task queues, runners, leases, reapers, and artifacts are still handled by the LLL CLI/protocol. A standard installation exposes both `aios` and `lll` commands under `~/aios/bin/`; `aios lll doctor --json` prioritizes checking the LLL inside the AIOS module to avoid being misled by an old version on PATH.
+The boundary of `aios lll ...`: by default, it only locates the `lll` CLI/helper, lists LLL workdirs under the AIOS work root, creates new workdirs, or proxies status/validate to `lll`; task queues, runners, leases, reapers, and artifacts are still handled by the LLL CLI/protocol. A standard installation exposes both `aios` and `lll` commands under `~/aios/bin/`; `aios lll doctor --json` prioritizes checking the LLL inside the AIOS module to avoid being misled by an old version on PATH.
 
 ## Network and Mihomo
 
 The installer first tests external network access without setting proxy environment variables. If direct access fails, the interactive flow asks whether to install Mihomo, defaulting to yes; non-interactive `--proxy auto` installs it automatically.
 
-Mihomo is installed to `~/aios/network/mihomo` by default, and TUN is enabled by default. On Linux/systemd, it writes `aios-mihomo.service`. The TUN configuration is not an absolutely universal cross-Windows/macOS/Linux configuration; the current defaults mainly target Ubuntu/Debian cloud servers. For details, see: [docs/mihomo-network.md](docs/mihomo-network.md).
+Mihomo is installed by default to `~/aios/network/mihomo`, and TUN is enabled by default; on Linux/systemd, `aios-mihomo.service` is written. The TUN configuration is not absolutely universal across Windows/macOS/Linux; the current defaults are mainly intended for Ubuntu/Debian cloud servers. For details, see: [docs/mihomo-network.md](docs/mihomo-network.md).
 
-## Common commands
+## Common Commands
 
-Agents should prioritize JSON/doctor/status probes; humans only run these manually when fallback troubleshooting is needed:
+Agents should prefer JSON/doctor/status probes; humans should run commands manually only when fallback troubleshooting is needed:
 
 ```bash
 aios status                 # View instance summary (human-readable)
@@ -173,9 +173,9 @@ aios lll doctor --json      # Agent-first: check LLL/Code Loop capabilities
 aios lll list --json        # Agent-first: enumerate LLL workdirs
 ```
 
-Maintenance/debugging entry points: `aios skillpack doctor`, `aios skillpack sync --dry-run`, `aios assets doctor`. If PATH is not configured, use `~/aios/bin/aios status` or `~/aios/bin/lll --version`.
+Maintenance/debug entry points: `aios skillpack doctor`, `aios skillpack sync --dry-run`, `aios assets doctor`. If PATH is not configured, use `~/aios/bin/aios status` or `~/aios/bin/lll --version`.
 
-## Documentation index
+## Documentation Index
 
 | Document | Purpose |
 |---|---|

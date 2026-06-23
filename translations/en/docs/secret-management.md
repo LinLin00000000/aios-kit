@@ -6,7 +6,7 @@
 
 # Secret Management MVP
 
-The AIOS Secret module provides a lightweight credential control plane: Agents can manage a secret’s identity, purpose, consumers, external replicas, and receipts, but by default they do not read, print, or record plaintext secret values.
+The AIOS Secret module provides a lightweight credential control plane: Agents can manage a secret’s identity, purpose, consumers, external replicas, and receipts, but by default they do not read, print, or record secret plaintext.
 
 ## Boundaries
 
@@ -15,7 +15,7 @@ The AIOS Secret module provides a lightweight credential control plane: Agents c
 - `requests/pending|done|expired/` are short-lived intake transactions.
 - `receipts/` and `audit.jsonl` record only status, field names, and verification results; they do not contain secret values.
 - `values/` is the local value backend, with permissions tightened to `0600` / `0700`; Agents should not read it directly.
-- App/OS-owned secrets such as SSH and Caddy remain in their native paths. AIOS only indexes and verifies them; it does not migrate them or create symlinks.
+- App/OS-owned secrets such as SSH and Caddy remain in their native paths. AIOS only indexes and verifies them; it does not migrate or symlink them.
 
 ## CLI
 
@@ -32,9 +32,9 @@ aios secret run --consumer aios-kit.translation -- python3 scripts/translate_doc
 aios secret index native --ssh --caddy
 ```
 
-`aios secret intake` must be run in a real shell/TTY. Password fields use hidden input; the CLI does not provide a `--value` parameter and will not write values into receipts, audit logs, Markdown, or chat history.
+`aios secret intake` must run in a real shell/TTY. Password fields use hidden input; the CLI does not provide a `--value` argument and will not write values to receipts, audit logs, Markdown, or chat records.
 
-## Translation API Profile
+## Translation API profile
 
 The default request creates:
 
@@ -42,7 +42,7 @@ The default request creates:
 - consumer: `aios-kit.translation`
 - replica: `github.aios-kit.translation`
 
-For local translation workflows, injecting environment variables through the consumer is recommended:
+For the local translation workflow, inject environment variables through the consumer:
 
 ```bash
 aios secret run --consumer aios-kit.translation -- python3 scripts/translate_docs.py --check-api --dry-run
@@ -62,21 +62,21 @@ Run a dry run before syncing:
 aios secret sync github ai-api.translation.default --replica github.aios-kit.translation --dry-run
 ```
 
-After confirming everything is correct, the user can run the actual sync with `--yes` in a trusted shell. This operation writes to GitHub through `gh secret set` and does not print values.
+After confirming everything is correct, the user can perform the actual sync with `--yes` in a trusted shell. This operation writes to GitHub via `gh secret set` and does not print values.
 
-## Legacy env File
+## Legacy env file
 
-`~/aios/config/secrets/aios-kit-translation.env` is only a historical materialization, not the long-term source of truth. `scripts/translate_docs.py` now reads environment variables by default; to temporarily support the legacy file, it must be passed explicitly:
+`~/aios/config/secrets/aios-kit-translation.env` is only a historical materialization, not the long-term source of truth. `scripts/translate_docs.py` now reads only environment variables by default; to temporarily maintain compatibility with the legacy file, it must be passed explicitly:
 
 ```bash
 python3 scripts/translate_docs.py --secret-file ~/aios/config/secrets/aios-kit-translation.env --dry-run
 ```
 
-After `ai-api.translation.default` completes intake, `aios-kit.translation` passes local runtime verification, and the GitHub replica sync is confirmed, the legacy env file can be deleted and marked as cleaned up in the ops records.
+After `ai-api.translation.default` intake is complete, local verification through `aios-kit.translation` passes, and the GitHub replica sync is confirmed, the legacy env file can be deleted and marked as cleaned up in the ops records.
 
-## Agent Operating Discipline
+## Agent operating discipline
 
-- Do not ask users to paste API keys into chat.
+- Do not ask the user to paste API keys into chat.
 - Do not use Agent tools to read the contents of `values/*.json` or legacy env files.
-- For high-risk operations, such as deleting legacy env files, changing permissions, or performing an actual GitHub sync, run a dry run first and then ask the user to confirm.
+- For high-risk operations (deleting legacy env files, modifying permissions, performing an actual GitHub sync), run a dry run first, then have the user confirm.
 - External reports should include only the key name, repo, receipt path, metadata path, and status; they must not include values.

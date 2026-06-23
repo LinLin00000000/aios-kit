@@ -12,36 +12,36 @@
 
 Keep independent projects independent, and connect them with manifests, modules, registries, and local links:
 
-- `aios-kit`: installer, CLI, public manifests, selected first-party skills, and documentation.
-- `lins-living-loop`: independent first-party workflow skill / project.
-- `aiops-vault-template`: public OPS vault template module bundled under `aios-kit/modules/aiops-vault-template`.
+- `aios-kit`: installer, CLI, public manifest, selected first-party skills, and documentation.
+- `lins-living-loop`: an independent first-party workflow skill / project.
+- `aiops-vault-template`: a public OPS vault template module built into `aios-kit/modules/aiops-vault-template`.
 - `~/aios/vault/ops`: the default and only live OPS vault for new AIOS instances.
 
 ## Agent-first / Human fallback
 
-AIOS assumes the following architecture: **agents are the default operators; humans are authorizers, goal setters, and fallback operators**.
+The AIOS architecture assumes that: **Agents are the default operators; humans are authorizers, goal setters, and fallback operators**.
 
-This is not a slogan about "automating everything"; it specifically affects repository boundaries and command design:
+This is not a slogan to "automate everything"; it directly affects repository boundaries and command design:
 
-1. **Stable probes first**: every long-lived module should expose `doctor`, `status`, `validate`, and `--json` whenever possible, so agents can decide whether they can proceed.
-2. **Human commands are fallback**: shell commands in the documentation should be copyable, but their main value is to give agents a clear operating surface; under normal circumstances, humans do not need to understand them line by line.
-3. **The control plane does not absorb state machines**: AIOS can proxy `aios lll ...`, but LLL queues, leases, runners, and artifacts are still managed by the LLL protocol/CLI.
-4. **File-based governance**: project registries, OPS vaults, installation state, maintenance logs, and LLL workdirs are the shared fact layer across agents.
-5. **Publicly recoverable**: public repositories must be able to restore key capabilities from a fresh clone, Docker, or a new machine, and must not rely only on implicit symlinks on the author's machine.
+1. **Stable probes first**: every long-lived module should expose `doctor`, `status`, `validate`, and `--json` whenever possible, so agents can decide whether it is safe to continue.
+2. **Human commands are fallback**: shell commands in the documentation need to be copyable, but their main value is giving agents a clear operation surface; under normal circumstances, humans do not need to understand every command line by line.
+3. **The control plane does not absorb state machines**: AIOS can proxy `aios lll ...`, but LLL’s queues, leases, runners, and artifacts are still managed by the LLL protocol/CLI.
+4. **File-based governance**: project registration, the OPS vault, install state, maintenance logs, and the LLL workdir are the shared fact layer across agents.
+5. **Publicly recoverable**: public repositories must be able to recover key capabilities from a fresh clone / Docker / new machine, and must not rely only on implicit symlinks on the author’s machine.
 
 ## Source, Runtime, and State
 
-Do not move every repo under `aios-kit`. Boundaries should be clear:
+Do not move all repos under `aios-kit`. Boundaries should be clear:
 
 | Layer | Responsibility | Example |
 |---|---|---|
-| Distribution source | Installer, CLI, public docs/manifests | `~/projects/aios-kit` or `~/aios/modules/aios-kit` |
+| Distribution source | Installer, CLI, public docs/manifest | `~/projects/aios-kit` or `~/aios/modules/aios-kit` |
 | Modules | Updatable checkouts / templates | `~/aios/modules/lins-living-loop` |
 | Runtime skills | Skills actually loaded by agents | `~/.agents/skills`, `~/.hermes/skills` |
 | Live vault | Private/current operations facts | `~/aios/vault/ops` |
 | Skillpack state | Safe update/prune records | `~/aios/vault/ops/state/aios-kit/install-state.json` |
 
-External skills are installed via `npx skills`. First-party skills can be installed by copying for regular users, and symlinked on the author's development machine.
+External skills are installed through `npx skills`. First-party skills can be installed by copying for regular users, and by symlinking on the author’s development machine.
 
 ## Installation Mode and Development Mode
 
@@ -57,7 +57,7 @@ When the repository is already checked out:
 bash install.sh
 ```
 
-During author development, symlink each skill individually so edits in the runtime directory land in a Git-visible worktree:
+During author development, symlink skills one by one so edits in the runtime directory land in a Git-visible worktree:
 
 ```bash
 cd ~/projects/aios-kit
@@ -65,33 +65,33 @@ cd ~/projects/aios-kit
 ./aios skillpack doctor
 ```
 
-Do not symlink or replace the entire agent skills directory. Public installation defaults to copying/syncing selected skills individually.
+Do not symlink or replace the entire agent skills directory. Public installation copies/syncs selected skills one by one by default.
 
 ## Local Structure and Linking Strategy
 
-The standard development path is intentionally separated from the runtime installation path:
+The standard development paths are intentionally separated from the runtime installation paths:
 
 | Object | Path | Strategy |
 |---|---|---|
-| Main suite | `~/projects/aios-kit` | Source of truth for assembly scripts, manifests, and docs |
+| Main kit | `~/projects/aios-kit` | True source for assembly scripts, manifests, and documentation |
 | LLL | `~/projects/lins-living-loop` | Independent first-party source project |
 | AIOps template | `~/projects/aios-kit/modules/aiops-vault-template` | Public reusable template |
 | Live AIOps vault | `~/aios/vault/ops` | Default instance vault; private/current facts |
-| Universal skills | `~/.agents/skills` | Runtime installation target, not automatically the source of truth |
+| Universal skills | `~/.agents/skills` | Runtime installation target, not automatically the true source |
 | Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
 
 Rules:
 
-1. A template is not a live asset.
-2. Runtime directories become the source of truth only after explicit promotion.
+1. Templates are not live assets.
+2. Runtime directories become the true source only after explicit promotion.
 3. Active first-party skills should be trackable by Git.
-4. Symlinks are for the author's local development; copy/install is the public default behavior.
+4. Symlinks are for local author development; copy/install is the public default behavior.
 5. Only paths recorded in the current install-state may be automatically pruned.
 
 ## Key Decisions
 
 - **Main project name**: use `aios-kit`; skillpack is a module, not a repo boundary.
-- **LLL stays independent**: `aios-kit` references, links, or copies it, but does not vendor it.
-- **OPS template and live vault are separated**: the template is a reusable starting point; the live vault is user/private state.
-- **Symlink for author development, copy for public distribution**: the author's machine is optimized for editability; public installation is optimized for portability.
+- **LLL remains independent**: `aios-kit` references, links to, or copies it, but does not vendor it.
+- **OPS template and live vault are separate**: the template is a reusable starting point; the live vault is user/private state.
+- **Symlink for author development, copy for public distribution**: the author’s machine optimizes for editability; public installation optimizes for portability.
 - **Manifest + thin scripts, not a new package manager**: `aios-kit` reads `skillpack.yaml`, calls `npx skills` for external skills, and directly copies/symlinks first-party skills.
