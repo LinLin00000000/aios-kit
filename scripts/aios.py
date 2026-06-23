@@ -391,6 +391,172 @@ def skillpack_doctor(args: argparse.Namespace) -> None:
     raise SystemExit(0 if ok else 1)
 
 
+def read_skill_frontmatter_name(skill_dir: Path) -> str | None:
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return None
+    text = skill_md.read_text(encoding="utf-8", errors="replace")
+    match = re.search(r"(?m)^name:\s*[\"']?([^\n\"']+)", text)
+    return match.group(1).strip() if match else None
+
+
+def find_runtime_skill_candidates(name: str, home: Path) -> list[Path]:
+    roots = [home / ".agents" / "skills", home / ".hermes" / "skills"]
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    skip_dirs = {".git", "node_modules", "__pycache__", ".archive", ".curator_backups", ".aios-backups"}
+    for root in roots:
+        direct = root / name
+        if validate_skill_dir(direct)[0]:
+            real = direct.resolve()
+            if real not in seen:
+                candidates.append(direct)
+                seen.add(real)
+        if not root.exists():
+            continue
+        for skill_md in root.rglob("SKILL.md"):
+            if any(part in skip_dirs for part in skill_md.parts):
+                continue
+            skill_dir = skill_md.parent
+            fm_name = read_skill_frontmatter_name(skill_dir)
+            if fm_name == name:
+                real = skill_dir.resolve()
+                if real not in seen:
+                    candidates.append(skill_dir)
+                    seen.add(real)
+    return candidates
+
+
+def skillpack_base_entries() -> list[dict[str, Any]]:
+    return list((load_yaml_like(SKILLPACK_FILE).get("first_party") or []))
+
+
+def ensure_not_managed_skill(name: str) -> None:
+    for item in skillpack_base_entries():
+        if item.get("id") == name or item.get("skill") == name:
+            raise SystemExit(f"skill already managed in {SKILLPACK_FILE}: {name}")
+
+
+def yaml_quote(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9_./~:@+-]+", value):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def append_first_party_manifest_entry(entry: dict[str, str], *, apply: bool) -> None:
+    block = """
+  - id: {id}
+    path: {path}
+    source: {source}
+    skill: {skill}
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: {reason}
+""".format(
+        id=yaml_quote(entry["id"]),
+        path=yaml_quote(entry["path"]),
+        source=yaml_quote(entry["source"]),
+        skill=yaml_quote(entry["skill"]),
+        reason=yaml_quote(entry["reason"]),
+    )
+    print(f"{'APPEND' if apply else 'DRY append'} first_party {entry['id']} -> {SKILLPACK_FILE}")
+    if not apply:
+        print(block.rstrip())
+        return
+    text = SKILLPACK_FILE.read_text(encoding="utf-8")
+    if "\nfirst_party:\n" not in text:
+        text = text.rstrip() + "\n\nfirst_party:\n"
+    SKILLPACK_FILE.write_text(text.rstrip() + "\n" + block, encoding="utf-8")
+
+
+def skillpack_adopt(args: argparse.Namespace) -> None:
+    """Promote a locally created runtime skill into aios-kit as first-party source."""
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", args.skill.strip()).strip("-")
+    if not name:
+        raise SystemExit("invalid skill name")
+    ensure_not_managed_skill(name)
+    if args.from_path:
+        src = Path(args.from_path).expanduser()
+    else:
+        candidates = find_runtime_skill_candidates(name, home)
+        if not candidates:
+            raise SystemExit(f"no local runtime skill found for {name}; pass --from PATH")
+        if len(candidates) > 1:
+            formatted = "\n".join(f"- {p} -> {p.resolve()}" for p in candidates)
+            raise SystemExit(f"multiple local skill candidates for {name}; pass --from PATH\n{formatted}")
+        src = candidates[0]
+    valid, msg = validate_skill_dir(src)
+    if not valid:
+        raise SystemExit(f"invalid source skill: {src} ({msg})")
+    fm_name = read_skill_frontmatter_name(src)
+    if fm_name and fm_name != name and not args.allow_name_mismatch:
+        raise SystemExit(f"SKILL.md name is {fm_name!r}, expected {name!r}; pass --allow-name-mismatch to adopt anyway")
+    dest_rel = args.dest or f"skills/{name}"
+    if dest_rel.startswith("/") or ".." in Path(dest_rel).parts:
+        raise SystemExit("--dest must be a safe repository-relative path")
+    dest = ROOT / dest_rel
+    apply = bool(args.apply)
+    runtime = expand(args.runtime_path, home=home) if args.runtime_path else home / ".agents" / "skills" / name
+    if runtime is None:
+        raise SystemExit("invalid runtime path")
+    runtime_already = (runtime.exists() or runtime.is_symlink()) and runtime.resolve() == dest.resolve()
+    print(f"source: {src} -> {src.resolve()}")
+    print(f"dest:   {dest}")
+    print(f"runtime:{runtime}")
+    if dest.exists() and dest.resolve() != src.resolve() and not args.force:
+        raise SystemExit(f"destination exists: {dest}; pass --force after review")
+    if apply:
+        if not os.access(SKILLPACK_FILE, os.W_OK):
+            raise SystemExit(f"skillpack is not writable: {SKILLPACK_FILE}")
+        if (runtime.exists() or runtime.is_symlink()) and not runtime_already and not args.replace_runtime:
+            raise SystemExit(f"runtime target exists: {runtime}; rerun with --replace-runtime after review")
+    if not apply:
+        print(f"DRY {'move' if args.move else 'copy'} {src} -> {dest}")
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists() or dest.is_symlink():
+            if dest.resolve() != src.resolve() and args.force:
+                if dest.is_symlink() or dest.is_file():
+                    dest.unlink()
+                else:
+                    shutil.rmtree(dest)
+            elif dest.resolve() != src.resolve():
+                raise SystemExit(f"destination exists: {dest}")
+        if not (dest.exists() and dest.resolve() == src.resolve()):
+            if args.move:
+                print(f"MOVE {src} -> {dest}")
+                shutil.move(str(src), str(dest))
+            else:
+                print(f"COPY {src} -> {dest}")
+                ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache")
+                shutil.copytree(src, dest, ignore=ignore)
+    entry = {
+        "id": name,
+        "path": dest_rel,
+        "source": args.source,
+        "skill": name,
+        "reason": args.reason or f"First-party AIOS skill managed from {dest_rel}.",
+    }
+    append_first_party_manifest_entry(entry, apply=apply)
+    if runtime_already:
+        print(f"OK runtime already points to source: {runtime} -> {dest}")
+    else:
+        print(f"{'LINK' if apply else 'DRY link'} {runtime} -> {dest}")
+        if apply:
+            runtime.parent.mkdir(parents=True, exist_ok=True)
+            if runtime.exists() or runtime.is_symlink():
+                if not args.replace_runtime:
+                    raise SystemExit(f"runtime target exists: {runtime}; rerun with --replace-runtime after review")
+                if runtime.is_symlink() or runtime.is_file():
+                    runtime.unlink()
+                else:
+                    shutil.rmtree(runtime)
+            runtime.symlink_to(dest, target_is_directory=True)
+    print("next: run `./aios skillpack doctor --target universal` and commit the source + skillpack changes")
+
+
 def github_source_url(source: str) -> str:
     if source.startswith("http://") or source.startswith("https://") or source.startswith("git@"):
         return source
@@ -626,10 +792,10 @@ compat:
     write_if_missing(paths["projects"] / "aliases.yaml", "aliases: {}\n", apply=apply)
     if getattr(args, "compat_links", False):
         compat_symlink(paths["work"], home / "lll-work", apply=apply)
-        # Never create a ~/ai-ops compatibility link; the canonical OPS vault is
-        # <AIOS_ROOT>/vault/ops. Never symlink the whole agent skills directory.
-        # Skills are installed one-by-one by skillpack sync so existing user
-        # skills are preserved.
+        # Compatibility mode only creates the optional workdir convenience link.
+        # The OPS vault remains <AIOS_ROOT>/vault/ops, and the agent skills
+        # directory is never replaced wholesale. Skills are installed one by one
+        # by skillpack sync so existing user skills are preserved.
     print(f"AIOS root: {paths['root']}")
 
 
@@ -1917,7 +2083,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--root", help="AIOS instance root (default: ~/aios or $AIOS_ROOT)")
     init.add_argument("--ops", help="OPS vault path (default: <root>/vault/ops)")
     init.add_argument("--skills-dir", help="agent runtime skills dir (default: ~/.agents/skills; installs skills one-by-one)")
-    init.add_argument("--compat-links", action="store_true", help="local migration only: create ~/lll-work symlink when safe; never creates ~/ai-ops or links the whole skills dir")
+    init.add_argument("--compat-links", action="store_true", help="local migration only: create the optional ~/lll-work symlink when safe; never links the whole skills dir")
     init.add_argument("--dry-run", action="store_true")
     init.set_defaults(func=init_instance)
 
@@ -2087,6 +2253,22 @@ def build_parser() -> argparse.ArgumentParser:
     dev.add_argument("--force", action="store_true", help="overwrite locally modified managed skill copies")
     dev.add_argument("--state-dir")
     dev.set_defaults(func=lambda a: skillpack_sync(argparse.Namespace(**{**vars(a), "mode": "symlink", "prune": False, "first_party_only": True})))
+    adopt = sps.add_parser("adopt", help="promote a local runtime skill into aios-kit first-party source and link runtime to it")
+    adopt_apply = adopt.add_mutually_exclusive_group()
+    adopt_apply.add_argument("--apply", action="store_true")
+    adopt_apply.add_argument("--dry-run", action="store_true", help="explicit no-op; default")
+    adopt.add_argument("skill", help="skill/frontmatter name to adopt")
+    adopt.add_argument("--from", dest="from_path", help="local runtime skill directory; auto-detects ~/.agents/skills and ~/.hermes/skills when omitted")
+    adopt.add_argument("--dest", help="repo-relative destination, default: skills/<skill>")
+    adopt.add_argument("--runtime-path", help="runtime symlink path, default: ~/.agents/skills/<skill>")
+    adopt.add_argument("--source", default="LinLin00000000/aios-kit")
+    adopt.add_argument("--reason")
+    adopt.add_argument("--move", action="store_true", default=True, help="move source into repo when applying (default)")
+    adopt.add_argument("--copy", action="store_false", dest="move", help="copy source into repo instead of moving")
+    adopt.add_argument("--replace-runtime", action="store_true", help="replace existing runtime directory/symlink with a symlink to the repo source")
+    adopt.add_argument("--force", action="store_true", help="allow replacing an existing repo destination after review")
+    adopt.add_argument("--allow-name-mismatch", action="store_true")
+    adopt.set_defaults(func=skillpack_adopt)
 
     ap = sub.add_parser("assets", help="validate/link local asset discovery manifest")
     aps = ap.add_subparsers(dest="assets_cmd", required=True)

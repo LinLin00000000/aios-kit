@@ -24,7 +24,6 @@ Do not store large project/resource facts in this skill.
 1. Locate the active AIOS registry root:
    - local/private truth source: `~/aios/vault/ops/projects/`;
    - public examples only: `registries/*.example.*` inside `aios-kit`.
-   - if a legacy `~/ai-ops/projects/` path is discovered, treat it as stale and recommend migration instead of using it as canonical.
 2. Read `registry.jsonl` and `aliases.yaml` if available.
 3. Match against `id`, `name`, `aliases`, GitHub repo name, local path basename, and notes.
 4. If there is exactly one match, resolve to its canonical `id`.

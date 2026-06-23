@@ -81,7 +81,7 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 | `aios update` | 更新模块、OPS 模板和托管 skills | Agent / 维护者 |
 | `aios project ...` | 管理最小项目/资源注册表与 alias | Agent / 维护者 |
 | `aios lll ...` | 发现、创建、打开、检查 LLL workdir，并代理部分 LLL 命令 | Agent 优先 |
-| `aios skillpack ...` | 列出、同步、检查托管 runtime skills | 维护者 / Agent |
+| `aios skillpack ...` | 列出、同步、检查托管 runtime skills；维护者可用 `adopt` 把本地新建 skill 接管进 Git 真源 | 维护者 / Agent |
 | `aios assets ...` | 检查或链接本地资产发现 manifest | 维护者 |
 
 ### Linux/server 附加能力

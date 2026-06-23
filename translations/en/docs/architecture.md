@@ -77,7 +77,6 @@ The standard development path is intentionally separated from the runtime instal
 | LLL | `~/projects/lins-living-loop` | Independent first-party source project |
 | AIOps template | `~/projects/aios-kit/modules/aiops-vault-template` | Public reusable template |
 | Live AIOps vault | `~/aios/vault/ops` | Default instance vault; private/current facts |
-| Historical live vault | `~/ai-ops` | Deprecated; migrate to `~/aios/vault/ops` when discovered, and do not create compatibility links |
 | Universal skills | `~/.agents/skills` | Runtime installation target, not automatically the source of truth |
 | Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
 

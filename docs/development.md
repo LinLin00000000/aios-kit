@@ -107,6 +107,43 @@ bash install.sh --global-bin ~/.local/bin
 
 不要把 runtime skills 目录当真源。开发机可以逐个 symlink runtime skill 到 Git worktree，但公开安装默认 copy。
 
+本机先用 Hermes/Agent 创建出来的 skill，如果要变成 AIOS 托管、Git 管理、可发布的 first-party skill，使用 `adopt` 接管，而不是手工搬目录：
+
+```bash
+cd ~/projects/aios-kit
+
+# 预览：自动从 ~/.agents/skills 和 ~/.hermes/skills 查找同名 skill
+./aios skillpack adopt <skill-name> --dry-run
+
+# 指定来源并执行：默认移动到 skills/<skill-name>，写入 skillpack.yaml，
+# 再把 ~/.agents/skills/<skill-name> 替换成指向 Git 真源的 symlink
+./aios skillpack adopt <skill-name> \
+  --from ~/.hermes/skills/<category>/<skill-name> \
+  --apply \
+  --replace-runtime \
+  --reason "<为什么这是 AIOS first-party skill>"
+
+# 如果只想复制进 repo、保留原目录，用 --copy；但接管后应避免继续编辑旧目录。
+./aios skillpack adopt <skill-name> --from <path> --copy --apply --replace-runtime
+```
+
+`adopt` 的安全边界：
+
+- 默认 dry-run；只有 `--apply` 才写文件。
+- 如果 `skillpack.yaml` 已托管同名 skill，会拒绝。
+- 如果自动发现多个本地候选，会要求显式 `--from`。
+- 默认目标是 `skills/<skill>`；只有与某个 module 强绑定时才用 `--dest modules/<module>/skills/<skill>`。
+- runtime 默认使用 `~/.agents/skills/<skill>` symlink；不要创建同名 `~/.hermes/skills` overlay，除非刻意覆盖并在完成后清理。
+
+接管后验证：
+
+```bash
+./aios skillpack doctor --target universal
+./aios skillpack dev-link --dry-run
+python3 -m py_compile scripts/aios.py scripts/audit_public.py
+python3 scripts/audit_public.py
+```
+
 ## 新增 module
 
 module 是 `~/aios/modules/<name>` 下可更新的源码或模板 checkout。适合 module 的对象通常有独立生命周期，例如 LLL、OPS vault template、未来多设备互联模块。

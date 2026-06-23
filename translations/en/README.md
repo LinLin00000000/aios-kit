@@ -85,7 +85,7 @@ For more platform, parameter, non-interactive, and troubleshooting details, see:
 | `aios update` | Update modules, OPS templates, and managed skills | Agent / maintainer |
 | `aios project ...` | Manage the minimal project/resource registry and aliases | Agent / maintainer |
 | `aios lll ...` | Discover, create, open, and check LLL workdirs, and proxy some LLL commands | Agent first |
-| `aios skillpack ...` | List, sync, and check managed runtime skills | Maintainer / Agent |
+| `aios skillpack ...` | List, sync, and check managed runtime skills; maintainers can use `adopt` to promote locally created skills into the Git-backed source of truth | Maintainer / Agent |
 | `aios assets ...` | Check or link the local asset discovery manifest | Maintainer |
 
 ### Additional Linux/server capabilities

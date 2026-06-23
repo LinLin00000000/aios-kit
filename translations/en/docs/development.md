@@ -113,6 +113,45 @@ If the skill is maintained by AIOS itself, prefer the following true source loca
 
 Do not treat the runtime skills directory as the true source. Development machines may symlink runtime skills one by one to Git worktrees, but public installs should copy by default.
 
+If a skill is first created locally by Hermes/Agent and should become an AIOS-managed, Git-tracked, publishable first-party skill, use `adopt` instead of moving directories by hand:
+
+```bash
+cd ~/projects/aios-kit
+
+# Preview: auto-detects a same-name skill from ~/.agents/skills and ~/.hermes/skills
+./aios skillpack adopt <skill-name> --dry-run
+
+# Apply from an explicit source: by default this moves it to skills/<skill-name>,
+# appends a skillpack.yaml entry, and replaces ~/.agents/skills/<skill-name>
+# with a symlink to the Git-backed source.
+./aios skillpack adopt <skill-name> \
+  --from ~/.hermes/skills/<category>/<skill-name> \
+  --apply \
+  --replace-runtime \
+  --reason "<why this is an AIOS first-party skill>"
+
+# Use --copy if you want to keep the original directory, but avoid editing
+# the old directory after adoption.
+./aios skillpack adopt <skill-name> --from <path> --copy --apply --replace-runtime
+```
+
+`adopt` safety boundaries:
+
+- It defaults to dry-run; only `--apply` writes files.
+- It refuses names already managed by `skillpack.yaml`.
+- If auto-detection finds multiple local candidates, pass `--from` explicitly.
+- The default destination is `skills/<skill>`; use `--dest modules/<module>/skills/<skill>` only for skills tightly coupled to a module.
+- The default runtime path is a `~/.agents/skills/<skill>` symlink; do not create same-name `~/.hermes/skills` overlays unless intentionally overriding them, and clean them up afterward.
+
+After adoption, validate with:
+
+```bash
+./aios skillpack doctor --target universal
+./aios skillpack dev-link --dry-run
+python3 -m py_compile scripts/aios.py scripts/audit_public.py
+python3 scripts/audit_public.py
+```
+
 ## Adding a Module
 
 A module is an updatable source or template checkout under `~/aios/modules/<name>`. Objects suitable as modules usually have an independent lifecycle, such as LLL, OPS vault template, and future multi-device interconnection modules.

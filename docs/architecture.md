@@ -71,7 +71,6 @@ cd ~/projects/aios-kit
 | LLL | `~/projects/lins-living-loop` | 独立一方源项目 |
 | AIOps 模板 | `~/projects/aios-kit/modules/aiops-vault-template` | 公开可复用模板 |
 | Live AIOps vault | `~/aios/vault/ops` | 默认实例 vault；私有/当前事实 |
-| 历史 live vault | `~/ai-ops` | 已废弃；发现时迁移到 `~/aios/vault/ops`，不要新建兼容链接 |
 | Universal skills | `~/.agents/skills` | runtime 安装目标，不自动等于真源 |
 | Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
 

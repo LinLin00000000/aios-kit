@@ -4,7 +4,7 @@ These notes condense a design discussion that led to the initial `aios-secret-ma
 
 ## Durable decisions
 
-- `$AIOS_ROOT` is the AIOS instance root; OPS metadata defaults to `$AIOS_ROOT/vault/ops` (normally `~/aios/vault/ops`). Legacy `~/ai-ops` should be treated as a historical path to migrate away from, not a new default.
+- `$AIOS_ROOT` is the AIOS instance root; OPS metadata defaults to `$AIOS_ROOT/vault/ops` (normally `~/aios/vault/ops`).
 - Secret module state belongs under `$AIOS_ROOT/vault/secrets/`, not as a subdirectory of ops.
 - Agent-first files should be YAML/JSONL. Markdown is only for human-facing docs or generated views.
 - `aios secret` is the formal CLI surface. A skill should guide workflow, not act as the runtime.

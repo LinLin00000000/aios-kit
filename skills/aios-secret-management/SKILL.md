@@ -44,7 +44,7 @@ Classify every sensitive item before acting:
 
 ## Canonical layout
 
-Resolve `$AIOS_ROOT` from the environment or AIOS instance config. Do not hardcode the legacy `~/ai-ops` path; the default OPS vault is `$AIOS_ROOT/vault/ops` (normally `~/aios/vault/ops`).
+Resolve `$AIOS_ROOT` from the environment or AIOS instance config. The OPS vault is `$AIOS_ROOT/vault/ops` (normally `~/aios/vault/ops`).
 
 Recommended state layout:
 
@@ -87,6 +87,31 @@ Default MVP flow:
 7. Agent verifies consumers/replicas through broker commands and updates ops records if needed.
 
 Never run an interactive intake through an agent-controlled terminal if doing so would capture secret input into tool logs/transcripts. Prefer asking the user to run the command themselves.
+
+### Ad-hoc external platform tokens
+
+For cloud/provider tokens, DNS credentials, CI tokens, webhook secrets, or other external-platform credentials where the current `aios secret request` CLI has no dedicated generator yet, manually create a generic `secret_intake` manifest instead of falling back to chat-pasted tokens or long-lived ad-hoc `.env` files.
+
+Minimum pattern:
+
+1. Create `requests/pending/<request-id>.yaml` with:
+   - `secret_id` at class/resource granularity, e.g. `cloudflare.<zone>.admin`;
+   - non-secret fields such as zone/account name with safe defaults;
+   - secret fields marked `type: password`, `secret: true`, and usually `confirm: true`;
+   - `item.kind`, `intended_use`, and `metadata.agent_can_read_plaintext: false`;
+   - a `consumer` with an explicit `env_map` for the CLI/API commands that need injected values.
+2. Run `aios secret intake <request-id> --dry-run` and show only field names / `secret_values_exposed: false`.
+3. Ask the user to complete `aios secret intake <request-id>` in a real TTY.
+4. After completion, inspect only `receipt`, item metadata, and consumer metadata.
+5. Execute provider operations via:
+
+   ```bash
+   aios secret run --consumer <consumer-id> -- <command...>
+   ```
+
+6. Record the canonical AIOS secret item and any external/materialized handles in the ops vault as locations only, never values.
+
+This is especially important for Cloudflare/Access/Tunnel/DNS work: provider tokens should be least-privilege and short-lived, Access policy should be verified before exposing Tunnel/DNS routes, and verification output must redact token values.
 
 ## Request manifests
 
@@ -189,6 +214,9 @@ Before completing a secret-management task:
 - SSH/Caddy/app-owned secrets remain in native paths unless the user explicitly requests otherwise.
 - Permissions on secret metadata/value paths are not world/group writable.
 - Verification used broker/CLI outputs that redact values.
+- For `aios-kit` distribution changes, verify the related runtime skill is also present in the skillpack/install surface, not only in the current Hermes profile.
+- For clean-room Docker simulation, exclude local overlays such as `skillpack.local.yaml`, use a fresh `HOME`/`AIOS_ROOT`, use fake values only, and validate both Secret CLI plumbing and skillpack discovery. See `references/docker-smoke-and-skillpack-sync.md`.
+- After user-performed real TTY intake, follow the post-intake sync/cleanup sequence: metadata/receipt only, local `secret run` smoke, GitHub dry-run then `--yes`, metadata-only `gh secret list`, delete superseded materializations without reading them, and re-verify the canonical consumer path. See `references/post-intake-github-sync-cleanup.md`.
 
 ## Relationship to other skills
 

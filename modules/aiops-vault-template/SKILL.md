@@ -69,6 +69,7 @@ Do not infer current infrastructure from this skill. Read the vault and inspect 
 - Corrections should be new `correction` or `supersede` entries; do not rewrite history unless the user asks for a migration.
 - Avoid duplicating the same fact across README, resources, service cards, and logs. Pick the owning layer.
 - Large raw evidence should live under `evidence/` or outside the vault with a path reference.
+- Do not put session history, deprecated paths, or migration baggage into active skills. Skills should describe the current workflow only; old lessons belong in `maintenance-log.jsonl`, `evidence/`, or current project docs when still useful.
 
 ## Validation checklist
 
