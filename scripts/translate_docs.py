@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import sys
 import textwrap
 import time
@@ -23,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SECRET_FILE: Path | None = None
 DEFAULT_TARGET_LANG = "English"
 DEFAULT_TARGET_CODE = "en"
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
+DEFAULT_MAX_RETRIES = 3
 SOURCE_FILES = [Path("README.md")]
 SOURCE_GLOBS = ["docs/*.md"]
 GENERATED_MARKER = "<!-- AUTO-GENERATED FILE. DO NOT EDIT. -->"
@@ -58,16 +61,31 @@ def require_env(name: str) -> str:
     return value
 
 
-def api_config() -> dict[str, str]:
+def env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise SystemExit(f"{name} must be an integer, got: {raw!r}") from exc
+    if value < minimum:
+        raise SystemExit(f"{name} must be >= {minimum}, got: {value}")
+    return value
+
+
+def api_config() -> dict[str, str | int]:
     return {
         "base_url": require_env("TRANSLATE_BASE_URL").rstrip("/"),
         "api_key": require_env("TRANSLATE_API_KEY"),
         "model": require_env("TRANSLATE_MODEL"),
         "api_mode": os.environ.get("TRANSLATE_API_MODE", "chat_completions").strip().lower() or "chat_completions",
+        "timeout_seconds": env_int("TRANSLATE_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS),
+        "max_retries": env_int("TRANSLATE_MAX_RETRIES", DEFAULT_MAX_RETRIES),
     }
 
 
-def request_json(url: str, api_key: str, payload: dict[str, Any], timeout: int = 180) -> dict[str, Any]:
+def request_json(url: str, api_key: str, payload: dict[str, Any], timeout: int, max_retries: int) -> dict[str, Any]:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -79,13 +97,32 @@ def request_json(url: str, api_key: str, payload: dict[str, Any], timeout: int =
             "Accept": "application/json",
         },
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            text = resp.read().decode("utf-8", errors="replace")
-            return json.loads(text)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:1000]
-        raise RuntimeError(f"API HTTP {exc.code} from {url}: {detail}") from exc
+    for attempt in range(1, max_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                text = resp.read().decode("utf-8", errors="replace")
+                return json.loads(text)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:1000]
+            if exc.code < 500 or attempt == max_retries:
+                raise RuntimeError(f"API HTTP {exc.code} from {url}: {detail}") from exc
+            print(
+                f"API HTTP {exc.code}; retrying request {attempt + 1}/{max_retries} after backoff...",
+                file=sys.stderr,
+            )
+        except (TimeoutError, socket.timeout, urllib.error.URLError) as exc:
+            if attempt == max_retries:
+                raise RuntimeError(
+                    f"API request failed after {max_retries} attempts "
+                    f"(timeout={timeout}s): {exc}"
+                ) from exc
+            print(
+                f"API request failed ({type(exc).__name__}: {exc}); "
+                f"retrying request {attempt + 1}/{max_retries} after backoff...",
+                file=sys.stderr,
+            )
+        time.sleep(min(2 ** (attempt - 1), 10))
+    raise RuntimeError("unreachable: API request retry loop exhausted")
 
 
 def extract_response_text(data: dict[str, Any]) -> str:
@@ -117,10 +154,10 @@ def extract_response_text(data: dict[str, Any]) -> str:
     raise RuntimeError(f"Could not extract text from API response keys: {sorted(data.keys())}")
 
 
-def call_model(prompt: str, user_text: str, cfg: dict[str, str]) -> str:
-    mode = cfg["api_mode"]
+def call_model(prompt: str, user_text: str, cfg: dict[str, str | int]) -> str:
+    mode = str(cfg["api_mode"])
     if mode in {"responses", "codex_responses", "openai_responses"}:
-        url = cfg["base_url"] + "/responses"
+        url = str(cfg["base_url"]) + "/responses"
         payload = {
             "model": cfg["model"],
             "input": [
@@ -129,7 +166,7 @@ def call_model(prompt: str, user_text: str, cfg: dict[str, str]) -> str:
             ],
         }
     else:
-        url = cfg["base_url"] + "/chat/completions"
+        url = str(cfg["base_url"]) + "/chat/completions"
         payload = {
             "model": cfg["model"],
             "messages": [
@@ -138,7 +175,15 @@ def call_model(prompt: str, user_text: str, cfg: dict[str, str]) -> str:
             ],
             "temperature": 0.2,
         }
-    return extract_response_text(request_json(url, cfg["api_key"], payload))
+    return extract_response_text(
+        request_json(
+            url,
+            str(cfg["api_key"]),
+            payload,
+            int(cfg["timeout_seconds"]),
+            int(cfg["max_retries"]),
+        )
+    )
 
 
 def source_files() -> list[Path]:
@@ -243,7 +288,7 @@ def strip_existing_generated_header(text: str) -> str:
     return joined[m.end():] if m else text
 
 
-def translate_file(source: Path, cfg: dict[str, str], target_code: str, target_lang: str) -> tuple[Path, str]:
+def translate_file(source: Path, cfg: dict[str, str | int], target_code: str, target_lang: str) -> tuple[Path, str]:
     original = strip_source_language_switch(source.read_text(encoding="utf-8"))
     rel = source.relative_to(ROOT).as_posix()
     user = f"Translate this Markdown file to {target_lang}. File path: {rel}\n\n{original}"
@@ -264,7 +309,7 @@ def write_if_changed(path: Path, content: str) -> bool:
     return True
 
 
-def check_api(cfg: dict[str, str]) -> None:
+def check_api(cfg: dict[str, str | int]) -> None:
     text = call_model(
         "You are a health-check endpoint for a documentation translation workflow. Reply with exactly: ok",
         "Reply with exactly: ok",
@@ -273,11 +318,13 @@ def check_api(cfg: dict[str, str]) -> None:
     normalized = re.sub(r"[^a-z]", "", text.lower())
     if "ok" not in normalized:
         raise RuntimeError(f"Unexpected API health-check response shape: {text[:80]!r}")
-    host_hint = re.sub(r"//([^/@:]+)(:[0-9]+)?", r"//<host>\2", cfg["base_url"])
+    host_hint = re.sub(r"//([^/@:]+)(:[0-9]+)?", r"//<host>\2", str(cfg["base_url"]))
     print("API check passed")
     print(f"- base_url_host_hint: {host_hint}")
     print(f"- model: {cfg['model']}")
     print(f"- api_mode: {cfg['api_mode']}")
+    print(f"- timeout_seconds: {cfg['timeout_seconds']}")
+    print(f"- max_retries: {cfg['max_retries']}")
 
 
 def main() -> int:

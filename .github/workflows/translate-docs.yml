@@ -94,9 +94,34 @@ jobs:
             fi
           fi
 
-          mapfile -t changed < <(git diff --name-only "$base" '${{ github.sha }}' -- README.md 'docs/**/*.md' scripts/translate_docs.py .github/workflows/translate-docs.yml)
+          mapfile -t changed < <(git diff --name-only "$base" '${{ github.sha }}' -- README.md 'docs/*.md' 'docs/**/*.md' scripts/translate_docs.py .github/workflows/translate-docs.yml)
+          mapfile -t changed_translations < <(git diff --name-only "$base" '${{ github.sha }}' -- translations/en/README.md 'translations/en/docs/*.md' 'translations/en/docs/**/*.md')
           printf 'Changed files considered for translation:\n'
           printf ' - %s\n' "${changed[@]:-}"
+          printf 'Changed generated translations in this push:\n'
+          printf ' - %s\n' "${changed_translations[@]:-}"
+
+          translation_changed() {
+            local source_path="$1"
+            local target_path
+            case "$source_path" in
+              README.md)
+                target_path='translations/en/README.md'
+                ;;
+              docs/*.md)
+                target_path="translations/en/${source_path}"
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+            for translated in "${changed_translations[@]}"; do
+              if [[ "$translated" == "$target_path" ]]; then
+                return 0
+              fi
+            done
+            return 1
+          }
 
           full=0
           docs=()
@@ -114,16 +139,27 @@ jobs:
           if [[ "$full" == '1' ]]; then
             echo 'mode=all' >> "$GITHUB_OUTPUT"
             echo 'args=' >> "$GITHUB_OUTPUT"
-          elif [[ "${#docs[@]}" == '0' ]]; then
-            echo 'mode=none' >> "$GITHUB_OUTPUT"
-            echo 'args=' >> "$GITHUB_OUTPUT"
           else
-            args=''
+            pending_docs=()
             for path in "${docs[@]}"; do
-              args+=" --only ${path}"
+              if translation_changed "$path"; then
+                printf 'Skipping %s because its generated translation changed in this push.\n' "$path"
+              else
+                pending_docs+=("$path")
+              fi
             done
-            echo 'mode=changed' >> "$GITHUB_OUTPUT"
-            echo "args=${args}" >> "$GITHUB_OUTPUT"
+
+            if [[ "${#pending_docs[@]}" == '0' ]]; then
+              echo 'mode=none' >> "$GITHUB_OUTPUT"
+              echo 'args=' >> "$GITHUB_OUTPUT"
+            else
+              args=''
+              for path in "${pending_docs[@]}"; do
+                args+=" --only ${path}"
+              done
+              echo 'mode=changed' >> "$GITHUB_OUTPUT"
+              echo "args=${args}" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Check upstream AI API
