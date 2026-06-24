@@ -93,6 +93,7 @@ def request_json(url: str, api_key: str, payload: dict[str, Any], timeout: int, 
         method="POST",
         headers={
             "Authorization": f"Bearer {api_key}",
+            "User-Agent": "OpenAI/Python 2.24.0",
             "Content-Type": "application/json",
             "Accept": "application/json",
         },
