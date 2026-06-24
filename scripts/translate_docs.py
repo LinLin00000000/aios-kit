@@ -27,7 +27,7 @@ DEFAULT_TARGET_CODE = "en"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
 DEFAULT_MAX_RETRIES = 3
 SOURCE_FILES = [Path("README.md")]
-SOURCE_GLOBS = ["docs/*.md"]
+SOURCE_GLOBS = ["docs/*.md", "docs/**/*.md"]
 GENERATED_MARKER = "<!-- AUTO-GENERATED FILE. DO NOT EDIT. -->"
 
 SYSTEM_PROMPT = """You are a careful technical documentation translator.
@@ -190,7 +190,18 @@ def source_files() -> list[Path]:
     files = [ROOT / p for p in SOURCE_FILES if (ROOT / p).exists()]
     for pattern in SOURCE_GLOBS:
         files.extend(sorted(ROOT.glob(pattern)))
-    return [p for p in files if p.is_file() and not any(part in {"en", "translations"} for part in p.relative_to(ROOT).parts)]
+
+    seen: set[Path] = set()
+    sources: list[Path] = []
+    for path in files:
+        rel = path.relative_to(ROOT)
+        if not path.is_file() or any(part in {"en", "translations"} for part in rel.parts):
+            continue
+        if rel in seen:
+            continue
+        seen.add(rel)
+        sources.append(path)
+    return sources
 
 
 def resolve_only_sources(values: list[str]) -> list[Path]:
@@ -275,17 +286,9 @@ def rewrite_markdown_links(translated: str, source: Path, target: Path, target_c
 def strip_existing_generated_header(text: str) -> str:
     if not text.startswith(GENERATED_MARKER):
         return text
-    # Remove marker plus the small generated notice block up to the first blank line after blockquote.
-    lines = text.splitlines()
-    idx = 1
-    while idx < len(lines) and idx < 8:
-        idx += 1
-        if idx >= 4 and idx < len(lines) and lines[idx - 1] == "" and not lines[idx:idx+1]:
-            break
-    # Simpler robust path: remove fixed notice if present.
-    joined = "\n".join(lines)
-    m = re.search(r"^<!-- AUTO-GENERATED FILE\. DO NOT EDIT\. -->\n\n.*?edit the Chinese source file instead\.\n\n", joined, re.S)
-    return joined[m.end():] if m else text
+    # Remove the generated marker and notice when a model echoes an existing generated file.
+    m = re.search(r"^<!-- AUTO-GENERATED FILE\. DO NOT EDIT\. -->\n\n.*?edit the Chinese source file instead\.\n\n", text, re.S)
+    return text[m.end():] if m else text
 
 
 def translate_file(source: Path, cfg: dict[str, str | int], target_code: str, target_lang: str) -> tuple[Path, str]:
