@@ -97,7 +97,22 @@ bash install.sh --global-bin ~/.local/bin
 
 ## 新增 first-party skill
 
-如果 skill 是 AIOS 自己维护的，优先选择以下真源位置：
+如果 skill 是 AIOS 自己维护的，优先选择以下真源位置。普通用户不需要记忆这些命令；用户只需要告诉 Agent “把这个 skill 纳入 AIOS 托管”。Agent 负责分类、dry-run、执行和验证。
+
+如果只是当前 Agent 执行某个命令的说明，不要急着创建新 skill；先放进 umbrella skill、开发文档或现有相关 skill。只有当领域边界稳定、高频、高风险或验证模型独立时，才拆成窄 companion skill。
+
+### Skill 拆分原则
+
+按稳定领域边界拆 skill，不按“每个 CLI 子命令”或“一次性迁移流程”拆 skill。
+
+| 形态 | 适合情况 | 风险 |
+|---|---|---|
+| Umbrella skill | 跨 AIOS 架构、更新、local/private boundary、Agent 操作策略；流程仍在演化；需要统一心智 | 过大后可能变成垃圾桶，需保持薄入口和路由职责 |
+| Narrow companion skill | 高频、高风险、有独立验证模型、加载后不污染其他任务，例如 secrets、服务运维、资源解析 | 拆太多会重复原则、增加触发和维护成本 |
+
+当前默认：`aios-agent` 作为 umbrella policy skill；`aios-resource-resolver`、`aios-secret-management`、`aiops-vault`、`aiops-service-operations` 保持窄领域 skill。
+
+### 一方 skill 真源位置
 
 | 场景 | 真源位置 | Runtime 安装方式 |
 |---|---|---|
@@ -107,7 +122,7 @@ bash install.sh --global-bin ~/.local/bin
 
 不要把 runtime skills 目录当真源。开发机可以逐个 symlink runtime skill 到 Git worktree，但公开安装默认 copy。
 
-本机先用 Hermes/Agent 创建出来的 skill，如果要变成 AIOS 托管、Git 管理、可发布的 first-party skill，使用 `adopt` 接管，而不是手工搬目录：
+本机先用 Hermes/Agent 创建出来的 skill，如果要变成 AIOS 托管、Git 管理、可发布的 first-party skill，Agent 可以使用 `adopt` actuator 接管，而不是手工搬目录。`adopt` 是 Agent/维护者执行面，不是用户需要记忆的 UX：
 
 ```bash
 cd ~/projects/aios-kit
@@ -159,14 +174,11 @@ module 是 `~/aios/modules/<name>` 下可更新的源码或模板 checkout。适
 
 ## 本机 overlay 策略
 
-local overlay 用于维护者自己的机器、私有基础设施、中央控制面或实验模块。它们可以属于“Lin 的 AIOS”，但不属于公开 portable base pack。
+local overlay 用于特定用户自己的机器、私有基础设施、中央控制面或实验模块。它们可以属于该用户的 AIOS 实例，但不属于公开 portable base pack。
 
-当前 local overlay 示例：
+公开文档不得记录真实私有 overlay 名称、私有资源别名、主机名、secret handle 或机器特定运维事实。这些事实应放在 live AIOS instance 中，例如 OPS vault、instance state、本地 registry 或 local-only Agent profile 层。
 
-| Skill | 位置 | 当前为何只放本机 |
-|---|---|---|
-| `cloud-server-ssh-assets` | `skillpack.local.yaml` | 绑定 Lin 的云服务器清单与 SSH/资源约定 |
-| `central-agent-control-plane` | `skillpack.local.yaml` / Hermes profile | 绑定 Lin 的中央 Hermes/控制面运维 |
+`skillpack.local.yaml` 只是一种兼容/调试模式：当某个本地 checkout 临时需要 overlay reconciliation 时可以存在，但它不是私有实例事实的长期推荐位置，且必须保持 Git ignored。
 
 未来如果多设备互联、中央 Agent、远程执行成为 AIOS 的公开核心能力，应抽象出 portable module/skill，只公开通用流程、schema 和模板，不公开私人资源事实。
 
@@ -193,6 +205,41 @@ local overlay 用于维护者自己的机器、私有基础设施、中央控制
 请判断它应该是 portable base、first-party skill、independent module，还是 local overlay。
 要求：不要复制我的私有数据或密钥；不要接管朋友已有的整个 skills 目录；README 只写大众需要的信息；开发规则写到 docs/development.md；运行 dry-run、doctor、public audit、fresh HOME smoke install；通过后 commit 并 push。
 ```
+
+## AIOS 自迭代规则
+
+AIOS 不是一次性安装包，而是长期工作的操作层。Agent 在任何 AIOS 相关任务中，都应主动观察系统自身是否出现可改进信号：
+
+- 重复手工步骤，应变成 CLI/API actuator；
+- skill 触发条件、边界、验证方式过时或含糊；
+- CLI 太冗长、缺少 dry-run/doctor/validate/JSON，导致 Agent 难以安全执行；
+- 公开/私有边界容易误判；
+- 用户实例更新时容易覆盖本地演化；
+- 验证缺口、路径硬编码、重复状态或隐藏假设。
+
+处理策略：
+
+1. 如果修复安全、范围清楚，直接更新相关 skill、文档、脚本或验证。
+2. 如果会改变工作流、CLI surface、兼容性或架构，先向用户提出简短改进建议。
+3. 如果暂不处理，把失败模式写入 LLL error/trace、OPS maintenance log 或相关 issue/todo。
+
+不要为了仪式感自迭代；只修复真实失败模式、反复摩擦、风险歧义或经过验证的简化机会。
+
+## Upstream / Instance 更新融合模型
+
+`aios-kit` 是 AIOS 实例的 seed/upstream，不是长期覆盖用户实例的单一真源。用户长期使用后，runtime skills、local overlays、OPS vault、registry、工作流和 Agent 行为都会产生个性化演化。更新必须是 reconcile，而不是 reset。
+
+更新前先分类：
+
+| 对象 | 策略 |
+|---|---|
+| upstream-managed copy | 若 install-state/hash 显示未被本地修改，可自动更新；若已本地修改，提出 merge/force/skip |
+| user-owned / local overlay | 属于实例，不从公开 upstream 覆盖，也不发布私人事实 |
+| runtime skill local edits | 视为可能的用户/Agent 自迭代，优先三方合并：upstream 新版、上次安装基线、本地演化副本 |
+| generated/cache | 可按状态安全重建或清理 |
+| external/app-owned | AIOS 只索引/检查，不移动、不接管 |
+
+未来更新工具应优先提供 `status`、`diff`、`doctor`、`propose`、`reconcile`，让 Agent 能解释“会变什么、为什么、冲突在哪里、有哪些安全选项”。
 
 ## Skillpack 更新语义
 

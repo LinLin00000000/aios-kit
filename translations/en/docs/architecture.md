@@ -19,7 +19,20 @@ Keep independent projects independent, and connect them with manifests, modules,
 
 ## Agent-first / Human fallback
 
-The AIOS architecture assumes that: **Agents are the default operators; humans are authorizers, goal setters, and fallback operators**.
+The AIOS architecture assumes that: **Agents are the default operators; humans are authorizers, goal setters, and fallback operators**. Regular users should not need to memorize low-level commands; low-level commands exist so agents have a stable, verifiable, recoverable actuation surface.
+
+Minimal interaction model:
+
+```text
+Human Intent -> Agent Policy -> Machine Actuation -> State/Evidence
+```
+
+| Layer | Responsibility | Typical carriers |
+|---|---|---|
+| Human Intent | Users express goals, constraints, authorization, and acceptance criteria in natural language | Conversation, confirmation, preferences |
+| Agent Policy | Agents decide what should happen, whether it is safe, whether to ask, and which tool to use | Skills, repo docs, registries, vault facts, LLL mission files |
+| Machine Actuation | Performs deterministic actions, preferably with dry-run, doctor, validate, JSON/status output, and idempotence | `aios` CLI, scripts, MCP tools, APIs, file operations |
+| State/Evidence | Long-lived facts, change evidence, install state, maintenance records, and recoverable work context | Manifests, registries, vaults, install-state, logs, LLL workdirs |
 
 This is not a slogan to "automate everything"; it directly affects repository boundaries and command design:
 
@@ -28,6 +41,29 @@ This is not a slogan to "automate everything"; it directly affects repository bo
 3. **The control plane does not absorb state machines**: AIOS can proxy `aios lll ...`, but LLL’s queues, leases, runners, and artifacts are still managed by the LLL protocol/CLI.
 4. **File-based governance**: project registration, the OPS vault, install state, maintenance logs, and the LLL workdir are the shared fact layer across agents.
 5. **Publicly recoverable**: public repositories must be able to recover key capabilities from a fresh clone / Docker / new machine, and must not rely only on implicit symlinks on the author’s machine.
+6. **Self-iteration first**: when agents find repeated failures, verbose paths, validation gaps, or unclear tool boundaries in AIOS-related work, they should proactively propose or make improvements to skills, docs, CLI, validation scripts, and workflows.
+
+## Upstream and User Instance Reconciliation
+
+`aios-kit` is a seed/upstream, not the single source of truth that overwrites a long-lived user instance. Over time, a user instance accumulates habits, local overlays, runtime skill edits, private registries, OPS records, and agent self-iteration improvements. Updates must therefore be reconciliation, not blind overwrite.
+
+```text
+aios-kit upstream = default skeleton + reusable improvements
+user instance = long-lived local organism
+update = propose / reconcile / merge / validate, not reset
+```
+
+Classify objects before updating:
+
+| Type | Update strategy |
+|---|---|
+| upstream-managed copy | Use install-state/hash to detect local edits; auto-update unchanged copies, propose merge/force choices for edited copies |
+| user-owned / local overlay | Belongs to the instance; do not overwrite from public upstream and do not publish private facts |
+| runtime skill local edits | Treat as possible user/agent self-iteration; try a three-way merge or make conflicts explicit |
+| generated/cache | Rebuild or clean safely according to state records |
+| external/app-owned | AIOS indexes/checks only; it does not move or take ownership |
+
+Future AIOS update tools should prefer semantics such as `status`, `diff`, `doctor`, `propose`, and `reconcile` instead of expanding destructive `update --force` behavior.
 
 ## Source, Runtime, and State
 

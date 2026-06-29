@@ -8,7 +8,7 @@
 
 `aios-kit` is a lightweight, portable, Agent-friendly installation and distribution kit for a Personal AIOS.
 
-It is not about "installing a few more AI tools." Instead, it builds a local foundation that Agents can understand for your projects, knowledge, services, scripts, skills, and long-running tasks: files are the source of truth, the CLI is the control plane, Agents are the default operators, and humans are responsible for goals, boundaries, and acceptance.
+It is not about "installing a few more AI tools." Instead, it builds a local foundation that Agents can understand for your projects, knowledge, services, scripts, skills, and long-running tasks: humans express goals, Agents decide policy, CLI/API surfaces perform deterministic actions, and file-based state records facts and evidence.
 
 ## Installation
 
@@ -74,7 +74,7 @@ For more platform, parameter, non-interactive, and troubleshooting details, see:
 | MCP / tool discovery | `awesome-mcp-servers-discovery` | Research and filter MCP servers |
 | Frontend and design | `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines` | UI/UX, frontend architecture, and web design review |
 | Solution refinement | `grilling`, `grill-me`, `grill-with-docs`, `domain-modeling` | Probe requirements, refine plans, and capture domain models and ADRs |
-| First-class AIOS capabilities | `aios-resource-resolver`, `lins-living-loop`, `github-repo-search` | Resource resolution, long-running task workflows, and GitHub project search/recommendation |
+| First-class AIOS capabilities | `aios-agent`, `aios-resource-resolver`, `lins-living-loop`, `github-repo-search` | AIOS Agent policy entry point, resource resolution, long-running task workflows, and GitHub project search/recommendation |
 
 ### `aios` CLI Capabilities
 
@@ -111,8 +111,9 @@ Design trade-offs:
 |---|---|
 | Agent-first | Commands, documentation, registries, vaults, and logs should be easy for Agents to discover, parse, and recover from; human commands are the fallback. |
 | Files are the source of truth | Important facts are captured in the vault / registry / workdir / manifest instead of being trapped in a single conversation. |
-| Thin control plane | `aios` handles discovery, installation, updates, and health checks; LLL, Hermes, Mihomo, and others keep their own state machines. |
-| Separate private from public | The public repo contains only templates, scripts, skills, and structure; real assets, keys, subscriptions, and maintenance logs stay in the local vault. |
+| Thin control plane | `aios` handles discovery, installation, updates, and health checks; LLL, Hermes, Mihomo, and others keep their own state machines. CLI/API surfaces are Agent actuators, not commands regular users must memorize. |
+| Separate private from public | The public repo contains only templates, scripts, skills, and structure; real assets, keys, subscriptions, maintenance logs, and local overlays stay in the local vault/state. |
+| Self-iteration | When Agents find failure modes, verbose paths, or validation gaps while using AIOS, they should proactively propose or capture improvements to skills, docs, CLI, validation scripts, and workflows. |
 | Portable, not platform-locked | Default paths are clear, backup-friendly, and reinstallable; Hermes is the default hub, but not the only Agent. |
 
 ## Capability Layers

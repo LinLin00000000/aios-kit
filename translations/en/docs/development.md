@@ -103,7 +103,22 @@ Steps:
 
 ## Adding a First-Party Skill
 
-If the skill is maintained by AIOS itself, prefer one of the following true source locations:
+If the skill is maintained by AIOS itself, prefer one of the following true source locations. Regular users do not need to memorize these commands; they can tell an Agent, “make this skill AIOS-managed.” The Agent is responsible for classification, dry-run, execution, and validation.
+
+If the workflow is only documentation for one command or a one-off migration, do not create a new skill too early. Put it in the umbrella skill, development docs, or an existing related skill first. Split it into a narrow companion skill only when the domain boundary is stable, frequent, high-risk, or has an independent validation model.
+
+### Skill Splitting Principles
+
+Split skills by stable domain boundary, not by every CLI subcommand or one-off migration flow.
+
+| Shape | Good fit | Risk |
+|---|---|---|
+| Umbrella skill | Cross-cutting AIOS architecture, update policy, local/private boundaries, and Agent operation strategy; workflows still evolving; one shared mental model is useful | Can become a junk drawer if it stops being a thin policy/router |
+| Narrow companion skill | Frequent, high-risk, independently validated domains such as secrets, service operations, and resource resolution | Too many small skills duplicate principles and increase trigger/maintenance cost |
+
+Current default: `aios-agent` is the umbrella policy skill; `aios-resource-resolver`, `aios-secret-management`, `aiops-vault`, and `aiops-service-operations` remain narrow domain skills.
+
+### First-party skill source locations
 
 | Scenario | True source location | Runtime installation method |
 |---|---|---|
@@ -113,7 +128,7 @@ If the skill is maintained by AIOS itself, prefer one of the following true sour
 
 Do not treat the runtime skills directory as the true source. Development machines may symlink individual runtime skills to Git worktrees, but public installation defaults to copy.
 
-If a skill was first created locally with Hermes/Agent and should become an AIOS-hosted, Git-managed, releasable first-party skill, use `adopt` to take it over instead of manually moving directories:
+If a skill was first created locally with Hermes/Agent and should become an AIOS-hosted, Git-managed, releasable first-party skill, the Agent may use the `adopt` actuator to take it over instead of manually moving directories. `adopt` is an Agent/maintainer execution surface, not UX that users need to memorize:
 
 ```bash
 cd ~/projects/aios-kit
@@ -166,14 +181,11 @@ If it is only a single skill, do not turn it into a module too early. Put it in 
 
 ## Local Overlay Strategy
 
-Local overlays are for the maintainer’s own machine, private infrastructure, central control plane, or experimental modules. They can belong to “Lin’s AIOS”, but they do not belong to the public portable base pack.
+Local overlays are for a specific user's machine, private infrastructure, central control plane, or experimental modules. They can belong to that user's AIOS instance, but they do not belong to the public portable base pack.
 
-Current local overlay examples:
+Public documentation must not record real private overlay names, private resource aliases, hostnames, secret handles, or machine-specific operations facts. These facts belong in the live AIOS instance, such as the OPS vault, instance state, local registries, or a local-only Agent profile layer.
 
-| Skill | Location | Why it is currently local-only |
-|---|---|---|
-| `cloud-server-ssh-assets` | `skillpack.local.yaml` | Bound to Lin’s cloud server inventory and SSH/resource conventions |
-| `central-agent-control-plane` | `skillpack.local.yaml` / Hermes profile | Bound to Lin’s central Hermes/control-plane operations |
+`skillpack.local.yaml` is only a compatibility/debug pattern when a local checkout needs temporary overlay reconciliation. It is not the recommended long-term home for private instance truth, and it must stay ignored by Git.
 
 If multi-device interconnection, central Agents, or remote execution become public core AIOS capabilities in the future, extract portable modules/skills that expose only general workflows, schemas, and templates, not private resource facts.
 
@@ -200,6 +212,41 @@ Goal: include it in AIOS’s portable installation/update flow.
 Please determine whether it should be a portable base, first-party skill, independent module, or local overlay.
 Requirements: do not copy my private data or secrets; do not take over an entire existing skills directory from a friend; README should include only information needed by the general public; development rules should go in docs/development.md; run dry-run, doctor, public audit, and fresh HOME smoke install; after passing, commit and push.
 ```
+
+## AIOS Self-Iteration Rules
+
+AIOS is not a one-time installer; it is a long-lived operating layer. In any AIOS-related task, agents should actively watch for signals that the system itself should improve:
+
+- repeated manual steps that should become CLI/API actuators;
+- stale or ambiguous skill triggers, boundaries, or validation;
+- CLI surfaces that are too verbose or lack dry-run/doctor/validate/JSON support;
+- public/private boundary mistakes;
+- updates that might overwrite local instance evolution;
+- validation gaps, hard-coded paths, duplicated state, or hidden assumptions.
+
+Response policy:
+
+1. If the fix is safe and clearly scoped, update the relevant skill, doc, script, or validation immediately.
+2. If it changes workflow, CLI surface, compatibility, or architecture, first propose a concise improvement to the user.
+3. If it should not be fixed immediately, record the failure mode in LLL error/trace, the OPS maintenance log, or a related issue/todo.
+
+Do not self-iterate for ceremony. Fix real failure modes, repeated friction, risky ambiguity, or verified simplification opportunities.
+
+## Upstream / Instance Update Reconciliation Model
+
+`aios-kit` is the seed/upstream for an AIOS instance, not the single source of truth that overwrites it forever. Long-term use creates personalized evolution in runtime skills, local overlays, the OPS vault, registries, workflows, and Agent behavior. Updates must reconcile, not reset.
+
+Classify before updating:
+
+| Object | Strategy |
+|---|---|
+| upstream-managed copy | If install-state/hash shows no local edits, auto-update; if edited locally, propose merge/force/skip |
+| user-owned / local overlay | Belongs to the instance; do not overwrite from public upstream and do not publish private facts |
+| runtime skill local edits | Treat as possible user/Agent self-iteration; prefer a three-way merge: new upstream, previous installed baseline, local evolved copy |
+| generated/cache | Safely rebuild or clean according to state |
+| external/app-owned | AIOS indexes/checks only; it does not move or take ownership |
+
+Future update tools should prefer `status`, `diff`, `doctor`, `propose`, and `reconcile`, so Agents can explain what will change, why, where conflicts are, and which safe choices exist.
 
 ## Skillpack Update Semantics
 

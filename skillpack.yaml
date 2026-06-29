@@ -1,6 +1,6 @@
 name: aios-kit
 version: 0.2.2
-description: Portable AIOS kit base skillpack. Machine-specific/local skills belong in skillpack.local.yaml.
+description: Portable AIOS kit base skillpack. Machine-specific/local facts belong in the AIOS instance vault/state, not in this public manifest.
 
 defaults:
   scope: global
@@ -86,6 +86,14 @@ external:
     reason: Domain vocabulary and ADR support required by grill-with-docs.
 
 first_party:
+  - id: aios-agent
+    path: skills/aios-agent
+    source: LinLin00000000/aios-kit
+    skill: aios-agent
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: Umbrella AIOS Agent policy skill for Agent-first interaction, self-iteration, skill/module boundaries, and upstream-instance reconciliation.
   - id: aios-resource-resolver
     path: skills/aios-resource-resolver
     source: LinLin00000000/aios-kit
