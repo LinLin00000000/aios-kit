@@ -1,0 +1,26 @@
+{
+  "topic": "<检索主题>",
+  "constraints": {
+    "min_stars": 100,
+    "archived": false,
+    "fork": false,
+    "target_forms": ["可直接使用的产品", "可二次开发的框架"]
+  },
+  "queries": [
+    {
+      "id": "core",
+      "query": "<核心 query>",
+      "purpose": "核心召回"
+    },
+    {
+      "id": "synonym",
+      "query": "<同义词/生态词 query>",
+      "purpose": "补充同义词盲区"
+    },
+    {
+      "id": "scenario",
+      "query": "<场景词 query>",
+      "purpose": "覆盖用户具体使用场景"
+    }
+  ]
+}
