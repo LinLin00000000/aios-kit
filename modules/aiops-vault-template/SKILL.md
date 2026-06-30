@@ -57,7 +57,7 @@ Do not infer current infrastructure from this skill. Read the vault and inspect 
    - important history -> one appended `maintenance-log.jsonl` object;
    - secret locations -> `secrets-location.md` without values;
    - service-local details -> service README/card.
-9. If a task crosses into secret intake, Secret Broker/CLI workflows, AI API profiles, consumers/replicas, GitHub Secrets sync, or preventing agents from seeing secret values, load `aios-secret-management`; this skill only records ops/current-state and does not own broker procedure.
+9. If a task crosses into secret intake, Secret Runtime/CLI workflows, AI API profiles, consumers/replicas, GitHub Secrets sync, or preventing agents from seeing secret values, load `aios-secret-management`; this skill only records ops/current-state and does not own secret runtime procedure.
 10. If the change improves reusable AIOps workflow/tooling rather than only private local facts, sync the generic part to the template repo at `~/projects/aios-kit/modules/aiops-vault-template`, run its tests/checks, then commit and push so downstream AIOS Kit consumers receive the improvement. Never copy private resources, logs, or secrets into the public template.
 11. Run `python3 "$AIOPS_ROOT/scripts/aiops.py" check` after vault changes.
 12. Report changed files, commands, verification, skipped/blocked items, and follow-ups.

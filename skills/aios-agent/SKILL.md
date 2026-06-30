@@ -55,7 +55,7 @@ Examples:
 
 - `aios-agent`: umbrella policy and routing.
 - `aios-resource-resolver`: resource lookup and permission workflow.
-- `aios-secret-management`: secret/control-plane workflows with strict safety rules.
+- `aios-secret-management`: secret registry/runtime workflows with strict safety rules.
 - `aiops-vault` and `aiops-service-operations`: OPS vault and service operations workflows.
 
 ## Adopting a local skill into AIOS

@@ -55,7 +55,7 @@ AIOS 的核心不是自动化一切，也不是功能堆叠，而是建立 Agent
 | 模块 / 能力 | 当前阶段 | 已有最小闭环 | 下一步候选增强 | 暂不做 |
 |---|---|---|---|---|
 | Project / Resource registry | L1 | `aios project ...`、alias、registry 文件 | 更稳定的 JSON/status/doctor 输出 | 完整项目管理系统 |
-| Secret management | L1 | request → intake → metadata/consumer/replica → run/sync/audit | 明确 Registry + Runtime 语言，补文档边界 | 常驻 broker、proxy、MCP secret tools、plugin 系统 |
+| Secret management | L1.5 | request → intake → metadata/consumer/replica → run/sync/audit；`doctor`/`validate` 提供低风险探针 | 更通用的 provider preset 文档/模板；仅在真实摩擦出现后考虑可选 proxy/lease | 常驻 broker、默认 proxy、MCP secret tools、plugin 系统 |
 | LLL integration | L1 | `aios lll ...` 发现、创建、状态代理 | 更清楚地表达 AIOS 只代理不吞并 LLL 状态机 | 在 `aios-kit` 中重写 LLL runner |
 | OPS vault | L1 | 模板与 live vault 分离，OPS skill 入口 | 更好资源索引和维护记录模板 | 把公开 repo 变成私有 CMDB |
 | Skillpack | L1 | sync/adopt/doctor/dev-link | 更好的冲突解释和 reconcile 输出 | 接管整个 runtime skills 目录 |
@@ -76,7 +76,7 @@ AIOS 的核心不是自动化一切，也不是功能堆叠，而是建立 Agent
 
 ## Secret 模块示例
 
-Secret 模块当前保持 L1：密钥登记、录入、consumer、replica、receipt、audit 和 `aios secret run` 已形成最小闭环。
+Secret 模块当前保持 L1.5：密钥登记、录入、consumer、replica、receipt、audit、`aios secret run`、`doctor` 和 `validate` 已形成一个可诊断的最小闭环。
 
 可以采用以下语言区分边界：
 

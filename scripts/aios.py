@@ -801,7 +801,7 @@ compat:
 
 
 # ---------------------------------------------------------------------------
-# Secret / Credential Control Plane MVP
+# Secret Registry + Minimal Secret Runtime MVP
 # ---------------------------------------------------------------------------
 
 SECRET_SCHEMA = "aios.secret.v1"
@@ -952,6 +952,157 @@ def redacted_item_metadata(item: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def consumer_env_map(consumer: dict[str, Any]) -> dict[str, str]:
+    """Return the environment map for the only supported MVP runtime: env.
+
+    New consumers should declare `runtime: {kind: env, env_map: ...}`. The
+    top-level `env_map` remains supported as a compatibility mirror for older
+    metadata and scripts.
+    """
+    runtime = consumer.get("runtime")
+    env_map: Any = None
+    if isinstance(runtime, dict):
+        kind = str(runtime.get("kind") or "env")
+        if kind != "env":
+            raise SystemExit(f"unsupported consumer runtime kind: {kind}; MVP supports only env")
+        env_map = runtime.get("env_map")
+    elif runtime not in (None, ""):
+        raise SystemExit("consumer runtime must be an object")
+    if env_map is None:
+        env_map = consumer.get("env_map")
+    if not isinstance(env_map, dict) or not env_map:
+        raise SystemExit("consumer missing runtime.env_map or legacy env_map")
+    return {str(k): str(v) for k, v in env_map.items()}
+
+
+def normalize_consumer_runtime(consumer: dict[str, Any], secret_id: str) -> dict[str, Any]:
+    """Normalize request-time consumer metadata without dropping compatibility."""
+    out = json.loads(json.dumps(consumer, ensure_ascii=False))
+    out.setdefault("uses_secret", secret_id)
+    legacy_env_map = out.get("env_map")
+    runtime = out.get("runtime")
+    if isinstance(runtime, dict):
+        kind = str(runtime.get("kind") or "env")
+        if kind == "env" and runtime.get("env_map") is None and isinstance(legacy_env_map, dict):
+            runtime["env_map"] = legacy_env_map
+        if kind == "env" and out.get("env_map") is None and isinstance(runtime.get("env_map"), dict):
+            out["env_map"] = runtime["env_map"]
+    elif isinstance(legacy_env_map, dict):
+        out["runtime"] = {"kind": "env", "env_map": legacy_env_map}
+    return out
+
+
+def request_manifest_issues(req: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate a secret intake request manifest without reading any values."""
+    issues: list[dict[str, str]] = []
+
+    def add(path: str, message: str, severity: str = "error") -> None:
+        issues.append({"severity": severity, "path": path, "message": message})
+
+    def check_no_values(obj: Any, path: str = "$") -> None:
+        forbidden = {"value", "values", "secret_value", "secret_values", "plaintext", "password_value", "api_key_value", "token_value"}
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                key_s = str(key)
+                if key_s.lower() in forbidden:
+                    add(f"{path}.{key_s}", "request manifests must not contain secret values")
+                check_no_values(value, f"{path}.{key_s}")
+        elif isinstance(obj, list):
+            for i, value in enumerate(obj):
+                check_no_values(value, f"{path}[{i}]")
+
+    check_no_values(req)
+    if str(req.get("kind") or "") != "secret_intake":
+        add("kind", "request kind must be secret_intake")
+    if not str(req.get("request_id") or ""):
+        add("request_id", "request_id is required")
+    secret_id = str(req.get("secret_id") or "")
+    if not secret_id:
+        add("secret_id", "secret_id is required")
+    fields = req.get("fields") or []
+    if not isinstance(fields, list) or not fields:
+        add("fields", "fields must be a non-empty list")
+        fields = []
+    field_names: set[str] = set()
+    for i, field in enumerate(fields):
+        if not isinstance(field, dict):
+            add(f"fields[{i}]", "field must be an object")
+            continue
+        name = str(field.get("name") or "")
+        if not name:
+            add(f"fields[{i}].name", "field name is required")
+            continue
+        if name in field_names:
+            add(f"fields[{i}].name", f"duplicate field name: {name}")
+        field_names.add(name)
+        if field_is_secret(field) and field.get("default") not in (None, ""):
+            add(f"fields[{i}].default", "secret fields must not define defaults")
+
+    item = req.get("item")
+    if not isinstance(item, dict):
+        item = {}
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    if metadata.get("agent_can_read_plaintext") is True:
+        add("item.metadata.agent_can_read_plaintext", "agent_can_read_plaintext must not be true")
+
+    for i, consumer in enumerate(req.get("consumers") or []):
+        if not isinstance(consumer, dict):
+            add(f"consumers[{i}]", "consumer must be an object")
+            continue
+        if not consumer.get("id"):
+            add(f"consumers[{i}].id", "consumer id is required")
+        uses_secret = str(consumer.get("uses_secret") or secret_id)
+        if secret_id and uses_secret != secret_id:
+            add(f"consumers[{i}].uses_secret", "consumer uses_secret must match request secret_id")
+        runtime = consumer.get("runtime")
+        env_map = consumer.get("env_map")
+        if isinstance(runtime, dict):
+            kind = str(runtime.get("kind") or "env")
+            if kind != "env":
+                add(f"consumers[{i}].runtime.kind", "MVP supports only runtime.kind: env")
+            if runtime.get("env_map") is not None:
+                env_map = runtime.get("env_map")
+        elif runtime not in (None, ""):
+            add(f"consumers[{i}].runtime", "runtime must be an object")
+        if env_map is not None:
+            if not isinstance(env_map, dict) or not env_map:
+                add(f"consumers[{i}].env_map", "env_map must be a non-empty object")
+            else:
+                for env_name, field_name in env_map.items():
+                    if str(field_name) not in field_names:
+                        add(f"consumers[{i}].env_map.{env_name}", f"field not defined in request: {field_name}")
+
+    for i, replica in enumerate(req.get("replicas") or []):
+        if not isinstance(replica, dict):
+            add(f"replicas[{i}]", "replica must be an object")
+            continue
+        if not replica.get("id"):
+            add(f"replicas[{i}].id", "replica id is required")
+        source = str(replica.get("source_secret_ref") or secret_id)
+        if secret_id and source != secret_id:
+            add(f"replicas[{i}].source_secret_ref", "replica source_secret_ref must match request secret_id")
+        keys = replica.get("keys") or {}
+        if keys is not None:
+            if not isinstance(keys, dict):
+                add(f"replicas[{i}].keys", "replica keys must be an object")
+            else:
+                for key, field_name in keys.items():
+                    if str(field_name) not in field_names:
+                        add(f"replicas[{i}].keys.{key}", f"field not defined in request: {field_name}")
+    return issues
+
+
+def fail_manifest_issues(issues: list[dict[str, str]]) -> None:
+    errors = [i for i in issues if i.get("severity") == "error"]
+    if not errors:
+        return
+    lines = ["invalid secret request manifest:"]
+    lines.extend(f"- {i['path']}: {i['message']}" for i in errors)
+    raise SystemExit("\n".join(lines))
+
+
 def load_secret_values(home: Path, secret_id: str) -> dict[str, Any]:
     path = secret_value_path(home, secret_id)
     if not path.exists():
@@ -1004,6 +1155,16 @@ def default_translation_request(request_id: str = "req_ai_api_translation_defaul
                     "TRANSLATE_API_MODE": "api_mode",
                     "TRANSLATE_API_KEY": "api_key",
                 },
+                "runtime": {
+                    "kind": "env",
+                    "env_map": {
+                        "TRANSLATE_PROVIDER": "provider",
+                        "TRANSLATE_BASE_URL": "base_url",
+                        "TRANSLATE_MODEL": "model",
+                        "TRANSLATE_API_MODE": "api_mode",
+                        "TRANSLATE_API_KEY": "api_key",
+                    },
+                },
                 "local_run": {"preferred": "aios secret run --consumer aios-kit.translation -- python3 scripts/translate_docs.py"},
                 "legacy_materialization": {"path": "~/aios/config/secrets/aios-kit-translation.env", "status": "remove-after-secret-module-mvp"},
             }
@@ -1037,12 +1198,50 @@ def secret_request_init_translation(args: argparse.Namespace) -> None:
     if path.exists() and not args.force:
         raise SystemExit(f"request already exists: {path}; pass --force to overwrite")
     data = default_translation_request(request_id)
+    fail_manifest_issues(request_manifest_issues(data))
     write_yaml_doc(path, data)
     append_secret_audit(home, {"event": "request_created", "request_id": request_id, "secret_id": data["secret_id"], "status": "pending"})
     print("Created secret intake request")
     print(f"- request_id: {request_id}")
     print(f"- path: {path}")
     print("Next: run `aios secret request show {}` then `aios secret intake {}` in a real shell/TTY.".format(request_id, request_id))
+
+
+def secret_request_create(args: argparse.Namespace) -> None:
+    """Create a pending request from a generic manifest without secret values."""
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    dirs = secret_dirs(home) if args.dry_run else ensure_secret_layout(home)
+    src = Path(args.manifest).expanduser()
+    if not src.exists():
+        raise SystemExit(f"manifest not found: {src}")
+    data = load_yaml_doc(src)
+    issues = request_manifest_issues(data)
+    if args.json:
+        payload = {"schema": SECRET_SCHEMA, "ok": not any(i.get("severity") == "error" for i in issues), "manifest": str(src), "issues": issues, "secret_values_exposed": False}
+        if args.dry_run or not payload["ok"]:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            raise SystemExit(0 if payload["ok"] else 1)
+    fail_manifest_issues(issues)
+    request_id = str(data.get("request_id") or "")
+    path = dirs["pending"] / f"{safe_secret_id(request_id)}.yaml"
+    if path.exists() and not args.force:
+        raise SystemExit(f"request already exists: {path}; pass --force to overwrite")
+    if args.dry_run:
+        print("Secret request create dry-run")
+        print(f"- manifest: {src}")
+        print(f"- request_id: {request_id}")
+        print(f"- target: {path}")
+        print("- secret_values_exposed: false")
+        return
+    write_yaml_doc(path, data)
+    append_secret_audit(home, {"event": "request_created", "request_id": request_id, "secret_id": data["secret_id"], "status": "pending", "source_manifest": str(src)})
+    if args.json:
+        print(json.dumps({"schema": SECRET_SCHEMA, "ok": True, "request_id": request_id, "path": str(path), "secret_values_exposed": False}, ensure_ascii=False, indent=2))
+        return
+    print("Created secret intake request")
+    print(f"- request_id: {request_id}")
+    print(f"- path: {path}")
+    print("- secret_values_exposed: false")
 
 
 def prompt_field(field: dict[str, Any]) -> str:
@@ -1078,7 +1277,8 @@ def write_consumer_from_request(home: Path, secret_id: str, consumer: dict[str, 
     cid = str(consumer.get("id") or "")
     if not cid:
         return ""
-    data = {"schema_version": 1, "id": cid, "kind": "consumer", "uses_secret": secret_id, "updated_at": now_iso(), **consumer}
+    normalized = normalize_consumer_runtime(consumer, secret_id)
+    data = {"schema_version": 1, "id": cid, "kind": "consumer", "uses_secret": secret_id, "updated_at": now_iso(), **normalized}
     write_yaml_doc(secret_consumer_path(home, cid), data)
     return cid
 
@@ -1097,6 +1297,7 @@ def secret_intake(args: argparse.Namespace) -> None:
     dirs = ensure_secret_layout(home)
     req_path = find_request_path(home, args.request_id, include_done=False)
     req = load_yaml_doc(req_path)
+    fail_manifest_issues(request_manifest_issues(req))
     fields = req.get("fields") or []
     if not isinstance(fields, list) or not fields:
         raise SystemExit(f"request has no fields: {req_path}")
@@ -1183,6 +1384,227 @@ def secret_intake(args: argparse.Namespace) -> None:
     print(f"- item: {item_path}")
     print(f"- receipt: {receipt_path}")
     print("- secret_values_exposed: false")
+
+
+def secret_validate_report(home: Path) -> dict[str, Any]:
+    """Validate Secret Registry metadata without reading secret values."""
+    dirs = ensure_secret_layout(home)
+    problems: list[dict[str, str]] = []
+
+    def add(severity: str, path: str, message: str) -> None:
+        problems.append({"severity": severity, "path": path, "message": message})
+
+    def metadata_files(kind: str) -> list[Path]:
+        root = dirs[kind]
+        out: list[Path] = []
+        for suffix in ("*.yaml", "*.yml", "*.json"):
+            out.extend(root.glob(suffix))
+        return sorted(set(out))
+
+    def safe_load(path: Path) -> dict[str, Any] | None:
+        try:
+            return load_yaml_doc(path)
+        except SystemExit as exc:
+            add("error", str(path), str(exc))
+        except Exception as exc:
+            add("error", str(path), f"could not parse metadata: {exc}")
+        return None
+
+    def check_metadata_for_values(obj: Any, path: str, *, allow_field_value: bool = False) -> None:
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                key_s = str(key)
+                child_path = f"{path}.{key_s}"
+                if key_s.lower() in {"values", "secret_value", "secret_values", "plaintext", "password_value", "api_key_value", "token_value"}:
+                    add("error", child_path, "metadata must not contain secret values")
+                if key_s == "value" and not allow_field_value:
+                    add("error", child_path, "metadata must not contain secret values")
+                check_metadata_for_values(value, child_path, allow_field_value=allow_field_value)
+        elif isinstance(obj, list):
+            for i, value in enumerate(obj):
+                check_metadata_for_values(value, f"{path}[{i}]", allow_field_value=allow_field_value)
+
+    def check_private_mode(path: Path, expected_kind: str) -> None:
+        try:
+            mode = path.stat().st_mode & 0o777
+        except FileNotFoundError:
+            add("error", str(path), f"missing {expected_kind}")
+            return
+        if mode & 0o077:
+            add("warning", str(path), f"{expected_kind} should not be group/world accessible; mode={oct(mode)}")
+
+    check_private_mode(dirs["root"], "secret root")
+    for key in ["items", "consumers", "replicas", "requests", "pending", "done", "expired", "receipts", "values", "policies"]:
+        check_private_mode(dirs[key], key)
+    check_private_mode(dirs["audit"], "audit log")
+    for value_file in sorted(dirs["values"].glob("*.json")):
+        check_private_mode(value_file, "value backend")
+
+    items: dict[str, dict[str, Any]] = {}
+    for path in metadata_files("items"):
+        item = safe_load(path)
+        if item is None:
+            continue
+        check_metadata_for_values(item, str(path), allow_field_value=True)
+        item_id = str(item.get("id") or "")
+        if not item_id:
+            add("error", str(path), "secret item missing id")
+            item_id = path.stem
+        if item_id in items:
+            add("error", str(path), f"duplicate secret item id: {item_id}")
+        items[item_id] = item
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        if isinstance(metadata, dict) and metadata.get("agent_can_read_plaintext") is True:
+            add("error", f"{path}.metadata.agent_can_read_plaintext", "agent_can_read_plaintext must not be true")
+        fields = item.get("fields")
+        if item.get("ownership") != "app_owned" and not isinstance(fields, dict):
+            add("error", f"{path}.fields", "AIOS-owned item fields must be an object")
+        if isinstance(fields, dict):
+            for field_name, meta in fields.items():
+                if isinstance(meta, dict) and meta.get("secret") and "value" in meta:
+                    add("error", f"{path}.fields.{field_name}.value", "secret field metadata must not store plaintext value")
+        if item.get("ownership") == "app_owned":
+            if item.get("do_not_move") is not True:
+                add("warning", f"{path}.do_not_move", "app/OS-owned secrets should declare do_not_move: true")
+            if item.get("do_not_symlink") is not True:
+                add("warning", f"{path}.do_not_symlink", "app/OS-owned secrets should declare do_not_symlink: true")
+        else:
+            value_path = secret_value_path(home, item_id)
+            if not value_path.exists():
+                add("warning", str(value_path), f"value backend missing for configured item {item_id}")
+
+    for path in metadata_files("consumers"):
+        consumer = safe_load(path)
+        if consumer is None:
+            continue
+        check_metadata_for_values(consumer, str(path), allow_field_value=False)
+        cid = str(consumer.get("id") or "")
+        if not cid:
+            add("error", str(path), "consumer missing id")
+        secret_id = str(consumer.get("uses_secret") or "")
+        if not secret_id:
+            add("error", f"{path}.uses_secret", "consumer missing uses_secret")
+            continue
+        item = items.get(secret_id)
+        if item is None:
+            add("error", f"{path}.uses_secret", f"consumer references missing secret item: {secret_id}")
+            continue
+        try:
+            env_map = consumer_env_map(consumer)
+        except SystemExit as exc:
+            add("error", str(path), str(exc))
+            continue
+        raw_item_fields = item.get("fields")
+        item_fields = raw_item_fields if isinstance(raw_item_fields, dict) else {}
+        for env_name, field_name in env_map.items():
+            if field_name not in item_fields:
+                add("error", f"{path}.runtime.env_map.{env_name}", f"field not defined on item {secret_id}: {field_name}")
+
+    for path in metadata_files("replicas"):
+        replica = safe_load(path)
+        if replica is None:
+            continue
+        check_metadata_for_values(replica, str(path), allow_field_value=False)
+        if not replica.get("id"):
+            add("error", str(path), "replica missing id")
+        secret_id = str(replica.get("source_secret_ref") or "")
+        if not secret_id:
+            add("error", f"{path}.source_secret_ref", "replica missing source_secret_ref")
+            continue
+        item = items.get(secret_id)
+        if item is None:
+            add("error", f"{path}.source_secret_ref", f"replica references missing secret item: {secret_id}")
+            continue
+        keys = replica.get("keys") or {}
+        if isinstance(keys, dict):
+            raw_item_fields = item.get("fields")
+            item_fields = raw_item_fields if isinstance(raw_item_fields, dict) else {}
+            for key, field_name in keys.items():
+                if str(field_name) not in item_fields:
+                    add("error", f"{path}.keys.{key}", f"field not defined on item {secret_id}: {field_name}")
+        else:
+            add("error", f"{path}.keys", "replica keys must be an object")
+
+    request_counts: dict[str, int] = {}
+    for bucket in ["pending", "done", "expired"]:
+        request_counts[bucket] = 0
+        for path in metadata_files(bucket):
+            request_counts[bucket] += 1
+            req = safe_load(path)
+            if req is None:
+                continue
+            for issue in request_manifest_issues(req):
+                add(issue.get("severity", "error"), f"{path}:{issue.get('path')}", issue.get("message", "invalid request"))
+
+    for receipt_path in sorted(dirs["receipts"].glob("*.json")):
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            add("error", str(receipt_path), f"invalid JSON receipt: {exc}")
+            continue
+        if isinstance(receipt, dict) and receipt.get("secret_values_exposed") is True:
+            add("error", f"{receipt_path}.secret_values_exposed", "receipt must not expose secret values")
+        check_metadata_for_values(receipt, str(receipt_path), allow_field_value=False)
+
+    audit_events = 0
+    if dirs["audit"].exists():
+        for lineno, raw in enumerate(dirs["audit"].read_text(encoding="utf-8").splitlines(), 1):
+            if not raw.strip():
+                continue
+            audit_events += 1
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                add("error", f"{dirs['audit']}:{lineno}", f"invalid JSONL audit event: {exc}")
+                continue
+            if isinstance(event, dict) and event.get("secret_values_exposed") is True:
+                add("error", f"{dirs['audit']}:{lineno}.secret_values_exposed", "audit must not expose secret values")
+
+    counts = {
+        "items": len(metadata_files("items")),
+        "consumers": len(metadata_files("consumers")),
+        "replicas": len(metadata_files("replicas")),
+        "pending_requests": request_counts.get("pending", 0),
+        "done_requests": request_counts.get("done", 0),
+        "expired_requests": request_counts.get("expired", 0),
+        "receipts": len(sorted(dirs["receipts"].glob("*.json"))),
+        "value_backends": len(sorted(dirs["values"].glob("*.json"))),
+        "audit_events": audit_events,
+    }
+    return {"schema": SECRET_SCHEMA, "ok": not any(p["severity"] == "error" for p in problems), "root": str(dirs["root"]), "counts": counts, "problems": problems, "secret_values_exposed": False}
+
+
+def secret_validate(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    report = secret_validate_report(home)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print(f"Secret registry validation: {'ok' if report['ok'] else 'problems'}")
+        for key, value in report["counts"].items():
+            print(f"- {key}: {value}")
+        for problem in report["problems"]:
+            print(f"- {problem['severity']}: {problem['path']}: {problem['message']}")
+        print("- secret_values_exposed: false")
+    raise SystemExit(0 if report["ok"] else 1)
+
+
+def secret_doctor(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    report = secret_validate_report(home)
+    report = {**report, "doctor": "Secret Registry + Minimal Secret Runtime", "runtime_modes_supported": ["env"], "advanced_runtime_deferred": ["always-on broker", "proxy", "MCP secret tools", "provider plugins", "session leases"]}
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print(f"Secret doctor: {'ok' if report['ok'] else 'problems'}")
+        print(f"- root: {report['root']}")
+        print("- runtime_modes_supported: env")
+        for key, value in report["counts"].items():
+            print(f"- {key}: {value}")
+        for problem in report["problems"]:
+            print(f"- {problem['severity']}: {problem['path']}: {problem['message']}")
+        print("- secret_values_exposed: false")
+    raise SystemExit(0 if report["ok"] else 1)
 
 
 def secret_list(args: argparse.Namespace) -> None:
@@ -1350,9 +1772,7 @@ def secret_run(args: argparse.Namespace) -> None:
     item = load_yaml_doc(secret_item_path(home, secret_id))
     value_doc = load_secret_values(home, secret_id)
     values = value_doc.get("values", {})
-    env_map = consumer.get("env_map") or {}
-    if not isinstance(env_map, dict) or not env_map:
-        raise SystemExit("consumer missing env_map")
+    env_map = consumer_env_map(consumer)
     cmd = list(args.command or [])
     if cmd and cmd[0] == "--":
         cmd = cmd[1:]
@@ -2119,6 +2539,12 @@ def build_parser() -> argparse.ArgumentParser:
     sec_req_init.add_argument("--request-id")
     sec_req_init.add_argument("--force", action="store_true")
     sec_req_init.set_defaults(func=secret_request_init_translation)
+    sec_req_create = sec_req_sub.add_parser("create", help="create a pending intake request from a manifest with no secret values")
+    sec_req_create.add_argument("--manifest", required=True, help="YAML/JSON secret_intake manifest")
+    sec_req_create.add_argument("--dry-run", action="store_true", help="validate and show target without writing")
+    sec_req_create.add_argument("--force", action="store_true")
+    sec_req_create.add_argument("--json", action="store_true")
+    sec_req_create.set_defaults(func=secret_request_create)
 
     sec_intake = sec_sub.add_parser("intake", help="complete a request manifest through a real TTY without printing secret values")
     sec_intake.add_argument("request_id")
@@ -2129,6 +2555,14 @@ def build_parser() -> argparse.ArgumentParser:
     sec_list = sec_sub.add_parser("list", help="list secret item metadata")
     sec_list.add_argument("--json", action="store_true")
     sec_list.set_defaults(func=secret_list)
+
+    sec_validate = sec_sub.add_parser("validate", help="validate Secret Registry metadata without reading values")
+    sec_validate.add_argument("--json", action="store_true")
+    sec_validate.set_defaults(func=secret_validate)
+
+    sec_doctor = sec_sub.add_parser("doctor", help="diagnose Secret Registry + Minimal Secret Runtime health")
+    sec_doctor.add_argument("--json", action="store_true")
+    sec_doctor.set_defaults(func=secret_doctor)
 
     sec_show = sec_sub.add_parser("show", help="show redacted secret metadata only")
     sec_show.add_argument("secret_id")

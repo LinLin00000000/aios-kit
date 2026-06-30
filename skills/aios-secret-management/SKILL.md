@@ -1,6 +1,6 @@
 ---
 name: aios-secret-management
-description: "Use when designing, implementing, operating, or auditing AIOS secret management: secret intake, AI API profiles, credential routing, consumers/replicas/materialization, GitHub Secrets sync, SSH/Caddy secret indexing, Secret Broker workflows, or preventing agents from seeing secret values."
+description: "Use when designing, implementing, operating, or auditing AIOS secret management: secret intake, AI API profiles, credential routing, consumers/replicas/materialization, GitHub Secrets sync, SSH/Caddy secret indexing, Secret Runtime workflows, or preventing agents from seeing secret values."
 version: 0.1.0
 license: MIT
 ---
@@ -12,10 +12,16 @@ This skill governs AIOS secret/credential workflows. It is a procedure layer, no
 Core principle:
 
 ```text
-Agent = control-plane planner and metadata maintainer
-Secret CLI/Broker = value intake, storage, verification, sync, and run-time injection
+Agent = Secret Registry planner and metadata maintainer
+Secret CLI / Minimal Runtime = value intake, storage, verification, sync, and run-time injection
 User = value provider through a safe local channel
 ```
+
+Current product model:
+
+- **Secret Registry** records identity, purpose, consumers, replicas, requests, receipts, and audit.
+- **Secret Runtime** safely uses values at execution time. The MVP runtime is only `aios secret run` with `runtime.kind: env`.
+- Always-on broker, local proxy, MCP secret tools, provider plugins, and session leases are roadmap candidates, not the current default path.
 
 The agent must not ask the user to paste secret values into chat, and must not read, print, copy, or store secret values.
 
@@ -82,9 +88,9 @@ Default MVP flow:
    ```
 
 4. User runs the command in a real local shell/TTY and enters values interactively.
-5. CLI/Broker validates the request, hides password input, stores values, writes metadata, moves the request to `done/`, writes a receipt, and appends `audit.jsonl`.
+5. CLI / Minimal Runtime validates the request, hides password input, stores values, writes metadata, moves the request to `done/`, writes a receipt, and appends `audit.jsonl`.
 6. User reports completion; agent reads only the receipt and metadata.
-7. Agent verifies consumers/replicas through broker commands and updates ops records if needed.
+7. Agent verifies consumers/replicas through redacted CLI outputs and updates ops records if needed.
 
 Never run an interactive intake through an agent-controlled terminal if doing so would capture secret input into tool logs/transcripts. Prefer asking the user to run the command themselves.
 
@@ -99,7 +105,7 @@ Minimum pattern:
    - non-secret fields such as zone/account name with safe defaults;
    - secret fields marked `type: password`, `secret: true`, and usually `confirm: true`;
    - `item.kind`, `intended_use`, and `metadata.agent_can_read_plaintext: false`;
-   - a `consumer` with an explicit `env_map` for the CLI/API commands that need injected values.
+   - a `consumer` with an explicit `runtime.kind: env` and `runtime.env_map` for the CLI/API commands that need injected values.
 2. Run `aios secret intake <request-id> --dry-run` and show only field names / `secret_values_exposed: false`.
 3. Ask the user to complete `aios secret intake <request-id>` in a real TTY.
 4. After completion, inspect only `receipt`, item metadata, and consumer metadata.
@@ -170,8 +176,11 @@ MVP commands:
 
 ```bash
 aios secret request show <request-id>
+aios secret request create --manifest <path> [--dry-run --json]
 aios secret intake <request-id>
 aios secret list
+aios secret validate --json
+aios secret doctor --json
 aios secret show <secret-id> --metadata
 aios secret verify <secret-id>
 aios secret sync github <secret-id> --replica <replica-id>
@@ -184,7 +193,7 @@ Safety requirements:
 - Password fields use hidden input and optional confirmation.
 - Do not support passing secret values via `--value`, command-line arguments, chat text, logs, or receipts.
 - `show --metadata`, `list`, `verify`, and `sync` never print values.
-- `run` injects values only into the child process environment and scrubs output where possible.
+- `run` is the MVP Secret Runtime: it supports only `runtime.kind: env`, injects values only into the child process environment, and scrubs output where possible.
 
 ## App/OS-owned secrets
 
@@ -213,7 +222,7 @@ Before completing a secret-management task:
 - Materialized artifacts are marked temporary/compat and cleaned up when no longer needed.
 - SSH/Caddy/app-owned secrets remain in native paths unless the user explicitly requests otherwise.
 - Permissions on secret metadata/value paths are not world/group writable.
-- Verification used broker/CLI outputs that redact values.
+- Verification used redacted CLI/runtime outputs that do not expose values.
 - For `aios-kit` distribution changes, verify the related runtime skill is also present in the skillpack/install surface, not only in the current Hermes profile.
 - For clean-room Docker simulation, exclude local overlays such as `skillpack.local.yaml`, use a fresh `HOME`/`AIOS_ROOT`, use fake values only, and validate both Secret CLI plumbing and skillpack discovery. See `references/docker-smoke-and-skillpack-sync.md`.
 - After user-performed real TTY intake, follow the post-intake sync/cleanup sequence: metadata/receipt only, local `secret run` smoke, GitHub dry-run then `--yes`, metadata-only `gh secret list`, delete superseded materializations without reading them, and re-verify the canonical consumer path. See `references/post-intake-github-sync-cleanup.md`.

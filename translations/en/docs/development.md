@@ -25,7 +25,7 @@ The repository’s source documentation is maintained only in Simplified Chinese
 
 ## CLI Design
 
-The first-class entry point for the Secret / Credential Control Plane is `aios secret ...`. It manages only requests, metadata, receipts, replicas, consumers, and runtime injection; secret values can only be entered through a real TTY via `aios secret intake <request-id>`. Agents do not read, print, or commit values. See [`docs/secret-management.md`](secret-management.md) for details.
+The first-class entry point for Secret management is `aios secret ...`. It works as **Secret Registry + Minimal Secret Runtime**: the Registry manages requests, metadata, receipts, replicas, consumers, and audit; the current Runtime only supports `aios secret run` env injection. Secret values can only be entered through a real TTY via `aios secret intake <request-id>`. Agents do not read, print, or commit values. See [`docs/secret-management.md`](secret-management.md) for details.
 
 The CLI has two layers:
 

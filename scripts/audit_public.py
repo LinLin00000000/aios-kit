@@ -41,6 +41,8 @@ def main() -> int:
         for i, line in enumerate(text.splitlines(), 1):
             for name, rx in PATTERNS:
                 if rx.search(line):
+                    if name == "token-assignment" and re.search(r"(?i)\b(uses_secret|source_secret_ref)\s*[:=]", line):
+                        continue
                     findings.append((str(rel), i, name, line.strip()[:220]))
             for m in re.finditer(r"[A-Za-z0-9_./+=-]{32,}", line):
                 candidate = m.group(0)
