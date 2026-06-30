@@ -72,6 +72,12 @@ When the user says something like “make this skill AIOS-managed” or “let A
 
 `adopt` is an actuator, not the human-facing UX. The human-facing instruction is natural language; the agent chooses commands.
 
+## Evolution discipline
+
+When changing AIOS architecture, modules, skills, CLI surfaces, automation, or project governance, use the public repo document `docs/evolution.md` as the source of truth for progressive enhancement, breadth-first module maturity, complexity budget, and upgrade triggers.
+
+Do not create a new skill or heavy runtime just because a concept is useful. Prefer: document the current stage, define trigger conditions, patch existing docs/skills, and keep advanced mechanisms as roadmap candidates until real friction appears.
+
 ## Self-iteration duty
 
 AIOS must improve through use. During any AIOS-related task, actively watch for:

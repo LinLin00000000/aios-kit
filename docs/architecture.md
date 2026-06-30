@@ -38,6 +38,12 @@ Human Intent -> Agent Policy -> Machine Actuation -> State/Evidence
 5. **公开可恢复**：公开仓库必须能在 fresh clone / Docker / 新机器上恢复关键能力，不能只依赖作者机器上的隐式 symlink。
 6. **自迭代优先**：Agent 在 AIOS 相关任务中发现反复失败、流程冗长、验证缺口或工具边界不清时，应主动提出或执行对 skill、文档、CLI、验证脚本和工作流的改进。
 
+## 渐进式演化
+
+AIOS 的架构演化遵循广度优先、渐进增强和模块同步演化。单个模块不应脱离整体成熟度过早变重；高级机制先进入演化地图，只有真实摩擦和触发条件满足后才实现。
+
+完整规则见 [AIOS 演化协议](./evolution.md)。
+
 ## Upstream 与用户实例的融合
 
 `aios-kit` 是 seed/upstream，不是长期覆盖用户实例的唯一真源。用户越长期使用 AIOS，实例越会积累自己的习惯、local overlays、runtime skill 编辑、私有 registry、OPS 记录和 Agent 自迭代改进。因此更新必须是 reconciliation，而不是传统软件式的盲目覆盖。
