@@ -66,7 +66,8 @@ Do not infer current infrastructure from this skill. Read the vault and inspect 
 
 - Current state belongs in `resources.md` or a service card, not only in the history log.
 - History belongs in `maintenance-log.jsonl`, one valid JSON object per line.
-- Corrections should be new `correction` or `supersede` entries; do not rewrite history unless the user asks for a migration.
+- New maintenance-log entries must include the schema-required core fields used by `aiops.py check`: `schema_version`, `ts`, `date`, `actor`, `type`, `scope`, `summary`, and `status`. Prefer starting from `templates/log-entry.json` or the local `maintenance-log.schema.md` example instead of ad-hoc JSON.
+- Corrections should be new `correction` or `supersede` entries; do not rewrite history unless the user asks for a migration. If the just-appended line is malformed and `aiops.py check` fails, fix that fresh line immediately before finalizing.
 - Avoid duplicating the same fact across README, resources, service cards, and logs. Pick the owning layer.
 - Large raw evidence should live under `evidence/` or outside the vault with a path reference.
 - Do not put session history, deprecated paths, or migration baggage into active skills. Skills should describe the current workflow only; old lessons belong in `maintenance-log.jsonl`, `evidence/`, or current project docs when still useful.
