@@ -8,6 +8,7 @@ is read by default. The script never prints API key values.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -29,6 +30,7 @@ DEFAULT_MAX_RETRIES = 3
 SOURCE_FILES = [Path("README.md")]
 SOURCE_GLOBS = ["docs/*.md", "docs/**/*.md"]
 GENERATED_MARKER = "<!-- AUTO-GENERATED FILE. DO NOT EDIT. -->"
+CHUNK_SPLITTER_VERSION = "markdown-heading-paragraph-v1"
 
 SYSTEM_PROMPT = """You are a careful technical documentation translator.
 Translate Simplified Chinese Markdown documentation into natural, concise English.
@@ -292,12 +294,172 @@ def strip_existing_generated_header(text: str) -> str:
     return text[m.end():] if m else text
 
 
-def translate_file(source: Path, cfg: dict[str, str | int], target_code: str, target_lang: str) -> tuple[Path, str]:
-    original = strip_source_language_switch(source.read_text(encoding="utf-8"))
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def split_large_section(section: str, max_chars: int) -> list[str]:
+    """Split a too-large Markdown section on blank-line paragraph boundaries."""
+    if max_chars <= 0 or len(section) <= max_chars:
+        return [section]
+    parts = re.split(r"(\n\s*\n)", section)
+    paragraphs: list[str] = []
+    for i in range(0, len(parts), 2):
+        para = parts[i]
+        sep = parts[i + 1] if i + 1 < len(parts) else ""
+        if para or sep:
+            paragraphs.append(para + sep)
+    chunks: list[str] = []
+    current = ""
+    for para in paragraphs:
+        if current and len(current) + len(para) > max_chars:
+            chunks.append(current.rstrip() + "\n")
+            current = para
+        else:
+            current += para
+    if current.strip():
+        chunks.append(current.rstrip() + "\n")
+    return chunks or [section]
+
+
+def split_markdown_chunks(text: str, max_chars: int) -> list[str]:
+    """Split Markdown into recoverable chunks, preferring headings outside fences."""
+    if max_chars <= 0 or len(text) <= max_chars:
+        return [text]
+    sections: list[str] = []
+    current: list[str] = []
+    in_fence = False
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("```") or line.lstrip().startswith("~~~"):
+            in_fence = not in_fence
+        if not in_fence and re.match(r"^#{1,3}\s+", line) and current:
+            sections.append("".join(current))
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        sections.append("".join(current))
+
+    expanded: list[str] = []
+    for section in sections:
+        expanded.extend(split_large_section(section, max_chars))
+
+    chunks: list[str] = []
+    current_text = ""
+    for section in expanded:
+        if current_text and len(current_text) + len(section) > max_chars:
+            chunks.append(current_text.rstrip() + "\n")
+            current_text = section
+        else:
+            current_text += section
+    if current_text.strip():
+        chunks.append(current_text.rstrip() + "\n")
+    return chunks or [text]
+
+
+def cache_path_for(source: Path, target_code: str, checkpoint_dir: Path) -> Path:
+    root = checkpoint_dir if checkpoint_dir.is_absolute() else ROOT / checkpoint_dir
+    rel = source.relative_to(ROOT)
+    return root / target_code / rel.with_suffix(rel.suffix + ".json")
+
+
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def load_translation_cache(path: Path, source_hash: str, chunks: list[str]) -> dict[int, str]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if data.get("source_sha256") != source_hash:
+        return {}
+    if data.get("chunk_splitter") not in (None, CHUNK_SPLITTER_VERSION):
+        return {}
+    if data.get("chunk_count") not in (None, len(chunks)):
+        return {}
+    cached_chunks = data.get("chunks")
+    if not isinstance(cached_chunks, list):
+        return {}
+    out: dict[int, str] = {}
+    for item in cached_chunks:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        translation = item.get("translation")
+        chunk_hash = item.get("source_sha256")
+        if not isinstance(index, int) or not isinstance(translation, str):
+            continue
+        if index < 0 or index >= len(chunks):
+            continue
+        if chunk_hash != sha256_text(chunks[index]):
+            continue
+        out[index] = translation
+    return out
+
+
+def save_translation_cache(path: Path, source: Path, source_hash: str, chunks: list[str], translations: dict[int, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "aios-kit.translate-cache.v1",
+        "source": source.relative_to(ROOT).as_posix(),
+        "source_sha256": source_hash,
+        "chunk_splitter": CHUNK_SPLITTER_VERSION,
+        "chunk_count": len(chunks),
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "chunks": [
+            {"index": i, "source_sha256": sha256_text(chunks[i]), "translation": translations[i]}
+            for i in sorted(translations)
+        ],
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def translate_chunked_file(source: Path, original: str, cfg: dict[str, str | int], target_code: str, target_lang: str, *, max_chars: int, resume: bool, checkpoint_dir: Path) -> tuple[Path, str]:
     rel = source.relative_to(ROOT).as_posix()
-    user = f"Translate this Markdown file to {target_lang}. File path: {rel}\n\n{original}"
-    translated = call_model(SYSTEM_PROMPT, user, cfg)
     target = target_path(source, target_code)
+    chunks = split_markdown_chunks(original, max_chars)
+    source_hash = sha256_text(original)
+    cache_path = cache_path_for(source, target_code, checkpoint_dir)
+    translations = load_translation_cache(cache_path, source_hash, chunks) if resume else {}
+    if translations:
+        print(f"  resume cache: {display_path(cache_path)} ({len(translations)}/{len(chunks)} chunks)")
+    for idx, chunk in enumerate(chunks):
+        if idx in translations:
+            print(f"  chunk {idx + 1}/{len(chunks)} cached")
+            continue
+        prompt = SYSTEM_PROMPT + "\n\nYou are translating one recoverable chunk from a larger Markdown file. Return only translated Markdown for this chunk."
+        user = f"Translate this Markdown chunk to {target_lang}. File path: {rel}. Chunk: {idx + 1}/{len(chunks)}.\n\n{chunk}"
+        print(f"  translating chunk {idx + 1}/{len(chunks)} ({len(chunk)} chars)")
+        translations[idx] = call_model(prompt, user, cfg)
+        save_translation_cache(cache_path, source, source_hash, chunks, translations)
+    translated = "\n\n".join(translations[i].strip() for i in range(len(chunks))).strip() + "\n"
+    return target, translated
+
+
+def translate_file(source: Path, cfg: dict[str, str | int], target_code: str, target_lang: str, *, chunk_max_chars: int = 0, resume: bool = False, checkpoint_dir: Path = Path(".cache/translate-docs")) -> tuple[Path, str]:
+    original = strip_source_language_switch(source.read_text(encoding="utf-8"))
+    if chunk_max_chars > 0:
+        target, translated = translate_chunked_file(
+            source,
+            original,
+            cfg,
+            target_code,
+            target_lang,
+            max_chars=chunk_max_chars,
+            resume=resume,
+            checkpoint_dir=checkpoint_dir,
+        )
+    else:
+        rel = source.relative_to(ROOT).as_posix()
+        user = f"Translate this Markdown file to {target_lang}. File path: {rel}\n\n{original}"
+        translated = call_model(SYSTEM_PROMPT, user, cfg)
+        target = target_path(source, target_code)
     translated = strip_existing_generated_header(translated).strip() + "\n"
     translated = strip_translated_language_switch(translated).strip() + "\n"
     translated = rewrite_markdown_links(translated, source, target, target_code).strip() + "\n"
@@ -341,6 +503,9 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="show planned files without calling translation for all files")
     parser.add_argument("--limit", type=int, default=0, help="limit number of files translated; useful for smoke tests")
     parser.add_argument("--only", action="append", default=[], help="relative source path to translate; may be repeated")
+    parser.add_argument("--chunk-max-chars", type=int, default=0, help="split each Markdown file into recoverable chunks up to roughly this many characters; 0 keeps the legacy whole-file request")
+    parser.add_argument("--resume", action="store_true", help="reuse completed chunk translations from --checkpoint-dir when --chunk-max-chars is set")
+    parser.add_argument("--checkpoint-dir", type=Path, default=Path(".cache/translate-docs"), help="local ignored directory for chunk translation checkpoints")
     args = parser.parse_args()
 
     if args.secret_file:
@@ -356,6 +521,11 @@ def main() -> int:
     print(f"Translation source files: {len(planned)}")
     for src, dst in planned:
         print(f"- {src.relative_to(ROOT)} -> {dst.relative_to(ROOT)}")
+        if args.chunk_max_chars > 0:
+            original = strip_source_language_switch(src.read_text(encoding="utf-8"))
+            chunk_count = len(split_markdown_chunks(original, args.chunk_max_chars))
+            cache_path = cache_path_for(src, args.target_code, args.checkpoint_dir)
+            print(f"  chunks: {chunk_count}; checkpoint: {display_path(cache_path)}")
 
     if args.dry_run and not args.write:
         if args.check_api:
@@ -373,7 +543,7 @@ def main() -> int:
     started = time.time()
     for idx, src in enumerate(files, 1):
         print(f"Translating {idx}/{len(files)}: {src.relative_to(ROOT)}")
-        dst, content = translate_file(src, cfg, args.target_code, args.target_language)
+        dst, content = translate_file(src, cfg, args.target_code, args.target_language, chunk_max_chars=args.chunk_max_chars, resume=args.resume, checkpoint_dir=args.checkpoint_dir)
         if write_if_changed(dst, content):
             changed += 1
             print(f"  wrote {dst.relative_to(ROOT)}")
