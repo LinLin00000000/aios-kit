@@ -78,6 +78,8 @@ When changing AIOS architecture, modules, skills, CLI surfaces, automation, or p
 
 Do not create a new skill or heavy runtime just because a concept is useful. Prefer: document the current stage, define trigger conditions, patch existing docs/skills, and keep advanced mechanisms as roadmap candidates until real friction appears.
 
+When a task exposes an error or workflow lesson, choose one owning layer before writing it down. Put personal preferences in profile/memory, private current-state facts in the OPS vault, project conventions in project-local docs, cross-skill development discipline in the skill-authoring/governance layer, domain procedures in the relevant domain skill, and one-off incident evidence in LLL/OPS logs or issues. Avoid copying the same rule into multiple AIOS skills unless each copy has a distinct operational role.
+
 ## Self-iteration duty
 
 AIOS must improve through use. During any AIOS-related task, actively watch for:
