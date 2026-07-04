@@ -15,9 +15,79 @@ Windows/macOS 不应直接假设同一套 systemd/CAP_NET_ADMIN/TUN 行为可用
 
 ## 配置输入
 
-推荐两种输入方式。
+AIOS Kit 保留两个层次：
 
-### 供应商订阅 URL
+1. installer 的 `--proxy yes` 是最低摩擦 bootstrap，适合单机快速装好网络。
+2. `templates/mihomo/builder.py` 是面向真实多节点/多 provider 运维的通用模板，适合 Agent 分发到边缘节点后在目标机本地生成配置。
+
+### Builder 模板（推荐用于多边缘节点）
+
+公开仓库只提供模板，不保存任何私有配置：
+
+```text
+templates/mihomo/
+  builder.py
+  .env.example
+  README.md
+  AGENTS.md
+  config.yaml
+```
+
+目标机上的运行形态：
+
+```text
+<mihomo-dir>/
+  builder.py
+  secrets/.env              # 本机敏感输入，不提交
+  secrets/config.yaml       # 生成版 Mihomo 配置，不提交
+  secrets/providers/<id>.yaml
+```
+
+Builder 默认读取当前进程环境变量和 `secrets/.env`。缺少订阅时会提示快速启动；`preview` / `doctor` 只输出脱敏信息，适合 Agent 检查。
+
+快速启动：
+
+```bash
+cd <mihomo-dir>
+mkdir -p secrets
+cp .env.example secrets/.env
+chmod 700 secrets
+chmod 600 secrets/.env
+$EDITOR secrets/.env
+python3 builder.py preview
+python3 builder.py build
+python3 builder.py check
+```
+
+单订阅：
+
+```bash
+MIHOMO_SUB_URL=https://example.invalid/sub
+MIHOMO_SUB_ID=airport
+```
+
+多 provider：
+
+```bash
+MIHOMO_PROVIDER_1_ID=zjk
+MIHOMO_PROVIDER_1_URL=https://example.invalid/zjk
+MIHOMO_PROVIDER_1_ROLE=primary
+MIHOMO_PROVIDER_2_ID=bywave
+MIHOMO_PROVIDER_2_URL=https://example.invalid/bywave
+MIHOMO_PROVIDER_2_ROLE=paid_backup
+```
+
+编号顺序就是 fallback 优先级。AI 分组使用独立的 `<id>-ai` provider，可通过 `MIHOMO_AI_EXCLUDE_FILTER` 或 per-provider `MIHOMO_PROVIDER_<N>_AI_EXCLUDE_FILTER` 排除无法访问 AI 站点的地区节点。
+
+Linux systemd 服务建议显式指定生成配置：
+
+```ini
+ExecStart=<mihomo-dir>/mihomo -d <mihomo-dir> -f <mihomo-dir>/secrets/config.yaml
+```
+
+当前不新增 `install.sh --proxy-builder`：先保持 installer 低复杂度，用模板 + Agent/Ansible 分发验证真实工作流；等跨节点复用稳定后再考虑把它产品化为安装参数。
+
+### 供应商订阅 URL（installer 快速 bootstrap）
 
 ```bash
 # 在 aios-kit 仓库 checkout 内执行
