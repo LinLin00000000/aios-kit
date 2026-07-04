@@ -6,24 +6,94 @@
 
 # Mihomo Network Configuration
 
-The goal of AIOS network bootstrap is: if a new cloud server cannot directly access the external network, it can quickly obtain a controllable, recoverable, and auditable proxy layer.
+AIOS's network bootstrap goal is: if a new cloud server cannot directly access the external network, it can quickly obtain a controllable, recoverable, and auditable proxy layer.
 
-## Current Scope
+## Current Positioning
 
-The current installer is mainly intended for Ubuntu/Debian cloud servers:
+The current installer mainly targets Ubuntu/Debian cloud servers:
 
 - systemd service unit: `/etc/systemd/system/aios-mihomo.service`
 - Binary: `~/aios/network/mihomo/mihomo`
 - Configuration: `~/aios/network/mihomo/config.yaml`
 - Shell helper commands: `proxy_on`, `proxy_off`, `proxy_test`, `proxy_restart`
 
-Windows/macOS should not directly assume the same systemd/CAP_NET_ADMIN/TUN behavior is available. This document and agent-assisted installation can be used as adaptation references.
+Windows/macOS should not directly assume that the same systemd/CAP_NET_ADMIN/TUN behavior is available. This document and agent-assisted installation can be used as adaptation references.
 
 ## Configuration Inputs
 
-Two input methods are recommended.
+AIOS Kit keeps two layers:
 
-### Provider Subscription URL
+1. The installer's `--proxy yes` is the lowest-friction bootstrap, suitable for quickly setting up networking on a single machine.
+2. `templates/mihomo/builder.py` is a general-purpose template for real multi-node/multi-provider operations, suitable for an Agent to distribute to edge nodes and then generate the configuration locally on the target machine.
+
+### Builder Template (Recommended for Multiple Edge Nodes)
+
+The public repository provides only templates and does not store any private configuration:
+
+```text
+templates/mihomo/
+  builder.py
+  .env.example
+  README.md
+  AGENTS.md
+  config.yaml
+```
+
+Runtime layout on the target machine:
+
+```text
+<mihomo-dir>/
+  builder.py
+  secrets/.env              # Sensitive local input, do not commit
+  secrets/config.yaml       # Generated Mihomo configuration, do not commit
+  secrets/providers/<id>.yaml
+```
+
+Builder reads the current process environment variables and `secrets/.env` by default. If no subscription is provided, it prompts for a quick start; `preview` / `doctor` output only redacted information, making them suitable for Agent checks.
+
+Quick start:
+
+```bash
+cd <mihomo-dir>
+mkdir -p secrets
+cp .env.example secrets/.env
+chmod 700 secrets
+chmod 600 secrets/.env
+$EDITOR secrets/.env
+python3 builder.py preview
+python3 builder.py build
+python3 builder.py check
+```
+
+Single subscription:
+
+```bash
+MIHOMO_SUB_URL=https://example.invalid/sub
+MIHOMO_SUB_ID=airport
+```
+
+Multiple providers:
+
+```bash
+MIHOMO_PROVIDER_1_ID=zjk
+MIHOMO_PROVIDER_1_URL=https://example.invalid/zjk
+MIHOMO_PROVIDER_1_ROLE=primary
+MIHOMO_PROVIDER_2_ID=bywave
+MIHOMO_PROVIDER_2_URL=https://example.invalid/bywave
+MIHOMO_PROVIDER_2_ROLE=paid_backup
+```
+
+The numbering order is the fallback priority. The AI group uses a separate `<id>-ai` provider. Nodes in regions that cannot access AI sites can be excluded with `MIHOMO_AI_EXCLUDE_FILTER` or the per-provider `MIHOMO_PROVIDER_<N>_AI_EXCLUDE_FILTER`.
+
+For a Linux systemd service, explicitly specifying the generated configuration is recommended:
+
+```ini
+ExecStart=<mihomo-dir>/mihomo -d <mihomo-dir> -f <mihomo-dir>/secrets/config.yaml
+```
+
+There is currently no new `install.sh --proxy-builder`: keep the installer low-complexity for now, and use templates + Agent/Ansible distribution to validate real workflows. After cross-node reuse is stable, consider productizing it as an installation parameter.
+
+### Provider Subscription URL (Installer Quick Bootstrap)
 
 ```bash
 # Run inside an aios-kit repository checkout
@@ -39,7 +109,7 @@ proxy-providers:
 
 and makes the `AI`, `Auto`, and `PROXY` groups use the provider.
 
-### Self-hosted Node YAML Snippet
+### Self-Hosted Node YAML Snippet
 
 ```bash
 bash install.sh --proxy yes --proxy-proxies-file ./nodes.yaml
@@ -93,7 +163,7 @@ Relatively suitable, but requires:
 
 - root or systemd capability;
 - `CAP_NET_ADMIN`;
-- kernel support for TUN;
+- kernel TUN support;
 - attention to interactions with routing rules from Docker, Tailscale, CNI, WireGuard, etc.
 
 The AIOS systemd service unit already sets:
@@ -105,21 +175,21 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 
 ### macOS
 
-Direct reuse is not recommended:
+Not recommended to copy directly:
 
 - no systemd;
 - TUN/utun permissions and startup methods are different;
 - DNS hijacking and route takeover may require user authorization or cooperation with a GUI client;
-- it is better managed through clients such as Mihomo-party or Clash Verge Rev.
+- better managed through clients such as Mihomo-party or Clash Verge Rev.
 
 ### Windows
 
-Direct reuse is also not recommended:
+Also not recommended to copy directly:
 
 - no systemd;
 - TUN depends on wintun/service/administrator privileges;
 - DNS hijacking behavior is complex when coexisting with the Windows network stack, Hyper-V/WSL/VPN;
-- it is better to use native Windows Mihomo/Clash clients, or have an agent install according to the local environment.
+- better to use native Windows Mihomo/Clash clients or have an agent install according to the local environment.
 
 ## Current Optimizations
 
@@ -131,18 +201,18 @@ The template already includes:
 - automatic geodata updates;
 - `AI`, `Auto`, `PROXY`, and `GLOBAL` groups;
 - `external-ui` and UI/geodata mirror URLs;
-- `fake-ip-filter` to avoid Tailscale;
-- `GEOSITE,ai,AI` to route AI-related traffic through a separate latency-testing group.
+- `fake-ip-filter` to avoid Tailscale issues;
+- `GEOSITE,ai,AI` so AI-related traffic uses a separate latency-tested group.
 
-## Areas That Are Not Universal Enough
+## Parts That Are Not Generic Enough
 
-- `allow-lan: true`: convenient for server scenarios, but may expose risks on untrusted LANs. A future `--mihomo-allow-lan yes|no` option can be added.
-- `stack: mixed`: usually works on Linux, but behavior may vary across different Mihomo versions/platforms. Change to `system` or the platform-recommended value when necessary.
+- `allow-lan: true`: convenient for server scenarios, but has exposure risks on untrusted LANs. A future `--mihomo-allow-lan yes|no` option can be added.
+- `stack: mixed`: usually works on Linux, but behavior may vary across Mihomo versions/platforms. Change to `system` or the platform-recommended value if needed.
 - `dns-hijack`: useful for transparent proxying on servers, but may conflict with system DNS/VPN on desktop systems.
-- `strict-route: false`: more permissive and reduces the chance of network loss for beginners; high-isolation scenarios may prefer true.
-- geodata URLs use GitHub mirrors: convenient for starting without a proxy, but mirror availability depends on the service provider.
+- `strict-route: false`: more permissive and reduces the chance of beginners losing network access; high-isolation scenarios may prefer true.
+- geodata URLs use GitHub mirrors: convenient for starting without a proxy, but mirror availability depends on the provider.
 
-## Future Options to Add
+## Options That Can Be Added Later
 
 - `--mihomo-allow-lan yes|no`
 - `--mihomo-stack mixed|system|gvisor`

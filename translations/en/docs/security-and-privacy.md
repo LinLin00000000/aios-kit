@@ -10,9 +10,10 @@
 
 Public `aios-kit` files must be portable:
 
-- You may commit examples, schemas, templates, reusable scripts, and general documentation.
+- Examples, schemas, templates, reusable scripts, and general documentation may be committed.
 - Do not commit machine-specific manifests, live vault data, state files, logs, secrets, tokens, private hostnames, private IPs, or private agent skill content.
-- Do not commit proxy subscription URLs, node YAML containing UUIDs/passwords, provider tokens, or generated Mihomo configurations containing private nodes.
+- Do not commit proxy subscription URLs, node YAML files containing UUIDs/passwords, provider tokens, or generated Mihomo configurations that include private nodes.
+- Mihomo Builder may only commit `builder.py`, `.env.example`, README/AGENTS, and generic templates that do not contain private nodes; `secrets/.env`, `secrets/config.yaml`, and `secrets/providers/**` on the target machine must remain private.
 
 ## Local Override Files
 
@@ -29,9 +30,9 @@ profiles/local-*.json
 secrets/
 ```
 
-They are used for local paths, private skills, the current device name, non-public repositories, and temporary/historical secret materialization. The official instance state of the AIOS Secret module is stored in `$AIOS_ROOT/vault/secrets` and should not be committed to the public `aios-kit` repository.
+They are used for local paths, private skills, the current device name, non-public repositories, and temporary/historical secret materialization. The official instance state of the AIOS Secret module is in `$AIOS_ROOT/vault/secrets` and should not be committed to the public `aios-kit` repository.
 
-## Audit Checklist Before Public Push
+## Pre-Push Public Audit Checklist
 
 Run first:
 
@@ -47,4 +48,4 @@ git status --short --branch
 git ls-files
 ```
 
-If private local paths were accidentally committed to the repository, rewrite history while the repository is still new and the impact is manageable. If an actual secret has been exposed, immediately rotate or delete the relevant credentials.
+If private local paths were accidentally committed to the repository, rewrite history while the repository is still new and the impact is manageable; if real secrets have been exposed, rotate or delete the related credentials immediately.
