@@ -33,6 +33,25 @@ Humans should not need to memorize low-level commands for normal AIOS operation.
 
 If a user-specific fact matters, record it in the instance vault/state or a local-only profile layer. If a reusable workflow matters, upstream it as a public skill/doc/CLI improvement after removing private facts.
 
+## Private actuator projects
+
+An AIOS instance may keep private automation repositories or command bundles such as Ansible playbooks, Terraform stacks, shell scripts, or deployment artifacts. Treat these as **actuator adapters** governed by AIOS/AIOps, not as the canonical AIOS brain.
+
+Good boundary:
+
+```text
+Human intent -> Agent policy -> OPS vault resource truth -> private actuator repo -> verification/write-back
+```
+
+Rules:
+
+- Register private actuator projects in the local OPS vault/project registry so agents can discover them.
+- Keep public reusable logic in `aios-kit`; keep private inventory, overlays, generated artifacts, and deploy-only binaries in private repos or vault/state.
+- Prefer project-local `README.md`/`AGENTS.md` for role-specific runbooks, file ownership, and secret-adjacent handling.
+- Do not move a private automation repo into public AIOS Kit just because AIOS uses it. First separate public reusable capability from private instance projection.
+- Humans should be able to express host/network/service intent in natural language; agents choose whether to call Ansible, SSH, AIOS CLI, Tailscale/remote tools, or another actuator.
+- When an actuator action changes real infrastructure, verify from the consumer side and write durable facts/history back to the OPS vault.
+
 ## Skill and module evolution
 
 Do not create a new skill for every command or one-off workflow. Split by stable domain boundary.

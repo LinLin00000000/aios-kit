@@ -22,6 +22,24 @@ Use this split:
 
 Do not infer current infrastructure from this skill. Read the vault and inspect live state where safe.
 
+## Automation actuator projects
+
+The OPS vault may register private automation projects such as Ansible playbooks, Terraform stacks, deployment scripts, or host-bootstrap command bundles. Treat them as executable projections over vault facts.
+
+Use this split:
+
+- OPS vault: current resource truth, authority boundaries, project registry, secret locations, and maintenance history.
+- Private actuator repo: roles/playbooks/scripts, inventory projections, deployable private artifacts, and project-local agent runbooks.
+- AIOS Kit/public modules: reusable logic that has been scrubbed of private facts.
+
+When operating through an actuator project:
+
+1. Resolve the project from the vault/registry and read its local `README.md`/`AGENTS.md`.
+2. Compare its inventory or target list against vault resources before applying changes.
+3. Prefer `plan`, `syntax-check`, `--check`, `diff`, `doctor`, or other read-only modes before apply when available.
+4. Keep secret-adjacent files metadata-only unless the user explicitly authorizes reading or committing them.
+5. After real changes, verify live behavior and update the vault; do not leave current state only in the actuator repo.
+
 ## Default read order
 
 1. Resolve the vault path: `$AIOPS_ROOT` if set, otherwise `~/aios/vault/ops`.
