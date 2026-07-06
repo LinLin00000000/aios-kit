@@ -145,7 +145,8 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 | 代理设置 | `auto` | `--proxy auto|yes|no` | 先直连检测，失败后安装 Mihomo |
 | 是否开启 Mihomo TUN 模式 | `1` | `--proxy-tun` / `--no-proxy-tun` | TUN 默认开启 |
 | 是否恢复 apt/npm/pip/Docker 官方源 | `1` | `--reset-sources` / `--no-reset-sources` | Ubuntu apt 会备份旧 source |
-| 代理订阅 URL | 空 | `--proxy-subscription-url URL` | 供应商/机场订阅 URL，属于私有配置 |
+| 代理订阅 URL | 空 | `--proxy-subscription-url URL` | 私有 provider 订阅 URL；安装器会写入 `~/aios/network/mihomo/secrets/.env` |
+| provider id | `main` | `--proxy-provider-id ID` | 写入 `MIHOMO_PROVIDERS_ORDER`；只用小写字母、数字、下划线 |
 | 本地代理 YAML 片段路径 | 空 | `--proxy-proxies-file PATH` | 自建节点 YAML 片段，属于私有配置 |
 | 是否安装/检查 Python+UV、Node 24、Docker、Caddy | `1` | `--with-dev-env` / `--no-dev-env` | skillpack 的外部安装依赖 `npx`；跳过 dev env 时请确保已有 Node/npx |
 | 是否安装/检查 Hermes Agent | `1` | `--with-hermes` / `--no-hermes` | Hermes 默认安装，但可跳过 |
@@ -156,10 +157,12 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 
 ```bash
 export AIOS_PROXY_SUBSCRIPTION_URL='...'
-bash install.sh --non-interactive -y --proxy-subscription-url "$AIOS_PROXY_SUBSCRIPTION_URL"
+bash install.sh --non-interactive -y \
+  --proxy yes \
+  --proxy-subscription-url "$AIOS_PROXY_SUBSCRIPTION_URL"
 ```
 
-不要把真实 URL 写进可分享记录，也不要用单引号包住需要展开的环境变量。
+安装后可在 `~/aios/network/mihomo` 看到脱敏友好的构建模块：`build.py`、`policy.toml`、`.env.example`。真实 URL 只应存在于 `secrets/.env` 或 AIOS Secret Runtime 中，不要写进可分享记录，也不要用单引号包住需要展开的环境变量。
 
 ## 完整参数
 

@@ -27,6 +27,7 @@ func SummaryForPlatform(o Options, platform string) string {
 	}
 	if o.ProxySubscriptionURL != "" {
 		fmt.Fprintf(&b, "Proxy subscription URL: %s\n", Redacted)
+		fmt.Fprintf(&b, "Proxy provider id: %s\n", o.ProxyProviderID)
 	}
 	if o.ProxyProxiesFile != "" {
 		fmt.Fprintf(&b, "Proxy proxies file: %s\n", o.ProxyProxiesFile)

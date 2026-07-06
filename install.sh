@@ -12,6 +12,7 @@ MIHOMO_DOWNLOAD_URL="${MIHOMO_DOWNLOAD_URL:-}"
 MIHOMO_VERSION="${MIHOMO_VERSION:-v1.19.27}"
 MIHOMO_RELEASE_BASE_URL="${MIHOMO_RELEASE_BASE_URL:-https://github.com/MetaCubeX/mihomo/releases/download}"
 PROXY_SUBSCRIPTION_URL="${PROXY_SUBSCRIPTION_URL:-}"
+PROXY_PROVIDER_ID="${PROXY_PROVIDER_ID:-main}"
 PROXY_PROXIES_FILE="${PROXY_PROXIES_FILE:-}"
 PROXY_AUTO_ENV="${PROXY_AUTO_ENV:-auto}"
 MIHOMO_EXTERNAL_UI_URL="${MIHOMO_EXTERNAL_UI_URL:-https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip}"
@@ -84,7 +85,8 @@ Network/proxy:
   --proxy auto|yes|no      auto: test direct external network first (default)
   --proxy-tun              Enable TUN in the Mihomo config (default)
   --no-proxy-tun           Disable TUN; shell proxy env auto-start becomes useful
-  --proxy-subscription-url URL  Provider subscription URL; rendered as proxy-providers
+  --proxy-subscription-url URL  Provider subscription URL; installed into Mihomo secrets/.env
+  --proxy-provider-id ID        Provider id for --proxy-subscription-url (default: main)
   --proxy-proxies-file PATH     Local YAML snippet with proxies: or a proxy list
   --proxy-auto-env auto|yes|no  Auto-run proxy_on in shell helpers (default: auto; yes when TUN is off)
   --mihomo-url URL         Optional Mihomo .gz binary URL; otherwise release asset URL is derived
@@ -256,6 +258,7 @@ while [ $# -gt 0 ]; do
     --proxy-tun) PROXY_TUN=1; shift ;;
     --no-proxy-tun) PROXY_TUN=0; shift ;;
     --proxy-subscription-url) require_arg "$1" "$#"; PROXY_SUBSCRIPTION_URL="$2"; shift 2 ;;
+    --proxy-provider-id) require_arg "$1" "$#"; PROXY_PROVIDER_ID="$2"; shift 2 ;;
     --proxy-proxies-file) require_arg "$1" "$#"; PROXY_PROXIES_FILE="$2"; shift 2 ;;
     --proxy-auto-env) require_arg "$1" "$#"; PROXY_AUTO_ENV="$2"; shift 2 ;;
     --mihomo-url) require_arg "$1" "$#"; MIHOMO_DOWNLOAD_URL="$2"; shift 2 ;;
@@ -376,6 +379,7 @@ build_wizard_args() {
   WIZARD_ARGS+=(--proxy "$WITH_PROXY")
   if [ "$PROXY_TUN" -eq 1 ]; then WIZARD_ARGS+=(--proxy-tun); else WIZARD_ARGS+=(--no-proxy-tun); fi
   [ -n "$PROXY_SUBSCRIPTION_URL" ] && WIZARD_ARGS+=(--proxy-subscription-url "$PROXY_SUBSCRIPTION_URL")
+  [ "$PROXY_PROVIDER_ID" != "main" ] && WIZARD_ARGS+=(--proxy-provider-id "$PROXY_PROVIDER_ID")
   [ -n "$PROXY_PROXIES_FILE" ] && WIZARD_ARGS+=(--proxy-proxies-file "$PROXY_PROXIES_FILE")
   WIZARD_ARGS+=(--proxy-auto-env "$PROXY_AUTO_ENV")
   [ -n "$MIHOMO_DOWNLOAD_URL" ] && WIZARD_ARGS+=(--mihomo-url "$MIHOMO_DOWNLOAD_URL")
@@ -487,7 +491,8 @@ if is_interactive; then
   ask_choice WITH_PROXY "Proxy setup" "$WITH_PROXY" "auto yes no"
   ask_choice PROXY_TUN "Enable Mihomo TUN mode? (1=yes, 0=no)" "$PROXY_TUN" "0 1"
   ask_choice RESET_SOURCES "Restore apt/npm/pip/Docker sources to official defaults? (1=yes, 0=no)" "$RESET_SOURCES" "0 1"
-  ask_text PROXY_SUBSCRIPTION_URL "Proxy subscription URL, leave empty if using a proxies YAML file" "$PROXY_SUBSCRIPTION_URL"
+  ask_text PROXY_SUBSCRIPTION_URL "Proxy subscription URL, leave empty if configuring later" "$PROXY_SUBSCRIPTION_URL"
+  if [ -n "$PROXY_SUBSCRIPTION_URL" ]; then ask_text PROXY_PROVIDER_ID "Proxy provider id" "$PROXY_PROVIDER_ID"; fi
   ask_text PROXY_PROXIES_FILE "Local proxies YAML snippet path, leave empty if using subscription" "$PROXY_PROXIES_FILE"
   ask_choice WITH_DEV_ENV "Install/check Python+UV, Node 24, Docker, Caddy? (1=yes, 0=no)" "$WITH_DEV_ENV" "0 1"
   ask_choice WITH_HERMES "Install/check Hermes Agent? (1=yes, 0=no)" "$WITH_HERMES" "0 1"
@@ -603,8 +608,9 @@ install_mihomo() {
   log "Preparing Mihomo/Clash proxy"
   mihomo_dir="$AIOS_ROOT/network/mihomo"
   mihomo_bin="$mihomo_dir/mihomo"
-  config_path="$mihomo_dir/config.yaml"
-  provider_dir="$mihomo_dir/providers"
+  secrets_dir="$mihomo_dir/secrets"
+  config_path="$secrets_dir/config.yaml"
+  provider_dir="$secrets_dir/providers"
   auto_env="$PROXY_AUTO_ENV"
   [ "$auto_env" = "auto" ] && { if [ "$PROXY_TUN" -eq 1 ]; then auto_env="no"; else auto_env="yes"; fi; }
 
@@ -612,99 +618,106 @@ install_mihomo() {
     PROXY_PROXIES_FILE="$(validate_path PROXY_PROXIES_FILE "$PROXY_PROXIES_FILE")"
     if [ ! -f "$PROXY_PROXIES_FILE" ]; then echo "invalid --proxy-proxies-file: $PROXY_PROXIES_FILE" >&2; exit 2; fi
   fi
+  case "$PROXY_PROVIDER_ID" in
+    ''|*[!a-z0-9_]* ) echo "invalid --proxy-provider-id: $PROXY_PROVIDER_ID (allowed: lowercase [a-z0-9_])" >&2; exit 2 ;;
+  esac
 
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "+ mkdir -p $mihomo_dir $provider_dir"
-    echo "+ generate $config_path from template"
+    echo "+ copy templates/mihomo/{build.py,policy.toml,.env.example,README.md,AGENTS.md} to $mihomo_dir"
+    echo "+ set policy.toml defaults.tun_enable=$([ "$PROXY_TUN" -eq 1 ] && echo true || echo false)"
+    if [ -n "$PROXY_SUBSCRIPTION_URL" ]; then
+      echo "+ write $secrets_dir/.env with MIHOMO_PROVIDERS_ORDER=$PROXY_PROVIDER_ID and MIHOMO_PROVIDER_${PROXY_PROVIDER_ID^^}_URL=<redacted>"
+      echo "+ python3 $mihomo_dir/build.py --base-dir $mihomo_dir build"
+    elif [ -n "$PROXY_PROXIES_FILE" ]; then
+      echo "+ generate $config_path from local proxies YAML snippet"
+    else
+      echo "+ skip config generation until secrets/.env is configured"
+    fi
   else
     mkdir -p "$mihomo_dir" "$provider_dir"
-    python3 - "$KIT_DIR/templates/mihomo/config.yaml" "$config_path" "$PROXY_TUN" "$PROXY_SUBSCRIPTION_URL" "$PROXY_PROXIES_FILE" "$AIOS_GITHUB_MIRROR_PREFIX" <<'PY'
+    chmod 700 "$secrets_dir" "$provider_dir"
+    for f in build.py policy.toml .env.example README.md AGENTS.md; do
+      if [ -f "$KIT_DIR/templates/mihomo/$f" ]; then
+        cp "$KIT_DIR/templates/mihomo/$f" "$mihomo_dir/$f"
+      fi
+    done
+    [ -f "$mihomo_dir/build.py" ] && chmod +x "$mihomo_dir/build.py"
+    if [ -f "$mihomo_dir/policy.toml" ]; then
+      python3 - "$mihomo_dir/policy.toml" "$PROXY_TUN" <<'PY'
 import re, sys
 from pathlib import Path
-src, dst, tun, sub_url, proxies_file, mirror_prefix = sys.argv[1:7]
+path = Path(sys.argv[1])
+tun = 'true' if sys.argv[2] == '1' else 'false'
+text = path.read_text(encoding='utf-8')
+if re.search(r'(?m)^tun_enable\s*=', text):
+    text = re.sub(r'(?m)^tun_enable\s*=\s*(true|false)\s*$', f'tun_enable = {tun}', text)
+else:
+    text = re.sub(r'(?m)^base_rules\s*=\s*(true|false)\s*$', lambda m: m.group(0) + f'\ntun_enable = {tun}', text, count=1)
+path.write_text(text, encoding='utf-8')
+PY
+    fi
+
+    if [ -n "$PROXY_SUBSCRIPTION_URL" ]; then
+      env_key="MIHOMO_PROVIDER_${PROXY_PROVIDER_ID^^}_URL"
+      cat > "$secrets_dir/.env" <<EOF
+MIHOMO_PROVIDERS_ORDER=$PROXY_PROVIDER_ID
+$env_key=$PROXY_SUBSCRIPTION_URL
+EOF
+      chmod 600 "$secrets_dir/.env"
+      python3 "$mihomo_dir/build.py" --base-dir "$mihomo_dir" build
+    elif [ -n "$PROXY_PROXIES_FILE" ]; then
+      # Self-managed node YAML remains supported for installer bootstrap. It is
+      # written directly to the generated sensitive config and is not previewed.
+      python3 - "$KIT_DIR/templates/mihomo/config.yaml" "$config_path" "$PROXY_TUN" "$PROXY_PROXIES_FILE" "$AIOS_GITHUB_MIRROR_PREFIX" <<'PY'
+import re, sys
+from pathlib import Path
+src, dst, tun, proxies_file, mirror_prefix = sys.argv[1:6]
 base = Path(src).read_text(encoding='utf-8')
 base = re.sub(r'tun:\n  enable: (true|false)', 'tun:\n  enable: ' + ('true' if tun == '1' else 'false'), base)
 if mirror_prefix:
     prefix = mirror_prefix.rstrip('/')
     base = re.sub(r'https://[^/]+/https://github\.com/', prefix + '/https://github.com/', base)
-
-def repl_url(match):
-    url = match.group(1)
-    prefix = mirror_prefix.rstrip('/')
-    if prefix and (url.startswith('https://github.com/') or url.startswith('https://raw.githubusercontent.com/')):
-        return '"' + prefix + '/' + url + '"'
-    return match.group(0)
-base = re.sub(r'"(https://github\.com/[^"]+)"', repl_url, base)
-
-if sub_url:
-    provider_names = ['airport']
-    providers = (
-        'proxy-providers:\n'
-        '  airport: { type: http, url: "' + sub_url + '", interval: 86400, path: ./providers/airport.yaml }\n'
-        'proxies: []\n\n'
-    )
-elif proxies_file:
-    raw = Path(proxies_file).read_text(encoding='utf-8').rstrip() + '\n'
-    if re.search(r'^\s*proxies\s*:', raw, re.M):
-        proxies_block = raw
-    else:
-        indented = ''.join(('  ' + line if line.strip() else line) + '\n' for line in raw.splitlines())
-        proxies_block = 'proxies:\n' + indented
-    provider_names = []
-    node_names=[]
-    for m in re.finditer(r'^\s*-\s*name\s*:\s*["\']?([^"\'\n#]+)', raw, re.M):
-        name=m.group(1).strip()
-        if name and name not in node_names:
-            node_names.append(name)
-    providers = 'proxy-providers: {}\n' + proxies_block + '\n'
+raw = Path(proxies_file).read_text(encoding='utf-8').rstrip() + '\n'
+if re.search(r'^\s*proxies\s*:', raw, re.M):
+    proxies_block = raw
 else:
-    provider_names=[]
-    node_names=[]
-    providers = 'proxy-providers: {}\nproxies: []\n\n'
-
+    indented = ''.join(('  ' + line if line.strip() else line) + '\n' for line in raw.splitlines())
+    proxies_block = 'proxies:\n' + indented
+node_names=[]
+for m in re.finditer(r'^\s*-\s*name\s*:\s*["\']?([^"\'\n#]+)', raw, re.M):
+    name=m.group(1).strip()
+    if name and name not in node_names:
+        node_names.append(name)
 def flow_seq(items, fallback='DIRECT'):
     items=[x for x in items if x]
     if not items:
         items=[fallback]
     return '[' + ', '.join(items) + ']'
-
 def flow_seq_prepend(prefix_items, items):
     merged=[]
     for x in list(prefix_items) + list(items):
         if x and x not in merged:
             merged.append(x)
     return '[' + ', '.join(merged) + ']'
-
-if sub_url:
-    use = flow_seq(provider_names)
-    groups = (
-        'proxy-groups:\n'
-        f'  - {{ name: AI, type: url-test, interval: 300, tolerance: 100, lazy: true, use: {use}, url: http://www.gstatic.com/generate_204, exclude-filter: "(?i)香港|hk|hong|港|澳门|macao|macau|澳|台湾|台|tw|taiwan|剩余|到期|距离" }}\n'
-        f'  - {{ name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, use: {use}, url: http://www.gstatic.com/generate_204 }}\n'
-        f'  - {{ name: PROXY, type: select, proxies: [Auto, DIRECT], use: {use} }}\n'
-        '  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }\n'
-    )
-elif proxies_file:
-    nodes = flow_seq(node_names)
-    proxy_select = flow_seq_prepend(['Auto', 'DIRECT'], node_names)
-    groups = (
-        'proxy-groups:\n'
-        f'  - {{ name: AI, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: {nodes}, url: http://www.gstatic.com/generate_204, exclude-filter: "(?i)香港|hk|hong|港|澳门|macao|macau|澳|台湾|台|tw|taiwan|剩余|到期|距离" }}\n'
-        f'  - {{ name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: {nodes}, url: http://www.gstatic.com/generate_204 }}\n'
-        f'  - {{ name: PROXY, type: select, proxies: {proxy_select} }}\n'
-        '  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }\n'
-    )
-else:
-    groups = (
-        'proxy-groups:\n'
-        '  - { name: AI, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: [DIRECT], url: http://www.gstatic.com/generate_204, exclude-filter: "(?i)香港|hk|hong|港|澳门|macao|macau|澳|台湾|台|tw|taiwan|剩余|到期|距离" }\n'
-        '  - { name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: [DIRECT], url: http://www.gstatic.com/generate_204 }\n'
-        '  - { name: PROXY, type: select, proxies: [Auto, DIRECT] }\n'
-        '  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }\n'
-    )
+nodes = flow_seq(node_names)
+proxy_select = flow_seq_prepend(['Auto', 'DIRECT'], node_names)
+providers = 'proxy-providers: {}\n' + proxies_block + '\n'
+groups = (
+    'proxy-groups:\n'
+    f'  - {{ name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: {nodes}, url: http://www.gstatic.com/generate_204 }}\n'
+    f'  - {{ name: PROXY, type: select, proxies: {proxy_select} }}\n'
+    '  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }\n'
+)
 base = re.sub(r'proxy-providers: \{\}\nproxies: \[\]\n\nproxy-groups:\n(?s:.*?)\nrules:', providers + groups + '\nrules:', base)
-Path(dst).write_text(base, encoding='utf-8')
+out = Path(dst)
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(base, encoding='utf-8')
+out.chmod(0o600)
 PY
+    else
+      warn "No proxy provider configured yet. Edit $mihomo_dir/secrets/.env or use AIOS Secret Runtime, then run: python3 $mihomo_dir/build.py build"
+    fi
   fi
 
   if have_cmd mihomo; then
@@ -758,8 +771,8 @@ PY
   service_bin="$mihomo_bin"
   have_cmd mihomo && service_bin="$(command -v mihomo)"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "+ install /etc/systemd/system/aios-mihomo.service and enable/start it when systemd is available"
-  elif have_cmd systemctl && [ -x "$service_bin" ]; then
+    echo "+ install /etc/systemd/system/aios-mihomo.service and enable/start it when systemd is available and config exists"
+  elif have_cmd systemctl && [ -x "$service_bin" ] && [ -f "$config_path" ]; then
     unit="/etc/systemd/system/aios-mihomo.service"
     sudo tee "$unit" >/dev/null <<EOF
 [Unit]
@@ -770,7 +783,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$mihomo_dir
-ExecStart=$service_bin -d $mihomo_dir
+ExecStart=$service_bin -d $mihomo_dir -f $config_path
 Restart=always
 RestartSec=5
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
@@ -782,6 +795,8 @@ WantedBy=multi-user.target
 EOF
     sudo systemctl daemon-reload
     sudo systemctl enable --now aios-mihomo.service || warn "failed to enable/start aios-mihomo.service; check systemctl status aios-mihomo.service"
+  elif [ ! -f "$config_path" ]; then
+    warn "Mihomo config was not generated yet; service start skipped. Configure secrets/.env or run through aios secret run, then run build.py build."
   else
     warn "systemd or Mihomo binary not available; config generated at $config_path"
   fi
@@ -818,11 +833,8 @@ proxy_on"
       sudo chmod 440 /etc/sudoers.d/aios-proxy-env
     fi
   fi
-
-  if [ -z "$PROXY_SUBSCRIPTION_URL" ] && [ -z "$PROXY_PROXIES_FILE" ]; then
-    warn "No proxy subscription or proxies file provided; generated a safe placeholder config. Re-run with --proxy-subscription-url or --proxy-proxies-file for a usable proxy."
-  fi
 }
+
 
 install_dev_env() {
   log "Installing/checking development environment"

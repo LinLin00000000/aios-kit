@@ -37,6 +37,7 @@ type Options struct {
 	Proxy                string `json:"proxy"`
 	ProxyTun             bool   `json:"proxy_tun"`
 	ProxySubscriptionURL string `json:"proxy_subscription_url,omitempty"`
+	ProxyProviderID      string `json:"proxy_provider_id"`
 	ProxyProxiesFile     string `json:"proxy_proxies_file,omitempty"`
 	ProxyAutoEnv         string `json:"proxy_auto_env"`
 	MihomoURL            string `json:"mihomo_url,omitempty"`
@@ -57,18 +58,19 @@ type Options struct {
 
 func DefaultOptions() Options {
 	return Options{
-		Root:          DefaultRoot,
-		AddToPath:     ChoiceYes,
-		Proxy:         ChoiceAuto,
-		ProxyTun:      true,
-		ProxyAutoEnv:  ChoiceAuto,
-		MihomoVersion: DefaultMihomoVersion,
-		ResetSources:  true,
-		WithDevEnv:    true,
-		WithHermes:    true,
-		WithAIOps:     true,
-		Target:        TargetUniversal,
-		Mode:          ModeCopy,
+		Root:            DefaultRoot,
+		AddToPath:       ChoiceYes,
+		Proxy:           ChoiceAuto,
+		ProxyTun:        true,
+		ProxyProviderID: "main",
+		ProxyAutoEnv:    ChoiceAuto,
+		MihomoVersion:   DefaultMihomoVersion,
+		ResetSources:    true,
+		WithDevEnv:      true,
+		WithHermes:      true,
+		WithAIOps:       true,
+		Target:          TargetUniversal,
+		Mode:            ModeCopy,
 	}
 }
 
@@ -81,6 +83,14 @@ func (o Options) Validate() error {
 	}
 	if !isOneOf(o.Proxy, ChoiceAuto, ChoiceYes, ChoiceNo) {
 		return fmt.Errorf("proxy must be one of auto, yes, no: %q", o.Proxy)
+	}
+	if o.ProxyProviderID == "" {
+		return errors.New("proxy-provider-id must not be empty")
+	}
+	for _, r := range o.ProxyProviderID {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
+			return fmt.Errorf("proxy-provider-id must use lowercase [a-z0-9_]: %q", o.ProxyProviderID)
+		}
 	}
 	if !isOneOf(o.ProxyAutoEnv, ChoiceAuto, ChoiceYes, ChoiceNo) {
 		return fmt.Errorf("proxy-auto-env must be one of auto, yes, no: %q", o.ProxyAutoEnv)

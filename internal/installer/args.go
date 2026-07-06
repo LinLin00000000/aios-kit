@@ -24,6 +24,9 @@ func BuildInstallArgs(o Options) ([]string, error) {
 		args = append(args, "--no-proxy-tun")
 	}
 	args = appendPairIfSet(args, "--proxy-subscription-url", o.ProxySubscriptionURL)
+	if o.ProxyProviderID != "" && o.ProxyProviderID != "main" {
+		args = appendPair(args, "--proxy-provider-id", o.ProxyProviderID)
+	}
 	args = appendPairIfSet(args, "--proxy-proxies-file", o.ProxyProxiesFile)
 	args = appendPair(args, "--proxy-auto-env", o.ProxyAutoEnv)
 	args = appendPairIfSet(args, "--mihomo-url", o.MihomoURL)

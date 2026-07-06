@@ -71,6 +71,10 @@ func RunForPlatform(opts installer.Options, platform string) (installer.Options,
 				Title("代理订阅 URL（可空，私密）").
 				Description("不会在摘要中明文显示；也可安装后再配置。").
 				Value(&opts.ProxySubscriptionURL),
+			huh.NewInput().
+				Title("provider id").
+				Description("写入 MIHOMO_PROVIDERS_ORDER；默认 main。只用小写字母、数字、下划线。").
+				Value(&opts.ProxyProviderID),
 		))
 	} else {
 		// Hide Linux/server-only network and source-reset controls on Windows.

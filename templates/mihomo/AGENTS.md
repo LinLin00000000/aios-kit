@@ -1,35 +1,58 @@
-# Agent rules for the AIOS Mihomo template
+# Agent rules for Mihomo module
 
-This directory is public source. Keep it generic and secret-free.
+This directory is a Mihomo/Clash config module.
 
-## Allowed
+## Safe to read/edit
 
-- Edit `builder.py`, `.env.example`, `README.md`, `config.yaml`, and docs.
-- Use fake URLs such as `https://example.invalid/sub` for tests and examples.
-- Run `python3 builder.py preview`, `build`, `check`, and `doctor` in a temporary directory with fake env values.
+- `build.py`
+- `policy.toml`
+- `.env.example`
+- `README.md`
+- `AGENTS.md`
+- service template/content, if the task is about service wiring
+- File metadata for `secrets/**`, provider caches, generated configs, and archives
 
-## Forbidden
+## Do not read or print by default
 
-Do not commit or paste:
+Do not read, print, copy into reports, or commit:
 
-- real subscription URLs;
-- provider cache YAML;
-- generated `secrets/config.yaml`;
-- `.env` files;
-- node UUID/password/token values;
-- private hostnames or private IPs unless already intentionally documented as examples.
+- `secrets/.env`
+- `secrets/config.yaml`
+- `secrets/providers/**`
+- provider cache files
+- old/generated `config.yaml` files
+- any subscription URL, node UUID, password, token, or provider cache content
 
-## Runtime operations
-
-This template does not authorize live service changes. On real machines, confirm before:
+Use safe probes:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart clash
-sudo systemctl restart mihomo
-sudo systemctl restart aios-mihomo
+python3 build.py doctor
+python3 build.py preview
+python3 build.py check
 ```
 
-## Design discipline
+`preview` and `doctor` are redacted. Do not put real subscription URLs directly in shell commands; use `secrets/.env` or `aios secret run`.
 
-Keep the public template small and orthogonal. Prefer a Builder + example env + docs over adding installer flags or secret-management dependencies before the workflow is proven across target machines.
+Fake one-off test only:
+
+```bash
+MIHOMO_PROVIDERS_ORDER=main MIHOMO_PROVIDER_MAIN_URL=https://example.invalid/sub python3 build.py preview
+```
+
+## Configuration model
+
+- `secrets/.env` or process env is the private runtime layer: provider IDs/order and provider URL values.
+- `policy.toml` is the public strategy layer: groups, rules, defaults.
+- `[defaults].tun_enable` controls generated TUN mode. Keep AIOS Kit default `true`; private/local overlays may set it to `false` without forking `build.py`.
+- `aios secret run --consumer <id> -- python3 build.py build` works because process env overrides `secrets/.env`.
+- Do not add feature-specific env flags; AI/streaming/etc. should be normal `policy.toml` groups.
+
+## Service safety
+
+Do not run service reload/restart/proxy switching commands without explicit user confirmation.
+
+Config tests are allowed when they do not print secrets:
+
+```bash
+/path/to/mihomo/mihomo -t -d /path/to/mihomo -f /path/to/mihomo/secrets/config.yaml
+```

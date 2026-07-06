@@ -7,7 +7,7 @@
 - 可以提交示例、schema、模板、可复用脚本和通用文档。
 - 不要提交机器专属 manifest、live vault 数据、state 文件、日志、secrets、tokens、私有主机名、私有 IP 或私有 agent skill 内容。
 - 不要提交代理订阅 URL、包含 UUID/password 的节点 YAML、服务商 token，或包含私人节点的生成版 Mihomo 配置。
-- Mihomo Builder 只允许提交 `builder.py`、`.env.example`、README/AGENTS 和不含私有节点的通用模板；目标机上的 `secrets/.env`、`secrets/config.yaml`、`secrets/providers/**` 必须保持私有。
+- Mihomo 模块只允许提交 `build.py`、`policy.toml`、`.env.example`、README/AGENTS 和不含私有节点的通用模板；`policy.toml` 只包含非敏感策略（分组、规则、默认开关），provider 顺序和订阅 URL 属于目标机上的 `secrets/.env` 或 AIOS Secret Runtime；`secrets/.env`、`secrets/config.yaml`、`secrets/providers/**` 必须保持私有。
 
 ## 本地覆盖文件
 

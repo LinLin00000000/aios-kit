@@ -43,6 +43,7 @@ func TestBuildInstallArgsAdvanced(t *testing.T) {
 	opts.Proxy = "yes"
 	opts.ProxyTun = false
 	opts.ProxySubscriptionURL = "https://example.com/sub?placeholder=not-real&x=1"
+	opts.ProxyProviderID = "primary"
 	opts.ProxyProxiesFile = "/private/proxies.yaml"
 	opts.ProxyAutoEnv = "yes"
 	opts.MihomoURL = "https://example.com/mihomo.gz"
@@ -74,6 +75,7 @@ func TestBuildInstallArgsAdvanced(t *testing.T) {
 		"--proxy", "yes",
 		"--no-proxy-tun",
 		"--proxy-subscription-url", "https://example.com/sub?placeholder=not-real&x=1",
+		"--proxy-provider-id", "primary",
 		"--proxy-proxies-file", "/private/proxies.yaml",
 		"--proxy-auto-env", "yes",
 		"--mihomo-url", "https://example.com/mihomo.gz",

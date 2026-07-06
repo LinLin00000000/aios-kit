@@ -66,6 +66,7 @@ func run(argv []string) error {
 	fs.BoolVar(&opts.ProxyTun, "proxy-tun", opts.ProxyTun, "enable Mihomo TUN")
 	fs.BoolVar(&noProxyTun, "no-proxy-tun", false, "disable Mihomo TUN")
 	fs.StringVar(&opts.ProxySubscriptionURL, "proxy-subscription-url", opts.ProxySubscriptionURL, "private proxy provider subscription URL")
+	fs.StringVar(&opts.ProxyProviderID, "proxy-provider-id", opts.ProxyProviderID, "provider id for the private subscription URL")
 	fs.StringVar(&opts.ProxyProxiesFile, "proxy-proxies-file", opts.ProxyProxiesFile, "local proxies YAML snippet path")
 	fs.StringVar(&opts.ProxyAutoEnv, "proxy-auto-env", opts.ProxyAutoEnv, "auto|yes|no")
 	fs.StringVar(&opts.MihomoURL, "mihomo-url", opts.MihomoURL, "optional Mihomo .gz URL")
