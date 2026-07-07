@@ -31,6 +31,13 @@ MIHOMO_PROVIDER_MAIN_URL=你的订阅链接
 
 `policy.toml` 的 `[defaults].tun_enable` 控制生成配置是否开启 TUN。AIOS Kit 默认开启；私有 overlay 或本地/Ansible 部署可设为 `false`。
 
+`policy.toml` 的 `[rules].mode` 可在两种基础规则之间切换：
+
+- `geox`：使用 `geosite.dat` / `geoip.dat`，下载对象少，适合 AIOS Kit 网络引导默认值。
+- `rule-set`：使用 DustinWin `mihomo-ruleset` 的 MRS/list `rule-providers`，分类更细，适合长期日常配置。
+
+自建节点 YAML 片段仍可用：`python3 build.py build-local --proxies-file /path/to/nodes.yaml` 会生成 `secrets/config.yaml`，但不会把节点内容打印出来。
+
 常用命令：
 
 ```bash

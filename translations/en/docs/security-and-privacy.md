@@ -13,7 +13,7 @@ Public `aios-kit` files must be portable:
 - You may commit examples, schemas, templates, reusable scripts, and general documentation.
 - Do not commit machine-specific manifests, live vault data, state files, logs, secrets, tokens, private hostnames, private IPs, or private agent skill content.
 - Do not commit proxy subscription URLs, node YAML containing UUIDs/passwords, provider tokens, or generated Mihomo configurations containing private nodes.
-- The Mihomo module may only commit `build.py`, `policy.toml`, `.env.example`, README/AGENTS, and general templates that do not contain private nodes. `policy.toml` should contain only non-sensitive policies (groups, rules, default switches). Provider order and subscription URLs belong in `secrets/.env` on the target machine or in AIOS Secret Runtime. `secrets/.env`, `secrets/config.yaml`, and `secrets/providers/**` must remain private.
+- The Mihomo module may only commit `build.py`, `policy.toml`, `.env.example`, README/AGENTS, and general templates that do not contain private nodes. `policy.toml` contains only non-sensitive policy (groups, rules, default switches), while provider order and subscription URLs belong in target-machine `secrets/.env` or AIOS Secret Runtime. `secrets/.env`, `secrets/config.yaml`, and `secrets/providers/**` must remain private.
 
 ## Local Override Files
 

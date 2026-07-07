@@ -24,6 +24,9 @@ lazy = true
 exclude-filter = '(?i)hong kong|hk|macao|macau|taiwan|tw|expire|remaining|剩余|到期|距离'
 
 [rules]
-prepend = [
-  "GEOSITE,ai,AI",
-]
+# 规则引擎模式：
+# - geox: 使用 geosite.dat / geoip.dat，文件少，适合 AIOS Kit 网络引导默认值。
+# - rule-set: 使用 DustinWin mihomo-ruleset 的 MRS/list 规则，分类更细，适合日常长期配置。
+mode = "geox"
+prepend = []
+append = []

@@ -81,6 +81,13 @@ MIHOMO_PROVIDER_BACKUP_URL=...
 
 `policy.toml` 只放非敏感策略：分组、规则、默认开关。provider 清单、顺序和订阅 URL 不写进 `policy.toml`。
 
+规则底座可通过 `[rules].mode` 选择：
+
+- `geox`：使用 `geosite.dat` / `geoip.dat`，文件少、启动面小，适合作为 AIOS Kit 网络引导默认值。
+- `rule-set`：使用 DustinWin `mihomo-ruleset` 的 MRS/list `rule-providers`，分类更细，适合长期日常代理配置。
+
+如果用 `--proxy-proxies-file` 或安装后有自建节点片段，安装器会调用 `python3 build.py build-local --proxies-file <path>`，继续写入 `secrets/config.yaml`，不再依赖单独的旧版 YAML 模板。
+
 ## AIOS Secret Runtime
 
 `build.py` 会先读 `secrets/.env`，再用当前进程环境变量覆盖。因此它天然支持 AIOS Secret Runtime：

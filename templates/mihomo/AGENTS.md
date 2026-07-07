@@ -44,6 +44,7 @@ MIHOMO_PROVIDERS_ORDER=main MIHOMO_PROVIDER_MAIN_URL=https://example.invalid/sub
 - `secrets/.env` or process env is the private runtime layer: provider IDs/order and provider URL values.
 - `policy.toml` is the public strategy layer: groups, rules, defaults.
 - `[defaults].tun_enable` controls generated TUN mode. Keep AIOS Kit default `true`; private/local overlays may set it to `false` without forking `build.py`.
+- `[rules].mode` selects the base rule engine: `geox` (default, fewer bootstrap moving parts) or `rule-set` (DustinWin MRS/list rule-providers, finer categories).
 - `aios secret run --consumer <id> -- python3 build.py build` works because process env overrides `secrets/.env`.
 - Do not add feature-specific env flags; AI/streaming/etc. should be normal `policy.toml` groups.
 

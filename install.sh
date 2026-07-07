@@ -669,52 +669,7 @@ EOF
     elif [ -n "$PROXY_PROXIES_FILE" ]; then
       # Self-managed node YAML remains supported for installer bootstrap. It is
       # written directly to the generated sensitive config and is not previewed.
-      python3 - "$KIT_DIR/templates/mihomo/config.yaml" "$config_path" "$PROXY_TUN" "$PROXY_PROXIES_FILE" "$AIOS_GITHUB_MIRROR_PREFIX" <<'PY'
-import re, sys
-from pathlib import Path
-src, dst, tun, proxies_file, mirror_prefix = sys.argv[1:6]
-base = Path(src).read_text(encoding='utf-8')
-base = re.sub(r'tun:\n  enable: (true|false)', 'tun:\n  enable: ' + ('true' if tun == '1' else 'false'), base)
-if mirror_prefix:
-    prefix = mirror_prefix.rstrip('/')
-    base = re.sub(r'https://[^/]+/https://github\.com/', prefix + '/https://github.com/', base)
-raw = Path(proxies_file).read_text(encoding='utf-8').rstrip() + '\n'
-if re.search(r'^\s*proxies\s*:', raw, re.M):
-    proxies_block = raw
-else:
-    indented = ''.join(('  ' + line if line.strip() else line) + '\n' for line in raw.splitlines())
-    proxies_block = 'proxies:\n' + indented
-node_names=[]
-for m in re.finditer(r'^\s*-\s*name\s*:\s*["\']?([^"\'\n#]+)', raw, re.M):
-    name=m.group(1).strip()
-    if name and name not in node_names:
-        node_names.append(name)
-def flow_seq(items, fallback='DIRECT'):
-    items=[x for x in items if x]
-    if not items:
-        items=[fallback]
-    return '[' + ', '.join(items) + ']'
-def flow_seq_prepend(prefix_items, items):
-    merged=[]
-    for x in list(prefix_items) + list(items):
-        if x and x not in merged:
-            merged.append(x)
-    return '[' + ', '.join(merged) + ']'
-nodes = flow_seq(node_names)
-proxy_select = flow_seq_prepend(['Auto', 'DIRECT'], node_names)
-providers = 'proxy-providers: {}\n' + proxies_block + '\n'
-groups = (
-    'proxy-groups:\n'
-    f'  - {{ name: Auto, type: url-test, interval: 300, tolerance: 100, lazy: true, proxies: {nodes}, url: http://www.gstatic.com/generate_204 }}\n'
-    f'  - {{ name: PROXY, type: select, proxies: {proxy_select} }}\n'
-    '  - { name: GLOBAL, type: select, proxies: [PROXY, DIRECT, REJECT] }\n'
-)
-base = re.sub(r'proxy-providers: \{\}\nproxies: \[\]\n\nproxy-groups:\n(?s:.*?)\nrules:', providers + groups + '\nrules:', base)
-out = Path(dst)
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_text(base, encoding='utf-8')
-out.chmod(0o600)
-PY
+      python3 "$mihomo_dir/build.py" --base-dir "$mihomo_dir" build-local --proxies-file "$PROXY_PROXIES_FILE"
     else
       warn "No proxy provider configured yet. Edit $mihomo_dir/secrets/.env or use AIOS Secret Runtime, then run: python3 $mihomo_dir/build.py build"
     fi

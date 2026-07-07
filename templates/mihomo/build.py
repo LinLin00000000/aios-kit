@@ -63,6 +63,93 @@ BASE_RULES = [
     "MATCH,PROXY",
 ]
 
+RULE_MODES = {"geox", "rule-set"}
+
+# AIOS keeps Tailscale and private LAN/CIDR direct rules in front of both rule
+# engines. The rule-set mode below otherwise follows the DustinWin mihomo-ruleset
+# categories from the user-provided template, without copying provider URLs or
+# proxy-group policy from that template.
+AIOS_DIRECT_RULES = [
+    "DOMAIN-SUFFIX,tailscale.com,DIRECT",
+    "DOMAIN-SUFFIX,ts.net,DIRECT",
+    "IP-CIDR,100.64.0.0/10,DIRECT,no-resolve",
+    "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+    "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+    "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+    "IP-CIDR,169.254.0.0/16,DIRECT,no-resolve",
+    "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
+]
+
+RULESET_BASE_URL = "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-ruleset"
+RULESET_PROVIDER_SPECS = [
+    ("fakeip-filter", "domain", "mrs", "fakeip-filter.mrs"),
+    ("ads", "domain", "mrs", "ads.mrs"),
+    ("private", "domain", "mrs", "private.mrs"),
+    ("trackerslist", "domain", "mrs", "trackerslist.mrs"),
+    ("applications", "classical", "text", "applications.list"),
+    ("microsoft-cn", "domain", "mrs", "microsoft-cn.mrs"),
+    ("apple-cn", "domain", "mrs", "apple-cn.mrs"),
+    ("google-cn", "domain", "mrs", "google-cn.mrs"),
+    ("games-cn", "domain", "mrs", "games-cn.mrs"),
+    ("games", "domain", "mrs", "games.mrs"),
+    ("netflix", "domain", "mrs", "netflix.mrs"),
+    ("disney", "domain", "mrs", "disney.mrs"),
+    ("max", "domain", "mrs", "max.mrs"),
+    ("primevideo", "domain", "mrs", "primevideo.mrs"),
+    ("appletv", "domain", "mrs", "appletv.mrs"),
+    ("youtube", "domain", "mrs", "youtube.mrs"),
+    ("tiktok", "domain", "mrs", "tiktok.mrs"),
+    ("bilibili", "domain", "mrs", "bilibili.mrs"),
+    ("spotify", "domain", "mrs", "spotify.mrs"),
+    ("media", "domain", "mrs", "media.mrs"),
+    ("ai", "domain", "mrs", "ai.mrs"),
+    ("networktest", "domain", "mrs", "networktest.mrs"),
+    ("tld-proxy", "domain", "mrs", "tld-proxy.mrs"),
+    ("gfw", "domain", "mrs", "gfw.mrs"),
+    ("proxy", "domain", "mrs", "proxy.mrs"),
+    ("cn", "domain", "mrs", "cn.mrs"),
+    ("privateip", "ipcidr", "mrs", "privateip.mrs"),
+    ("cnip", "ipcidr", "mrs", "cnip.mrs"),
+    ("telegramip", "ipcidr", "mrs", "telegramip.mrs"),
+    ("netflixip", "ipcidr", "mrs", "netflixip.mrs"),
+    ("mediaip", "ipcidr", "mrs", "mediaip.mrs"),
+]
+
+RULESET_RULES = [
+    *AIOS_DIRECT_RULES,
+    "RULE-SET,private,DIRECT",
+    "RULE-SET,ads,REJECT",
+    "RULE-SET,trackerslist,REJECT",
+    "RULE-SET,applications,DIRECT",
+    "RULE-SET,microsoft-cn,DIRECT",
+    "RULE-SET,apple-cn,DIRECT",
+    "RULE-SET,google-cn,DIRECT",
+    "RULE-SET,games-cn,DIRECT",
+    "RULE-SET,games,PROXY",
+    "RULE-SET,netflix,PROXY",
+    "RULE-SET,disney,PROXY",
+    "RULE-SET,max,PROXY",
+    "RULE-SET,primevideo,PROXY",
+    "RULE-SET,appletv,PROXY",
+    "RULE-SET,youtube,PROXY",
+    "RULE-SET,tiktok,PROXY",
+    "RULE-SET,bilibili,DIRECT",
+    "RULE-SET,spotify,PROXY",
+    "RULE-SET,media,PROXY",
+    "RULE-SET,ai,AI",
+    "RULE-SET,networktest,DIRECT",
+    "RULE-SET,tld-proxy,PROXY",
+    "RULE-SET,gfw,PROXY",
+    "RULE-SET,proxy,PROXY",
+    "RULE-SET,cn,DIRECT",
+    "RULE-SET,privateip,DIRECT,no-resolve",
+    "RULE-SET,cnip,DIRECT",
+    "RULE-SET,telegramip,PROXY,no-resolve",
+    "RULE-SET,netflixip,PROXY",
+    "RULE-SET,mediaip,PROXY",
+    "MATCH,PROXY",
+]
+
 QUICKSTART = """
 No subscription provider configured.
 
@@ -104,6 +191,7 @@ class BuildSpec:
     rules_append: list[str] = field(default_factory=list)
     base_proxy: bool = True
     base_rules: bool = True
+    rules_mode: str = "geox"
     tun_enable: bool = True
 
 
@@ -171,6 +259,17 @@ def toml_bool(data: dict[str, Any], key: str, *, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     raise BuilderError(f"policy.toml {key} must be true/false")
+
+
+def toml_choice(data: dict[str, Any], key: str, *, default: str, allowed: set[str], source: str) -> str:
+    value = data.get(key, default)
+    if not isinstance(value, str):
+        raise BuilderError(f"{source} must be a string")
+    value = value.strip()
+    if value not in allowed:
+        options = ", ".join(sorted(allowed))
+        raise BuilderError(f"{source} must be one of: {options}")
+    return value
 
 
 def require_list(value: Any, source: str) -> list[Any]:
@@ -403,6 +502,13 @@ def load_toml_spec(config_path: Path, providers: list[Provider]) -> BuildSpec:
         rules_table = {}
     if not isinstance(rules_table, dict):
         raise BuilderError("policy.toml [rules] must be a table")
+    rules_mode = toml_choice(
+        rules_table,
+        "mode",
+        default="geox",
+        allowed=RULE_MODES,
+        source="policy.toml rules.mode",
+    )
     rules_prepend = require_str_list(rules_table.get("prepend", []), "policy.toml rules.prepend")
     rules_append = require_str_list(rules_table.get("append", []), "policy.toml rules.append")
 
@@ -414,6 +520,52 @@ def load_toml_spec(config_path: Path, providers: list[Provider]) -> BuildSpec:
         rules_append=rules_append,
         base_proxy=base_proxy,
         base_rules=base_rules,
+        rules_mode=rules_mode,
+        tun_enable=tun_enable,
+    )
+
+
+def load_local_policy_spec(base_dir: Path) -> BuildSpec:
+    """Load only policy pieces that are meaningful for local raw proxy YAML."""
+    config_path = base_dir / CONFIG_FILE
+    if not config_path.exists():
+        return BuildSpec(source="local-proxies", providers=[], base_proxy=False)
+    try:
+        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise BuilderError(f"Invalid policy.toml: {exc}") from exc
+
+    defaults = data.get("defaults", {})
+    if defaults is None:
+        defaults = {}
+    if not isinstance(defaults, dict):
+        raise BuilderError("policy.toml [defaults] must be a table")
+    base_rules = toml_bool(defaults, "base_rules", default=True)
+    tun_enable = toml_bool(defaults, "tun_enable", default=True)
+
+    rules_table = data.get("rules", {})
+    if rules_table is None:
+        rules_table = {}
+    if not isinstance(rules_table, dict):
+        raise BuilderError("policy.toml [rules] must be a table")
+    rules_mode = toml_choice(
+        rules_table,
+        "mode",
+        default="geox",
+        allowed=RULE_MODES,
+        source="policy.toml rules.mode",
+    )
+    rules_prepend = require_str_list(rules_table.get("prepend", []), "policy.toml rules.prepend")
+    rules_append = require_str_list(rules_table.get("append", []), "policy.toml rules.append")
+
+    return BuildSpec(
+        source="local-proxies+toml",
+        providers=[],
+        rules_prepend=rules_prepend,
+        rules_append=rules_append,
+        base_proxy=False,
+        base_rules=base_rules,
+        rules_mode=rules_mode,
         tun_enable=tun_enable,
     )
 
@@ -492,13 +644,142 @@ def expand_toml_group(row: dict[str, Any], *, idx: int, provider_ids: set[str], 
     return expanded
 
 
-def build_rules(spec: BuildSpec) -> list[str]:
+def group_names(groups: list[dict[str, Any]]) -> set[str]:
+    return {str(group.get("name", "")) for group in groups if isinstance(group.get("name"), str)}
+
+
+def ai_rule_target(groups: list[dict[str, Any]]) -> str:
+    return "AI" if "AI" in group_names(groups) else "PROXY"
+
+
+def mode_rules(spec: BuildSpec, groups: list[dict[str, Any]]) -> list[str]:
+    ai_target = ai_rule_target(groups)
+    if spec.rules_mode == "geox":
+        return [f"GEOSITE,ai,{ai_target}" if rule == "GEOSITE,ai,PROXY" else rule for rule in BASE_RULES]
+    if spec.rules_mode == "rule-set":
+        return [f"RULE-SET,ai,{ai_target}" if rule == "RULE-SET,ai,AI" else rule for rule in RULESET_RULES]
+    raise BuilderError(f"Unsupported rules mode: {spec.rules_mode}")
+
+
+def build_rules(spec: BuildSpec, groups: list[dict[str, Any]]) -> list[str]:
     rules: list[str] = []
     rules.extend(spec.rules_prepend)
     if spec.base_rules:
-        rules.extend(BASE_RULES)
+        rules.extend(mode_rules(spec, groups))
     rules.extend(spec.rules_append)
     return rules
+
+
+def ruleset_providers() -> dict[str, Any]:
+    providers: dict[str, Any] = {}
+    for name, behavior, fmt, filename in RULESET_PROVIDER_SPECS:
+        providers[name] = {
+            "type": "http",
+            "interval": 86400,
+            "behavior": behavior,
+            "format": fmt,
+            "path": f"./ruleset/{filename}",
+            "url": f"{RULESET_BASE_URL}/{filename}",
+        }
+    return providers
+
+
+def dns_config(rules_mode: str) -> dict[str, Any]:
+    fake_ip_filter = [
+        "rule-set:fakeip-filter" if rules_mode == "rule-set" else "geosite:fakeip-filter",
+        "tailscale.com",
+        "*.tailscale.com",
+        "*.ts.net",
+    ]
+    return {
+        "enable": True,
+        "listen": "0.0.0.0:1053",
+        "ipv6": False,
+        "enhanced-mode": "fake-ip",
+        "fake-ip-range": "198.18.0.1/16",
+        "fake-ip-filter-mode": "blacklist",
+        "fake-ip-filter": fake_ip_filter,
+        "respect-rules": True,
+        "default-nameserver": ["223.5.5.5", "119.29.29.29"],
+        "proxy-server-nameserver": ["223.5.5.5", "119.29.29.29"],
+        "direct-nameserver": ["https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"],
+        "nameserver": ["https://8.8.8.8/dns-query", "https://1.1.1.1/dns-query"],
+    }
+
+
+def provider_mode(providers: list[Provider]) -> str:
+    if not providers:
+        return "local-proxies"
+    return "single-provider" if len(providers) == 1 else "multi-provider"
+
+
+def make_config_sections(
+    spec: BuildSpec,
+    *,
+    proxy_providers: dict[str, Any],
+    proxy_groups: list[dict[str, Any]],
+    redact: bool,
+) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "mixed-port": 7890,
+        "allow-lan": True,
+        "bind-address": "*",
+        "mode": "rule",
+        "log-level": "info",
+        "unified-delay": True,
+        "tcp-concurrent": True,
+        "external-controller": "127.0.0.1:9090",
+        "external-ui": "./ui",
+        "external-ui-url": "https://cdn.gh-proxy.org/https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip",
+    }
+    if spec.rules_mode == "geox":
+        config.update(
+            {
+                "geodata-mode": True,
+                "geo-auto-update": True,
+                "geo-update-interval": 24,
+                "geox-url": {
+                    "geosite": "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/geosite.dat",
+                    "geoip": "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/geoip.dat",
+                    "mmdb": "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/Country.mmdb",
+                    "asn": "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/Country-ASN.mmdb",
+                },
+            }
+        )
+    elif spec.rules_mode == "rule-set":
+        config["rule-providers"] = ruleset_providers()
+    else:
+        raise BuilderError(f"Unsupported rules mode: {spec.rules_mode}")
+
+    config.update(
+        {
+            "profile": {"store-selected": True, "store-fake-ip": True},
+            "tun": {
+                "enable": spec.tun_enable,
+                "stack": "mixed",
+                "dns-hijack": ["any:53", "tcp://any:53"],
+                "auto-route": True,
+                "auto-detect-interface": True,
+                "strict-route": False,
+                "endpoint-independent-nat": True,
+            },
+            "dns": dns_config(spec.rules_mode),
+            "proxies": [],
+            "proxy-providers": proxy_providers,
+            "proxy-groups": proxy_groups,
+            "rules": build_rules(spec, proxy_groups),
+            "x-build-meta": {
+                "source": spec.source,
+                "mode": provider_mode(spec.providers),
+                "provider-order": [p.id for p in spec.providers],
+                "extra-group-count": len(spec.extra_groups),
+                "rules-mode": spec.rules_mode,
+                "tun-enable": spec.tun_enable,
+                "secret-values-exposed": False if redact else "written-to-sensitive-config",
+            },
+        }
+    )
+    return config
 
 
 def make_config(spec: BuildSpec, *, redact: bool = False) -> dict[str, Any]:
@@ -519,64 +800,7 @@ def make_config(spec: BuildSpec, *, redact: bool = False) -> dict[str, Any]:
     if spec.base_proxy:
         groups.extend(normal_proxy_groups(spec.providers))
     groups.extend(spec.extra_groups)
-
-    return {
-        "mixed-port": 7890,
-        "allow-lan": True,
-        "bind-address": "*",
-        "mode": "rule",
-        "log-level": "info",
-        "unified-delay": True,
-        "tcp-concurrent": True,
-        "external-controller": "127.0.0.1:9090",
-        "external-ui": "./ui",
-        "external-ui-url": "https://cdn.gh-proxy.org/https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip",
-        "geodata-mode": True,
-        "geo-auto-update": True,
-        "geo-update-interval": 24,
-        "geox-url": {
-            "geosite": "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/geosite.dat",
-            "geoip": "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/geoip.dat",
-            "mmdb": "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/Country.mmdb",
-            "asn": "https://cdn.gh-proxy.org/https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-geodata/Country-ASN.mmdb",
-        },
-        "profile": {"store-selected": True, "store-fake-ip": True},
-        "tun": {
-            "enable": spec.tun_enable,
-            "stack": "mixed",
-            "dns-hijack": ["any:53", "tcp://any:53"],
-            "auto-route": True,
-            "auto-detect-interface": True,
-            "strict-route": False,
-            "endpoint-independent-nat": True,
-        },
-        "dns": {
-            "enable": True,
-            "listen": "0.0.0.0:1053",
-            "ipv6": False,
-            "enhanced-mode": "fake-ip",
-            "fake-ip-range": "198.18.0.1/16",
-            "fake-ip-filter-mode": "blacklist",
-            "fake-ip-filter": ["geosite:fakeip-filter", "tailscale.com", "*.tailscale.com", "*.ts.net"],
-            "respect-rules": True,
-            "default-nameserver": ["223.5.5.5", "119.29.29.29"],
-            "proxy-server-nameserver": ["223.5.5.5", "119.29.29.29"],
-            "direct-nameserver": ["https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"],
-            "nameserver": ["https://8.8.8.8/dns-query", "https://1.1.1.1/dns-query"],
-        },
-        "proxies": [],
-        "proxy-providers": proxy_providers,
-        "proxy-groups": groups,
-        "rules": build_rules(spec),
-        "x-build-meta": {
-            "source": spec.source,
-            "mode": "single-provider" if len(spec.providers) == 1 else "multi-provider",
-            "provider-order": [p.id for p in spec.providers],
-            "extra-group-count": len(spec.extra_groups),
-            "tun-enable": spec.tun_enable,
-            "secret-values-exposed": False if redact else "written-to-sensitive-config",
-        },
-    }
+    return make_config_sections(spec, proxy_providers=proxy_providers, proxy_groups=groups, redact=redact)
 
 
 def yaml_scalar(value: Any) -> str:
@@ -641,6 +865,57 @@ def write_secure_config(base_dir: Path, content: str) -> Path:
     return out
 
 
+def read_local_proxies_block(proxies_file: Path) -> tuple[str, list[str]]:
+    raw = proxies_file.read_text(encoding="utf-8").rstrip() + "\n"
+    if re.search(r"^\s*proxies\s*:", raw, re.M):
+        proxies_block = raw
+    else:
+        indented = "".join(("  " + line if line.strip() else line) + "\n" for line in raw.splitlines())
+        proxies_block = "proxies:\n" + indented
+
+    node_names: list[str] = []
+    for match in re.finditer(r'^\s*-\s*name\s*:\s*["\']?([^"\'\n#]+)', raw, re.M):
+        name = match.group(1).strip()
+        if name and name not in node_names:
+            node_names.append(name)
+    return proxies_block, node_names
+
+
+def make_local_proxy_groups(node_names: list[str]) -> list[dict[str, Any]]:
+    nodes = node_names if node_names else ["DIRECT"]
+    proxy_select: list[str] = []
+    for item in ["Auto", "DIRECT", *node_names]:
+        if item and item not in proxy_select:
+            proxy_select.append(item)
+    return [
+        {
+            "name": "Auto",
+            "type": "url-test",
+            "interval": 300,
+            "tolerance": 100,
+            "lazy": True,
+            "proxies": nodes,
+            "url": URL_TEST,
+        },
+        {"name": "PROXY", "type": "select", "proxies": proxy_select},
+        {"name": "GLOBAL", "type": "select", "proxies": ["PROXY", "DIRECT", "REJECT"]},
+    ]
+
+
+def make_local_proxies_yaml(base_dir: Path, proxies_file: Path) -> tuple[str, BuildSpec, list[str]]:
+    spec = load_local_policy_spec(base_dir)
+    proxies_block, node_names = read_local_proxies_block(proxies_file)
+    config = make_config_sections(
+        spec,
+        proxy_providers={},
+        proxy_groups=make_local_proxy_groups(node_names),
+        redact=False,
+    )
+    rendered = to_yaml(config) + "\n"
+    rendered = re.sub(r"(?m)^proxies: \[\]$", proxies_block.rstrip(), rendered, count=1)
+    return rendered, spec, node_names
+
+
 def find_binary(base_dir: Path) -> Path | None:
     for name in ("clash", "mihomo"):
         p = base_dir / name
@@ -690,8 +965,26 @@ def cmd_build(args: argparse.Namespace) -> int:
     out = write_secure_config(base_dir, rendered)
     print("Built Mihomo config")
     print(f"- source: {spec.source}")
-    print(f"- mode: {'single-provider' if len(spec.providers) == 1 else 'multi-provider'}")
+    print(f"- mode: {provider_mode(spec.providers)}")
+    print(f"- rules_mode: {spec.rules_mode}")
     print(f"- providers: {', '.join(p.id for p in spec.providers)}")
+    print(f"- output: {out}")
+    print("- secret_values_exposed: false")
+    return 0
+
+
+def cmd_build_local(args: argparse.Namespace) -> int:
+    base_dir = Path(args.base_dir).resolve()
+    proxies_file = Path(args.proxies_file).expanduser().resolve()
+    if not proxies_file.exists():
+        raise BuilderError(f"local proxies file not found: {proxies_file}")
+    rendered, spec, node_names = make_local_proxies_yaml(base_dir, proxies_file)
+    out = write_secure_config(base_dir, rendered)
+    print("Built Mihomo config from local proxies YAML")
+    print(f"- source: {spec.source}")
+    print(f"- mode: local-proxies")
+    print(f"- rules_mode: {spec.rules_mode}")
+    print(f"- proxy_count: {len(node_names)}")
     print(f"- output: {out}")
     print("- secret_values_exposed: false")
     return 0
@@ -700,14 +993,29 @@ def cmd_build(args: argparse.Namespace) -> int:
 def cmd_check(args: argparse.Namespace) -> int:
     base_dir = Path(args.base_dir).resolve()
     env = load_env(base_dir)
-    spec = load_spec(base_dir, env, require_secrets=True)
+    out = output_path(base_dir)
+    try:
+        spec = load_spec(base_dir, env, require_secrets=True)
+    except BuilderError as exc:
+        if out.exists() and str(exc).startswith("No subscription provider configured"):
+            print("env_shape: skipped_no_provider")
+            print("config_source: existing-generated-config")
+            print("provider_count: 0")
+            print("provider_order: <none>")
+            print("extra_group_count: 0")
+            print("rules_mode: <from-generated-config>")
+            mode = stat.S_IMODE(out.stat().st_mode)
+            print("generated_config_present: yes")
+            print(f"generated_config_mode: {mode:04o}")
+            return run_config_test(base_dir, out)
+        raise
     _ = make_config(spec, redact=True)
     print("env_shape: ok")
     print(f"config_source: {spec.source}")
     print(f"provider_count: {len(spec.providers)}")
     print(f"provider_order: {', '.join(p.id for p in spec.providers)}")
     print(f"extra_group_count: {len(spec.extra_groups)}")
-    out = output_path(base_dir)
+    print(f"rules_mode: {spec.rules_mode}")
     if out.exists():
         mode = stat.S_IMODE(out.stat().st_mode)
         print(f"generated_config_present: yes")
@@ -745,6 +1053,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"provider_count: {len(providers)}")
     print(f"provider_order: {', '.join(p.id for p in providers) if providers else '<none>'}")
     print(f"extra_group_count: {len(spec.extra_groups) if spec else 0}")
+    print(f"rules_mode: {spec.rules_mode if spec else '<none>'}")
     print(f"generated_config_present: {out.exists()}")
     if out.exists():
         print(f"generated_config_mode: {stat.S_IMODE(out.stat().st_mode):04o}")
@@ -761,6 +1070,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("preview", help="print redacted generated YAML; writes nothing").set_defaults(func=cmd_preview)
     sub.add_parser("build", help="write secrets/config.yaml with mode 0600").set_defaults(func=cmd_build)
+    local = sub.add_parser("build-local", help="write secrets/config.yaml from a private local proxies YAML snippet")
+    local.add_argument("--proxies-file", required=True, help="private YAML file containing either a proxies: block or a bare proxy list")
+    local.set_defaults(func=cmd_build_local)
     sub.add_parser("check", help="validate env shape and test generated config when present").set_defaults(func=cmd_check)
     sub.add_parser("doctor", help="redacted status probe safe for agents").set_defaults(func=cmd_doctor)
     return parser
