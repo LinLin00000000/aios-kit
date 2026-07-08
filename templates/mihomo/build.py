@@ -52,15 +52,15 @@ BASE_RULES = [
     "GEOSITE,apple-cn,DIRECT",
     "GEOSITE,google-cn,DIRECT",
     "GEOSITE,games-cn,DIRECT",
-    "GEOSITE,ai,PROXY",
+    "GEOSITE,ai,General",
     "GEOSITE,networktest,DIRECT",
-    "GEOSITE,tld-proxy,PROXY",
-    "GEOSITE,proxy,PROXY",
+    "GEOSITE,tld-proxy,General",
+    "GEOSITE,proxy,General",
     "GEOSITE,cn,DIRECT",
     "GEOIP,private,DIRECT,no-resolve",
     "GEOIP,cn,DIRECT",
-    "GEOIP,telegram,PROXY,no-resolve",
-    "MATCH,PROXY",
+    "GEOIP,telegram,General,no-resolve",
+    "MATCH,General",
 ]
 
 RULE_MODES = {"geox", "rule-set"}
@@ -125,29 +125,29 @@ RULESET_RULES = [
     "RULE-SET,apple-cn,DIRECT",
     "RULE-SET,google-cn,DIRECT",
     "RULE-SET,games-cn,DIRECT",
-    "RULE-SET,games,PROXY",
-    "RULE-SET,netflix,PROXY",
-    "RULE-SET,disney,PROXY",
-    "RULE-SET,max,PROXY",
-    "RULE-SET,primevideo,PROXY",
-    "RULE-SET,appletv,PROXY",
-    "RULE-SET,youtube,PROXY",
-    "RULE-SET,tiktok,PROXY",
+    "RULE-SET,games,General",
+    "RULE-SET,netflix,General",
+    "RULE-SET,disney,General",
+    "RULE-SET,max,General",
+    "RULE-SET,primevideo,General",
+    "RULE-SET,appletv,General",
+    "RULE-SET,youtube,General",
+    "RULE-SET,tiktok,General",
     "RULE-SET,bilibili,DIRECT",
-    "RULE-SET,spotify,PROXY",
-    "RULE-SET,media,PROXY",
+    "RULE-SET,spotify,General",
+    "RULE-SET,media,General",
     "RULE-SET,ai,AI",
     "RULE-SET,networktest,DIRECT",
-    "RULE-SET,tld-proxy,PROXY",
-    "RULE-SET,gfw,PROXY",
-    "RULE-SET,proxy,PROXY",
+    "RULE-SET,tld-proxy,General",
+    "RULE-SET,gfw,General",
+    "RULE-SET,proxy,General",
     "RULE-SET,cn,DIRECT",
     "RULE-SET,privateip,DIRECT,no-resolve",
     "RULE-SET,cnip,DIRECT",
-    "RULE-SET,telegramip,PROXY,no-resolve",
-    "RULE-SET,netflixip,PROXY",
-    "RULE-SET,mediaip,PROXY",
-    "MATCH,PROXY",
+    "RULE-SET,telegramip,General,no-resolve",
+    "RULE-SET,netflixip,General",
+    "RULE-SET,mediaip,General",
+    "MATCH,General",
 ]
 
 QUICKSTART = """
@@ -233,7 +233,7 @@ def require_provider_id(value: str, source: str) -> str:
         raise BuilderError(
             f"Invalid provider id from {source!r}: {value!r}; allowed: lowercase [a-z0-9_]"
         )
-    if value.upper() in {"DIRECT", "REJECT", "GLOBAL", "PROXY", "AI"}:
+    if value.upper() in {"DIRECT", "REJECT", "GLOBAL", "PROXY", "GENERAL", "AI"}:
         raise BuilderError(f"Provider id {value!r} is reserved")
     return value
 
@@ -241,7 +241,7 @@ def require_provider_id(value: str, source: str) -> str:
 def require_group_name(value: str, source: str) -> str:
     if not value or not isinstance(value, str):
         raise BuilderError(f"Invalid group name from {source!r}: expected non-empty string")
-    if value in {"DIRECT", "REJECT", "GLOBAL", "PROXY"}:
+    if value in {"DIRECT", "REJECT", "GLOBAL", "PROXY", "General"}:
         raise BuilderError(f"Group name {value!r} is reserved by generated base groups")
     return value
 
@@ -438,23 +438,26 @@ def fallback_group(name: str, proxies: list[str], *, url: str = URL_TEST, interv
     }
 
 
+def unique_ordered(items: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
 def normal_proxy_groups(providers: list[Provider]) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
-    if len(providers) == 1:
-        p = providers[0]
-        groups.append(url_test_group("Auto", [p.id]))
-        groups.append({"name": "PROXY", "type": "select", "proxies": ["Auto", "DIRECT"]})
-        groups.append({"name": "GLOBAL", "type": "select", "proxies": ["PROXY", "DIRECT", "REJECT"]})
-        return groups
-
-    auto_names = []
+    auto_names: list[str] = []
     for p in providers:
         auto_name = f"{p.id}-Auto"
         auto_names.append(auto_name)
         groups.append(url_test_group(auto_name, [p.id]))
-    groups.append(fallback_group("Tiered-Auto", auto_names))
-    groups.append({"name": "PROXY", "type": "select", "proxies": ["Tiered-Auto", *auto_names, "DIRECT"]})
-    groups.append({"name": "GLOBAL", "type": "select", "proxies": ["PROXY", "DIRECT", "REJECT"]})
+    groups.append(fallback_group("General-Auto", auto_names))
+    groups.append({"name": "General", "type": "select", "proxies": unique_ordered(["General-Auto", "DIRECT", *auto_names])})
+    groups.append({"name": "GLOBAL", "type": "select", "proxies": ["General", "DIRECT", "REJECT"]})
     return groups
 
 
@@ -607,21 +610,22 @@ def expand_toml_group(row: dict[str, Any], *, idx: int, provider_ids: set[str], 
         provider_ids=provider_ids,
         source=f"policy.toml groups[{idx}].providers",
     )
-    if not selected_ids:
-        raise BuilderError(f"policy.toml groups[{idx}].providers must not be empty")
+    standalone_proxies = require_str_list(row.get("proxies", []), f"policy.toml groups[{idx}].proxies")
+    if not selected_ids and not standalone_proxies:
+        raise BuilderError(f"policy.toml groups[{idx}] must include providers or proxies")
 
     inner_type = str(row.get("type", "url-test")).strip() or "url-test"
     if inner_type != "url-test":
         raise BuilderError("tiered-url-test currently requires type = 'url-test'")
     component_suffix = str(row.get("component_suffix", "Auto")).strip() or "Auto"
-    visible_type = str(row.get("visible_type", "fallback")).strip() or "fallback"
-    if visible_type != "fallback":
-        raise BuilderError("tiered-url-test currently supports visible_type = 'fallback' only")
+    visible_type = str(row.get("visible_type", "select")).strip() or "select"
+    if visible_type != "select":
+        raise BuilderError("tiered-url-test currently supports visible_type = 'select' only")
 
     inner_overrides = {
         k: v
         for k, v in row.items()
-        if k not in {"name", "strategy", "providers", "component_suffix", "visible_type"}
+        if k not in {"name", "strategy", "providers", "proxies", "component_suffix", "visible_type"}
     }
     inner_overrides["type"] = "url-test"
 
@@ -632,15 +636,18 @@ def expand_toml_group(row: dict[str, Any], *, idx: int, provider_ids: set[str], 
         component_names.append(component_name)
         expanded.append(url_test_group(component_name, [pid], overrides=inner_overrides))
 
+    fallback_members = unique_ordered([*component_names, *standalone_proxies])
+    auto_name = f"{name}-Auto"
     expanded.append(
         fallback_group(
-            name,
-            component_names,
+            auto_name,
+            fallback_members,
             url=str(row.get("url", URL_TEST)),
             interval=int(row.get("interval", 300)),
             lazy=bool(row.get("lazy", True)),
         )
     )
+    expanded.append({"name": name, "type": "select", "proxies": unique_ordered([auto_name, "DIRECT", *fallback_members])})
     return expanded
 
 
@@ -649,13 +656,13 @@ def group_names(groups: list[dict[str, Any]]) -> set[str]:
 
 
 def ai_rule_target(groups: list[dict[str, Any]]) -> str:
-    return "AI" if "AI" in group_names(groups) else "PROXY"
+    return "AI" if "AI" in group_names(groups) else "General"
 
 
 def mode_rules(spec: BuildSpec, groups: list[dict[str, Any]]) -> list[str]:
     ai_target = ai_rule_target(groups)
     if spec.rules_mode == "geox":
-        return [f"GEOSITE,ai,{ai_target}" if rule == "GEOSITE,ai,PROXY" else rule for rule in BASE_RULES]
+        return [f"GEOSITE,ai,{ai_target}" if rule == "GEOSITE,ai,General" else rule for rule in BASE_RULES]
     if spec.rules_mode == "rule-set":
         return [f"RULE-SET,ai,{ai_target}" if rule == "RULE-SET,ai,AI" else rule for rule in RULESET_RULES]
     raise BuilderError(f"Unsupported rules mode: {spec.rules_mode}")
@@ -883,22 +890,10 @@ def read_local_proxies_block(proxies_file: Path) -> tuple[str, list[str]]:
 
 def make_local_proxy_groups(node_names: list[str]) -> list[dict[str, Any]]:
     nodes = node_names if node_names else ["DIRECT"]
-    proxy_select: list[str] = []
-    for item in ["Auto", "DIRECT", *node_names]:
-        if item and item not in proxy_select:
-            proxy_select.append(item)
     return [
-        {
-            "name": "Auto",
-            "type": "url-test",
-            "interval": 300,
-            "tolerance": 100,
-            "lazy": True,
-            "proxies": nodes,
-            "url": URL_TEST,
-        },
-        {"name": "PROXY", "type": "select", "proxies": proxy_select},
-        {"name": "GLOBAL", "type": "select", "proxies": ["PROXY", "DIRECT", "REJECT"]},
+        fallback_group("General-Auto", nodes),
+        {"name": "General", "type": "select", "proxies": unique_ordered(["General-Auto", "DIRECT", *node_names])},
+        {"name": "GLOBAL", "type": "select", "proxies": ["General", "DIRECT", "REJECT"]},
     ]
 
 

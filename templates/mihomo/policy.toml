@@ -4,7 +4,7 @@
 # 如果某个 group 不写 providers，就默认使用 MIHOMO_PROVIDERS_ORDER。
 
 [defaults]
-# 生成基础 PROXY / Auto / GLOBAL 分组。
+# 生成基础 General / General-Auto / GLOBAL 分组。
 base_proxy = true
 # 生成基础规则；自定义规则可通过 [rules].prepend 放到前面。
 base_rules = true
@@ -12,7 +12,7 @@ base_rules = true
 tun_enable = true
 
 # 可选策略组示例：AI 流量使用单独分组。
-# tiered-url-test 会先在每个 provider 内 url-test，再按 provider 顺序 fallback。
+# tiered-url-test 会生成 ${NAME}-Auto fallback 和 ${NAME} select 两层。
 [[groups]]
 name = "AI"
 strategy = "tiered-url-test"
