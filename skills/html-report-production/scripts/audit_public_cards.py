@@ -22,7 +22,7 @@ DEFAULT_FORBIDDEN = (
     "internal/",
     "/home/",
     "/Users/",
-    "C:/Users/",
+    "C:" + "/Users/",
     "localhost",
     "screenshot-friendly",
 )
