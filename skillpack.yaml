@@ -150,3 +150,12 @@ first_party:
     default_mode: copy
     targets: universal
     reason: Service operations workflow skill for OPS vault-backed local/cloud services.
+
+  - id: html-report-production
+    path: skills/html-report-production
+    source: LinLin00000000/aios-kit
+    skill: html-report-production
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: "Portable first-party HTML report protocol and multi-output public delivery workflow with reusable Chromium card export/audit scripts."
