@@ -2056,6 +2056,7 @@ SOURCE_SYNC_MODES = {"none", "device_authoritative_mirror", "managed_bidirection
 SOURCE_BACKUP_STATES = {"unknown", "not_required", "planned", "verified"}
 SOURCE_SENSITIVITY = {"public", "internal", "private", "sensitive", "mixed"}
 SOURCE_STATUSES = {"active", "paused", "archived"}
+SOURCE_VIEW_STATUSES = SOURCE_STATUSES | {"idea"}
 
 
 def source_paths(home: Path) -> tuple[Path, Path]:
@@ -2099,7 +2100,11 @@ def write_source_aliases(home: Path, aliases: dict[str, str]) -> None:
     lines = ["aliases:"]
     for key in sorted(aliases):
         lines.append(f"  {key}: {aliases[key]}")
-    aliases_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    payload = "\n".join(lines) + "\n"
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=aliases_path.parent, delete=False) as handle:
+        handle.write(payload)
+        temp_path = Path(handle.name)
+    temp_path.replace(aliases_path)
 
 
 def project_source_projection(project: dict[str, Any]) -> dict[str, Any]:
@@ -2128,6 +2133,30 @@ def compiled_sources(home: Path, *, explicit_only: bool = False) -> list[dict[st
     explicit_ids = {str(item.get("id", "")) for item in explicit}
     projected = [project_source_projection(project) for project in read_projects(home) if str(project.get("id", "")) not in explicit_ids]
     return explicit + projected
+
+
+def source_identity_claims(home: Path) -> dict[str, set[str]]:
+    """Compile every Source/Project id and alias into one case-insensitive namespace."""
+    claims: dict[str, set[str]] = {}
+
+    def claim(name: Any, owner: Any) -> None:
+        key = str(name or "").strip().lower()
+        target = str(owner or "").strip().lower()
+        if key and target:
+            claims.setdefault(key, set()).add(target)
+
+    for item in compiled_sources(home):
+        sid = item.get("id")
+        claim(sid, sid)
+        aliases = item.get("aliases", []) or []
+        if isinstance(aliases, list):
+            for alias in aliases:
+                claim(alias, sid)
+    for alias, sid in read_source_aliases(home).items():
+        claim(alias, sid)
+    for alias, sid in read_aliases(home).items():
+        claim(alias, sid)
+    return claims
 
 
 def resolve_source(home: Path, query: str) -> dict[str, Any] | None:
@@ -2187,8 +2216,23 @@ def validate_sources(home: Path, *, verbose: bool = True) -> bool:
         if not isinstance(locations, list) or not locations:
             print(f"source {sid}: locations must be a non-empty list")
             ok = False
-        elif not all(isinstance(location, dict) and location.get("kind") in {"local", "github", "remote", "view"} and (location.get("path") or location.get("url")) for location in locations):
-            print(f"source {sid}: invalid location")
+        else:
+            for location in locations:
+                if not isinstance(location, dict):
+                    print(f"source {sid}: invalid location")
+                    ok = False
+                    continue
+                kind = location.get("kind")
+                valid = (
+                    (kind in {"local", "view"} and bool(location.get("path")) and not location.get("url"))
+                    or (kind in {"github", "remote"} and bool(location.get("url")) and not location.get("path"))
+                )
+                if not valid:
+                    print(f"source {sid}: invalid location for kind {kind!r}")
+                    ok = False
+        inline_aliases = item.get("aliases", []) or []
+        if not isinstance(inline_aliases, list) or not all(isinstance(alias, str) and alias.strip() for alias in inline_aliases):
+            print(f"source {sid}: aliases must be a list of non-empty strings")
             ok = False
     aliases = read_source_aliases(home)
     project_aliases = read_aliases(home)
@@ -2196,8 +2240,18 @@ def validate_sources(home: Path, *, verbose: bool = True) -> bool:
         if sid not in ids:
             print(f"source alias {alias}: points to missing explicit source {sid}")
             ok = False
+        if alias in ids and alias != sid:
+            print(f"source alias {alias}: conflicts with explicit source id {alias}")
+            ok = False
+        if alias in project_ids and alias != sid:
+            print(f"source alias {alias}: conflicts with project projection id {alias}")
+            ok = False
         if alias in project_aliases and project_aliases[alias] != sid:
             print(f"source alias {alias}: conflicts with project alias -> {project_aliases[alias]}")
+            ok = False
+    for name, owners in sorted(source_identity_claims(home).items()):
+        if len(owners) > 1:
+            print(f"source identity {name}: claimed by {', '.join(sorted(owners))}")
             ok = False
     if verbose:
         print(f"sources: {len(sources)} explicit, {len(project_ids)} project projections, {len(aliases)} aliases, {'ok' if ok else 'problems'}")
@@ -2236,6 +2290,10 @@ def source_add(args: argparse.Namespace) -> None:
     registry.parent.mkdir(parents=True, exist_ok=True)
     if resolve_source(home, args.id):
         raise SystemExit(f"source id already exists or conflicts with project: {args.id}")
+    if args.path and args.location_kind not in {None, "local", "view"}:
+        raise SystemExit(f"location kind {args.location_kind!r} is invalid for --path; use local or view")
+    if args.url and args.location_kind not in {None, "github", "remote"}:
+        raise SystemExit(f"location kind {args.location_kind!r} is invalid for --url; use github or remote")
     locations = []
     if args.path:
         locations.append({"kind": args.location_kind or "local", "path": args.path})
@@ -2245,8 +2303,17 @@ def source_add(args: argparse.Namespace) -> None:
         raise SystemExit("source add requires --path or --url")
     aliases = read_source_aliases(home)
     project_aliases = read_aliases(home)
+    claims = source_identity_claims(home)
+    new_id = args.id.lower()
+    if new_id in claims:
+        raise SystemExit(f"source id conflicts with existing identity: {args.id}")
     for alias in args.alias or []:
         key = alias.lower()
+        if key in claims:
+            owners = ", ".join(sorted(claims[key]))
+            raise SystemExit(f"source alias conflicts with existing identity: {alias} -> {owners}")
+        if key == new_id:
+            raise SystemExit(f"source alias duplicates its source id: {alias}")
         if key in aliases and aliases[key] != args.id:
             raise SystemExit(f"source alias already points elsewhere: {alias} -> {aliases[key]}")
         if key in project_aliases and project_aliases[key] != args.id:
@@ -2284,6 +2351,10 @@ def source_alias(args: argparse.Namespace) -> None:
     aliases = read_source_aliases(home)
     project_aliases = read_aliases(home)
     key = args.alias.lower()
+    claims = source_identity_claims(home)
+    owners = claims.get(key, set())
+    if owners and owners != {args.id.lower()}:
+        raise SystemExit(f"source alias conflicts with existing identity: {args.alias} -> {', '.join(sorted(owners))}")
     if key in aliases and aliases[key] != args.id and not args.force:
         raise SystemExit(f"source alias already exists: {args.alias} -> {aliases[key]}")
     if key in project_aliases and project_aliases[key] != args.id:
@@ -2887,7 +2958,7 @@ def build_parser() -> argparse.ArgumentParser:
     ssub = src.add_subparsers(dest="source_cmd", required=True)
     sl = ssub.add_parser("list")
     sl.add_argument("--kind", choices=sorted(SOURCE_KINDS | {"project"}))
-    sl.add_argument("--status", choices=sorted(SOURCE_STATUSES))
+    sl.add_argument("--status", choices=sorted(SOURCE_VIEW_STATUSES))
     sl.add_argument("--explicit-only", action="store_true", help="exclude project-registry projections")
     sl.add_argument("--json", action="store_true")
     sl.set_defaults(func=source_list)

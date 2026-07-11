@@ -1,7 +1,7 @@
 ---
 name: aios-agent
 description: "Use when operating, evolving, updating, or governing AIOS itself: Agent-first workflows, aios-kit changes, skill/module adoption, local/private overlay boundaries, self-iteration, and upstream-instance reconciliation."
-version: 0.1.0
+version: 0.1.1
 license: MIT
 ---
 
@@ -23,6 +23,14 @@ Human Intent -> Agent Policy -> Machine Actuation -> State/Evidence
 Humans should not need to memorize low-level commands for normal AIOS operation. CLI/API surfaces exist primarily as stable actuators for agents and as fallback/debug tools for maintainers.
 
 For conversational workflow routing, do not require magic phrases such as “use LLL.” Infer the smallest honest mode from intent: keep disposable chat as chat; resolve or create a Matter when the user is pursuing a durable outcome; use LLL automatically when the work needs a recoverable Worksite; and surface retention/promotion suggestions at natural checkpoints rather than interrupting every message. Human wording remains natural language, while Matter/LLL/Source commands are Agent-selected actuators.
+
+For continuation intent such as “继续刚才那个”, “接着上次的事”, or a paraphrase of an earlier durable outcome, resolve before creating. Prefer the current active Worksite when one is explicit; otherwise use `aios lll list --json` (or the equivalent work-root inventory) and read compact `mission.md` + `internal/recovery.json` from a small set of recent semantic matches. Resume one unique match, ask one choice question for genuinely ambiguous matches, and create a new Matter only when no plausible durable Worksite exists. Session history is secondary context, not the authority for current task state.
+
+Retention requests require provenance. “提取刚才的精华” may use content actually present in the current conversation, or an explicit session/file/source reference supplied by the user. If the referenced conversation is not accessible—especially in a fresh session—do not reconstruct “what we discussed” from global memory, similar topics, or assumptions and do not claim that anything was saved. State the missing scope briefly and ask for the conversation/reference, or offer to review the current visible exchange only. When content is available, classify it into durable preference/fact, project/Matter asset, reusable procedure, archived evidence, or noise before writing to the owning truth source.
+
+Apply progressive disclosure to the human surface. For ordinary use, prefer the concepts “thing/work” and “material,” plus the actions save, organize, and delete. Treat Matter, Source, Registry, Managed Zone, Worksite, authority, provenance, and projection as internal or advanced vocabulary unless the user asks for technical detail or the distinction changes a real outcome. Interpret “save this” as durable findability with the original preserved and no overwrite/delete by default. If a reversible staging or link can absorb ambiguity, act and give a plain-language receipt. Ask at most one outcome-level question only when interpretations would change canonical ownership, sync direction, sensitive/public boundaries, overwrite/delete behavior, or large-batch scope. Receipts should say what was saved, whether the original changed, where/how it can be found, and whether it can be undone—without requiring protocol terminology.
+
+Routing precedence: explicit “do not save / chat only” overrides ordinary durability inference; runtime hard boundaries and mass/cross-location/destructive/sensitive-to-public rules override direct autonomy or “do not ask”; split compound requests by sub-action so safe read-only work may proceed, durable outputs share one Matter, and high-risk writes become a separate change-set decision. Do not create a Matter merely because an action has a result: one-turn translation, rewriting, explanation, short calculation, or format conversion stays in chat unless it needs a durable file, continuing state, recovery, or acceptance boundary.
 
 ## Source-of-truth boundaries
 

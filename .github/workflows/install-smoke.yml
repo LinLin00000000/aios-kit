@@ -18,6 +18,7 @@ jobs:
         run: |
           bash -n install.sh
           python3 -m py_compile scripts/aios.py scripts/audit_public.py scripts/translate_docs.py scripts/export_translation_secrets.py
+          python3 -m unittest tests.test_source_cli -v
           go test ./...
       - name: Linux core dry-run
         run: |
@@ -55,6 +56,7 @@ jobs:
       - name: macOS conservative checks
         run: |
           bash -n install.sh
+          python3 -m unittest tests.test_source_cli -v
           go test ./...
           tmp=$(mktemp -d)
           HOME="$tmp/home" bash install.sh \
@@ -72,9 +74,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Go tests
+      - name: Go and Source CLI tests
         shell: pwsh
-        run: go test ./...
+        run: |
+          go test ./...
+          python -m unittest tests.test_source_cli -v
       - name: PowerShell parse
         shell: pwsh
         run: |

@@ -1,7 +1,7 @@
 ---
 name: aios-resource-resolver
 description: Resolve user-mentioned AIOS resources—projects, devices, services, data assets, workflows, skills, vaults—through registries and aliases before searching blindly. Facts live in registries; this skill only defines the lookup and permission workflow.
-version: 0.1.1
+version: 0.1.2
 author: Lin
 license: MIT
 ---
@@ -118,6 +118,8 @@ The registry files are still the truth source:
 
 ## Updating the registry
 
+A Project record requires a durable project identity and its own execution/source lifecycle. Do not promote a module nested inside another registered project, a one-off report, an absorbed research package, or an archive directory merely because it has a path. Keep modules under the owning Project and keep research/design assets in the appropriate docs, vault asset, Worksite, or archive boundary.
+
 When a stable new project/resource fact is discovered:
 
 1. Prefer `./aios project add ...` or `./aios project alias ...`.
@@ -145,7 +147,9 @@ cd ~/projects/aios-kit
 
 ## Output shape
 
-For nontrivial resolutions, report:
+For ordinary users, report the resolution in plain language first: what was found or saved, whether the original changed, where/how it can be found, and whether the action is reversible. Do not expose canonical ids, Source/Registry/Managed Zone vocabulary, permission enums, or projection mechanics unless the user asks for technical detail or needs them to make a real risk/authority decision.
+
+For nontrivial technical resolutions or advanced/audit views, report:
 
 - canonical id;
 - matched aliases/evidence;
