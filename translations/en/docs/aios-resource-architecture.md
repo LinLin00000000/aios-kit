@@ -38,6 +38,15 @@ The default project registry is located inside the instance OPS vault:
 ~/aios/vault/ops/projects/aliases.yaml
 ```
 
+Explicit personal-data Source records live at:
+
+```text
+~/aios/vault/ops/sources/registry.jsonl
+~/aios/vault/ops/sources/aliases.yaml
+```
+
+This is not a second global path table. `aios source list` compiles explicit Source records with Project Registry projections into a unified view. The Project Registry continues to own local checkout and GitHub remote facts. Full file paths, hashes, mtimes, and retrieval indexes remain rebuildable projections/caches.
+
 New public installations treat `~/aios/vault/ops` as the default live vault; do not maintain additional compatibility entry points for the OPS vault.
 
 ## Resource Structure
@@ -76,6 +85,29 @@ aios project add --id <id> --name "<name>" --path <path> --github <url> --alias 
 aios project alias <alias> <id>
 aios project validate
 ```
+
+## Source Registry CLI
+
+The Agent understands natural-language intent, then uses the CLI for deterministic structural mutation. Humans normally do not need to memorize these commands; they are Agent actuators and troubleshooting entry points:
+
+```bash
+aios source list
+aios source list --json
+aios source get <id-or-alias>
+aios source add --id <id> --name "<name>" --kind data_root --path <path> \
+  --access-mode read_only_reference --sync-mode device_authoritative_mirror \
+  --backup-status planned --sensitivity private
+aios source alias <alias> <id>
+aios source validate
+```
+
+`source list` also shows read-only Project Registry projections by default; `--explicit-only` shows only explicit Source records. The CLI does not scan whole disks, move files, create retrieval truth, or equate indexing with write authority.
+
+Key Source-level boundaries:
+
+- `access_mode`: `read_only_reference` / `maintain_in_place` / `curate_reversible` / `source_specific`;
+- `sync_mode`: `none` / `device_authoritative_mirror` / `managed_bidirectional` / `server_canonical_replica` / `metadata_only_remote`;
+- `backup_status`: only `verified` means actual restore evidence passed, not merely that a copy appears to exist.
 
 ## Resolver Flow
 

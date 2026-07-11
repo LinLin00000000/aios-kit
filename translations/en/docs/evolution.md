@@ -63,6 +63,7 @@ Maturity is not a scheduling commitment; it constrains “what can be done next 
 | Module / Capability | Current stage | Existing minimal closed loop | Candidate next enhancements | Not doing for now |
 |---|---|---|---|---|
 | Project / Resource registry | L1 | `aios project ...`, aliases, registry files | More stable JSON/status/doctor output | Full project management system |
+| Data Sources | L1 | `aios source list/get/add/alias/validate`, explicit Source records + Project projections, Managed Zone directory boundary | Add inventory/backup/sync adapters from real device onboarding | Whole-disk ingestion, database, general-purpose file manager |
 | Secret management | L1.5 | request → intake → metadata/consumer/replica → run/sync/audit; `doctor`/`validate` provide low-risk probes | More general provider preset docs/templates; consider optional proxy/lease only after real friction appears | Resident broker, default proxy, MCP secret tools, plugin system |
 | LLL integration | L1 | `aios lll ...` discovery, creation, status proxy | Express more clearly that AIOS only proxies and does not absorb the LLL state machine | Rewriting the LLL runner in `aios-kit` |
 | OPS vault | L1 | Separation between templates and live vault, OPS skill entry point | Better resource indexes and maintenance record templates | Turning the public repo into a private CMDB |

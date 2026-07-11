@@ -32,6 +32,15 @@ AIOps 是 AIOS 的一个子系统，不是整个 AIOS。
 ~/aios/vault/ops/projects/aliases.yaml
 ```
 
+个人数据 Source 的显式记录位于：
+
+```text
+~/aios/vault/ops/sources/registry.jsonl
+~/aios/vault/ops/sources/aliases.yaml
+```
+
+这不是第二张全局路径总表。`aios source list` 会把显式 Source 记录与 Project Registry 投影编译成统一视图；Project 的本地 checkout 与 GitHub remote 仍由 Project Registry 拥有事实。全文件路径、hash、mtime 与检索索引只能是可重建 projection/cache。
+
 新的公开安装把 `~/aios/vault/ops` 视为默认 live vault；不要为 OPS vault 维护额外兼容入口。
 
 ## 资源结构
@@ -70,6 +79,29 @@ aios project add --id <id> --name "<name>" --path <path> --github <url> --alias 
 aios project alias <alias> <id>
 aios project validate
 ```
+
+## Source Registry CLI
+
+Agent 通过自然语言理解目标，再使用 CLI 做确定性结构修改。人类通常不需要记命令；以下命令是 Agent actuator 和排障入口：
+
+```bash
+aios source list
+aios source list --json
+aios source get <id-or-alias>
+aios source add --id <id> --name "<name>" --kind data_root --path <path> \
+  --access-mode read_only_reference --sync-mode device_authoritative_mirror \
+  --backup-status planned --sensitivity private
+aios source alias <alias> <id>
+aios source validate
+```
+
+`source list` 默认还显示 Project Registry 的只读投影；`--explicit-only` 只显示显式 Source records。CLI 不扫描整盘、不移动文件、不创建检索真源，也不把 indexed 等同于可写。
+
+Source 级关键边界：
+
+- `access_mode`：`read_only_reference` / `maintain_in_place` / `curate_reversible` / `source_specific`；
+- `sync_mode`：`none` / `device_authoritative_mirror` / `managed_bidirectional` / `server_canonical_replica` / `metadata_only_remote`；
+- `backup_status`：只有 `verified` 才表示通过了实际恢复证据，而不是“看起来有副本”。
 
 ## Resolver 流程
 

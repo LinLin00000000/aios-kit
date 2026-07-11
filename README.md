@@ -167,6 +167,8 @@ aios update --dry-run       # 预览更新
 aios update                 # 更新模块、OPS 模板和托管 skills
 aios update skills          # 刷新托管 runtime skills
 aios project list           # 查看项目/资源注册表
+aios source list            # 查看显式 Source + Project 联邦投影
+aios source validate        # 校验 Source identity / policy / locator 结构
 aios lll doctor --json      # Agent-first: 检查 LLL/Code Loop 能力
 aios lll list --json        # Agent-first: 枚举 LLL workdirs
 ```

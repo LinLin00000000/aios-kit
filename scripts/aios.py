@@ -86,6 +86,8 @@ def instance_paths(home: Path, *, root: str | None = None, ops: str | None = Non
         "vault": root_path / "vault",
         "ops": ops_path,
         "projects": ops_path / "projects",
+        "sources": ops_path / "sources",
+        "data": root_path / "data",
         "work": root_path / "work",
         "skills": root_path / "skills",
         "agent_skills": agent_skills_path,
@@ -762,8 +764,10 @@ def init_instance(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     apply = not bool(getattr(args, "dry_run", False))
     paths = instance_paths(home, root=args.root, ops=args.ops, skills_dir=args.skills_dir)
-    for key in ["root", "config", "vault", "ops", "projects", "work", "skills", "agent_skills", "modules", "state", "logs", "cache"]:
+    for key in ["root", "config", "vault", "ops", "projects", "sources", "data", "work", "skills", "agent_skills", "modules", "state", "logs", "cache"]:
         mkdir(paths[key], apply=apply)
+    for data_dir in ["inbox", "managed", "archive", "quarantine"]:
+        mkdir(paths["data"] / data_dir, apply=apply)
     write_if_missing(paths["root"] / "README.md", "# AIOS instance\n\nThis directory is the local deployed AIOS instance root. Product source lives in repositories; this instance contains local vaults, workdirs, skills, module checkouts, logs, state, and cache.\n", apply=apply)
     write_if_missing(paths["work"] / "README.md", "# AIOS work\n\nLLL and agent workdirs live here for this AIOS instance. Public installs do not create legacy path symlinks by default.\n", apply=apply)
     write_if_missing(paths["skills"] / "README.md", "# AIOS skills\n\nAIOS skill metadata/cache area. Agent-loadable skills are installed one-by-one into the real agent skills directory, defaulting to `~/.agents/skills`.\n", apply=apply)
@@ -2046,6 +2050,254 @@ def project_validate(args: argparse.Namespace) -> None:
     raise SystemExit(0 if validate_projects(home) else 1)
 
 
+SOURCE_KINDS = {"data_root", "worksite_root", "vault", "managed_zone", "project_connector", "service_view"}
+SOURCE_ACCESS_MODES = {"read_only_reference", "maintain_in_place", "curate_reversible", "source_specific"}
+SOURCE_SYNC_MODES = {"none", "device_authoritative_mirror", "managed_bidirectional", "server_canonical_replica", "metadata_only_remote"}
+SOURCE_BACKUP_STATES = {"unknown", "not_required", "planned", "verified"}
+SOURCE_SENSITIVITY = {"public", "internal", "private", "sensitive", "mixed"}
+SOURCE_STATUSES = {"active", "paused", "archived"}
+
+
+def source_paths(home: Path) -> tuple[Path, Path]:
+    sources = instance_paths(home)["sources"]
+    return sources / "registry.jsonl", sources / "aliases.yaml"
+
+
+def read_sources(home: Path) -> list[dict[str, Any]]:
+    registry, _ = source_paths(home)
+    if not registry.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for lineno, raw in enumerate(registry.read_text(encoding="utf-8").splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            item = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise SystemExit(f"{registry}:{lineno}: invalid JSON: {e}")
+        if not isinstance(item, dict):
+            raise SystemExit(f"{registry}:{lineno}: expected JSON object")
+        item["_lineno"] = lineno
+        out.append(item)
+    return out
+
+
+def read_source_aliases(home: Path) -> dict[str, str]:
+    _, aliases_path = source_paths(home)
+    if not aliases_path.exists():
+        return {}
+    data = load_yaml_like(aliases_path)
+    aliases = data.get("aliases", {}) if isinstance(data, dict) else {}
+    if not isinstance(aliases, dict):
+        return {}
+    return {str(k).lower(): str(v) for k, v in aliases.items()}
+
+
+def write_source_aliases(home: Path, aliases: dict[str, str]) -> None:
+    _, aliases_path = source_paths(home)
+    aliases_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["aliases:"]
+    for key in sorted(aliases):
+        lines.append(f"  {key}: {aliases[key]}")
+    aliases_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def project_source_projection(project: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(project.get("id", "")),
+        "kind": "project",
+        "name": project.get("name", ""),
+        "aliases": project.get("aliases", []) or [],
+        "status": project.get("status", "active"),
+        "locations": project.get("locations", []) or [],
+        "authority": "project_registry",
+        "owner_ref": f"project:{project.get('id', '')}",
+        "access_mode": "source_specific",
+        "sync_mode": "none",
+        "backup_status": "unknown",
+        "sensitivity": "mixed",
+        "record_type": "project_projection",
+        "notes": project.get("notes", ""),
+    }
+
+
+def compiled_sources(home: Path, *, explicit_only: bool = False) -> list[dict[str, Any]]:
+    explicit = [{k: v for k, v in item.items() if k != "_lineno"} for item in read_sources(home)]
+    if explicit_only:
+        return explicit
+    explicit_ids = {str(item.get("id", "")) for item in explicit}
+    projected = [project_source_projection(project) for project in read_projects(home) if str(project.get("id", "")) not in explicit_ids]
+    return explicit + projected
+
+
+def resolve_source(home: Path, query: str) -> dict[str, Any] | None:
+    q = query.lower()
+    sources = compiled_sources(home)
+    by_id = {str(item.get("id")): item for item in sources if item.get("id")}
+    if query in by_id:
+        return by_id[query]
+    aliases = read_source_aliases(home)
+    aliases.update(read_aliases(home))
+    if q in aliases and aliases[q] in by_id:
+        return by_id[aliases[q]]
+    matches = []
+    for item in sources:
+        values = [str(item.get("id", "")).lower(), str(item.get("name", "")).lower()]
+        values.extend(str(alias).lower() for alias in item.get("aliases", []) or [])
+        if q in values:
+            matches.append(item)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise SystemExit("ambiguous source query: " + ", ".join(str(item.get("id")) for item in matches))
+    return None
+
+
+def validate_sources(home: Path, *, verbose: bool = True) -> bool:
+    ok = True
+    sources = read_sources(home)
+    ids: set[str] = set()
+    project_ids = {str(project.get("id", "")) for project in read_projects(home)}
+    for item in sources:
+        sid = item.get("id")
+        if not isinstance(sid, str) or not sid:
+            print(f"source line {item.get('_lineno')}: missing id")
+            ok = False
+            continue
+        if sid in ids:
+            print(f"source {sid}: duplicate id")
+            ok = False
+        if sid in project_ids:
+            print(f"source {sid}: conflicts with project projection id")
+            ok = False
+        ids.add(sid)
+        checks = [
+            ("kind", SOURCE_KINDS),
+            ("access_mode", SOURCE_ACCESS_MODES),
+            ("sync_mode", SOURCE_SYNC_MODES),
+            ("backup_status", SOURCE_BACKUP_STATES),
+            ("sensitivity", SOURCE_SENSITIVITY),
+            ("status", SOURCE_STATUSES),
+        ]
+        for field, allowed in checks:
+            if item.get(field) not in allowed:
+                print(f"source {sid}: invalid {field} {item.get(field)!r}")
+                ok = False
+        locations = item.get("locations")
+        if not isinstance(locations, list) or not locations:
+            print(f"source {sid}: locations must be a non-empty list")
+            ok = False
+        elif not all(isinstance(location, dict) and location.get("kind") in {"local", "github", "remote", "view"} and (location.get("path") or location.get("url")) for location in locations):
+            print(f"source {sid}: invalid location")
+            ok = False
+    aliases = read_source_aliases(home)
+    project_aliases = read_aliases(home)
+    for alias, sid in aliases.items():
+        if sid not in ids:
+            print(f"source alias {alias}: points to missing explicit source {sid}")
+            ok = False
+        if alias in project_aliases and project_aliases[alias] != sid:
+            print(f"source alias {alias}: conflicts with project alias -> {project_aliases[alias]}")
+            ok = False
+    if verbose:
+        print(f"sources: {len(sources)} explicit, {len(project_ids)} project projections, {len(aliases)} aliases, {'ok' if ok else 'problems'}")
+    return ok
+
+
+def source_list(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    sources = compiled_sources(home, explicit_only=args.explicit_only)
+    if args.kind:
+        sources = [item for item in sources if item.get("kind") == args.kind]
+    if args.status:
+        sources = [item for item in sources if item.get("status", "active") == args.status]
+    if args.json:
+        print(json.dumps(sources, ensure_ascii=False, indent=2))
+        return
+    if not sources:
+        print("no sources")
+        return
+    for item in sources:
+        owner = item.get("authority", "source_registry")
+        print(f"- {item.get('id')} [{item.get('status','active')}] {item.get('kind')} {item.get('name','')} ({owner})")
+
+
+def source_get(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    item = resolve_source(home, args.query)
+    if not item:
+        raise SystemExit(f"source not found: {args.query}")
+    print(json.dumps(item, ensure_ascii=False, indent=2))
+
+
+def source_add(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    registry, _ = source_paths(home)
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    if resolve_source(home, args.id):
+        raise SystemExit(f"source id already exists or conflicts with project: {args.id}")
+    locations = []
+    if args.path:
+        locations.append({"kind": args.location_kind or "local", "path": args.path})
+    if args.url:
+        locations.append({"kind": args.location_kind or "remote", "url": args.url})
+    if not locations:
+        raise SystemExit("source add requires --path or --url")
+    aliases = read_source_aliases(home)
+    project_aliases = read_aliases(home)
+    for alias in args.alias or []:
+        key = alias.lower()
+        if key in aliases and aliases[key] != args.id:
+            raise SystemExit(f"source alias already points elsewhere: {alias} -> {aliases[key]}")
+        if key in project_aliases and project_aliases[key] != args.id:
+            raise SystemExit(f"source alias conflicts with project alias: {alias} -> {project_aliases[key]}")
+    item: dict[str, Any] = {
+        "id": args.id,
+        "kind": args.kind,
+        "name": args.name,
+        "aliases": args.alias or [],
+        "status": args.status,
+        "locations": locations,
+        "authority": args.authority,
+        "owner_ref": args.owner_ref or "",
+        "access_mode": args.access_mode,
+        "sync_mode": args.sync_mode,
+        "backup_status": args.backup_status,
+        "sensitivity": args.sensitivity,
+        "include": args.include or [],
+        "exclude": args.exclude or [],
+        "notes": args.notes or "",
+        "updated_at": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    with registry.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+    for alias in args.alias or []:
+        aliases[alias.lower()] = args.id
+    write_source_aliases(home, aliases)
+    print(f"added source: {args.id}")
+
+
+def source_alias(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    if not any(item.get("id") == args.id for item in read_sources(home)):
+        raise SystemExit(f"explicit source not found: {args.id}")
+    aliases = read_source_aliases(home)
+    project_aliases = read_aliases(home)
+    key = args.alias.lower()
+    if key in aliases and aliases[key] != args.id and not args.force:
+        raise SystemExit(f"source alias already exists: {args.alias} -> {aliases[key]}")
+    if key in project_aliases and project_aliases[key] != args.id:
+        raise SystemExit(f"source alias conflicts with project alias: {args.alias} -> {project_aliases[key]}")
+    aliases[key] = args.id
+    write_source_aliases(home, aliases)
+    print(f"source alias added: {args.alias} -> {args.id}")
+
+
+def source_validate(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    raise SystemExit(0 if validate_sources(home) else 1)
+
+
 def instance_doctor(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     paths = instance_paths(home)
@@ -2055,6 +2307,9 @@ def instance_doctor(args: argparse.Namespace) -> None:
         exists = paths[key].exists()
         print(f"{key}: {paths[key]} {'exists' if exists else 'missing'}")
         ok = ok and exists
+    for key in ["sources", "data"]:
+        exists = paths[key].exists()
+        print(f"{key}: {paths[key]} {'exists' if exists else 'optional/not-initialized'}")
     legacy_ops = home / "ai-ops"
     if legacy_ops.exists() or legacy_ops.is_symlink():
         print(f"legacy path warning: {legacy_ops} exists; canonical OPS vault is {paths['ops']}")
@@ -2065,6 +2320,7 @@ def instance_doctor(args: argparse.Namespace) -> None:
     else:
         print("local compat lll-work: not configured")
     ok = validate_projects(home) and ok
+    ok = validate_sources(home) and ok
     raise SystemExit(0 if ok else 1)
 
 
@@ -2072,6 +2328,7 @@ def status(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     paths = instance_paths(home)
     projects = read_projects(home)
+    sources = compiled_sources(home)
     counts: dict[str, int] = {}
     for p in projects:
         counts[str(p.get("status", "active"))] = counts.get(str(p.get("status", "active")), 0) + 1
@@ -2082,6 +2339,8 @@ def status(args: argparse.Namespace) -> None:
     print(f"Agent runtime skills: {paths['agent_skills']}")
     print(f"Modules: {paths['modules']}")
     print(f"Projects: {len(projects)} {counts}")
+    explicit_source_count = len(read_sources(home))
+    print(f"Sources: {len(sources)} ({explicit_source_count} explicit + {len(sources) - explicit_source_count} project projections)")
 
 
 
@@ -2623,6 +2882,44 @@ def build_parser() -> argparse.ArgumentParser:
     pal.set_defaults(func=project_alias)
     pv = psub.add_parser("validate")
     pv.set_defaults(func=project_validate)
+
+    src = sub.add_parser("source", help="manage and query the federated AIOS Source view")
+    ssub = src.add_subparsers(dest="source_cmd", required=True)
+    sl = ssub.add_parser("list")
+    sl.add_argument("--kind", choices=sorted(SOURCE_KINDS | {"project"}))
+    sl.add_argument("--status", choices=sorted(SOURCE_STATUSES))
+    sl.add_argument("--explicit-only", action="store_true", help="exclude project-registry projections")
+    sl.add_argument("--json", action="store_true")
+    sl.set_defaults(func=source_list)
+    sg = ssub.add_parser("get")
+    sg.add_argument("query")
+    sg.set_defaults(func=source_get)
+    sa = ssub.add_parser("add")
+    sa.add_argument("--id", required=True)
+    sa.add_argument("--name", required=True)
+    sa.add_argument("--kind", required=True, choices=sorted(SOURCE_KINDS))
+    sa.add_argument("--path")
+    sa.add_argument("--url")
+    sa.add_argument("--location-kind", choices=["local", "github", "remote", "view"], help="defaults to local for --path and remote for --url")
+    sa.add_argument("--status", default="active", choices=sorted(SOURCE_STATUSES))
+    sa.add_argument("--alias", action="append")
+    sa.add_argument("--authority", default="source_registry")
+    sa.add_argument("--owner-ref")
+    sa.add_argument("--access-mode", default="read_only_reference", choices=sorted(SOURCE_ACCESS_MODES))
+    sa.add_argument("--sync-mode", default="none", choices=sorted(SOURCE_SYNC_MODES))
+    sa.add_argument("--backup-status", default="unknown", choices=sorted(SOURCE_BACKUP_STATES))
+    sa.add_argument("--sensitivity", default="private", choices=sorted(SOURCE_SENSITIVITY))
+    sa.add_argument("--include", action="append")
+    sa.add_argument("--exclude", action="append")
+    sa.add_argument("--notes")
+    sa.set_defaults(func=source_add)
+    sal = ssub.add_parser("alias")
+    sal.add_argument("alias")
+    sal.add_argument("id")
+    sal.add_argument("--force", action="store_true")
+    sal.set_defaults(func=source_alias)
+    sv = ssub.add_parser("validate")
+    sv.set_defaults(func=source_validate)
 
 
     lll = sub.add_parser("lll", help="discover/proxy Lin's Living Loop workdirs")

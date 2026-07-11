@@ -57,6 +57,7 @@ AIOS 的核心不是自动化一切，也不是功能堆叠，而是建立 Agent
 | 模块 / 能力 | 当前阶段 | 已有最小闭环 | 下一步候选增强 | 暂不做 |
 |---|---|---|---|---|
 | Project / Resource registry | L1 | `aios project ...`、alias、registry 文件 | 更稳定的 JSON/status/doctor 输出 | 完整项目管理系统 |
+| Data Sources | L1 | `aios source list/get/add/alias/validate`、显式 Source records + Project 投影、Managed Zone 目录边界 | 从真实设备接入中补 inventory/backup/sync adapter | 全盘摄取、数据库、通用文件管理器 |
 | Secret management | L1.5 | request → intake → metadata/consumer/replica → run/sync/audit；`doctor`/`validate` 提供低风险探针 | 更通用的 provider preset 文档/模板；仅在真实摩擦出现后考虑可选 proxy/lease | 常驻 broker、默认 proxy、MCP secret tools、plugin 系统 |
 | LLL integration | L1 | `aios lll ...` 发现、创建、状态代理 | 更清楚地表达 AIOS 只代理不吞并 LLL 状态机 | 在 `aios-kit` 中重写 LLL runner |
 | OPS vault | L1 | 模板与 live vault 分离，OPS skill 入口 | 更好资源索引和维护记录模板 | 把公开 repo 变成私有 CMDB |

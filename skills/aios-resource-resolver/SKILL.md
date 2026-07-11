@@ -22,7 +22,8 @@ Do not store large project/resource facts in this skill.
 ## Lookup order
 
 1. Locate the active AIOS registry root:
-   - local/private truth source: `~/aios/vault/ops/projects/`;
+   - local/private project truth source: `~/aios/vault/ops/projects/`;
+   - explicit personal-data Source records: `~/aios/vault/ops/sources/`;
    - public examples only: `registries/*.example.*` inside `aios-kit`.
 2. Read `registry.jsonl` and `aliases.yaml` if available.
 3. Match against `id`, `name`, `aliases`, GitHub repo name, local path basename, and notes.
@@ -125,6 +126,22 @@ When a stable new project/resource fact is discovered:
 4. If it is a reusable public example/schema, update `aios-kit/registries/` instead.
 
 Do not put project facts in this skill unless they are reusable lookup rules.
+
+## AIOS Source view commands
+
+Use this existing resolver skill rather than creating a separate skill merely for data lookup. The CLI is the deterministic actuator; natural-language intent remains the normal human interface.
+
+```bash
+cd ~/projects/aios-kit
+./aios source list --json
+./aios source get <id-or-alias>
+./aios source add --id <id> --name "<name>" --kind data_root --path <path> \
+  --access-mode read_only_reference --sync-mode device_authoritative_mirror \
+  --backup-status planned --sensitivity private
+./aios source validate
+```
+
+`source list` compiles explicit Source records together with Project Registry projections. Do not duplicate a Project's local/GitHub locations in the explicit Source Registry. An inventory/index is derived evidence, not authority; visibility/indexing never grants write permission.
 
 ## Output shape
 

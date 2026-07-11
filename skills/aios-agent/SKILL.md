@@ -22,6 +22,8 @@ Human Intent -> Agent Policy -> Machine Actuation -> State/Evidence
 
 Humans should not need to memorize low-level commands for normal AIOS operation. CLI/API surfaces exist primarily as stable actuators for agents and as fallback/debug tools for maintainers.
 
+For conversational workflow routing, do not require magic phrases such as “use LLL.” Infer the smallest honest mode from intent: keep disposable chat as chat; resolve or create a Matter when the user is pursuing a durable outcome; use LLL automatically when the work needs a recoverable Worksite; and surface retention/promotion suggestions at natural checkpoints rather than interrupting every message. Human wording remains natural language, while Matter/LLL/Source commands are Agent-selected actuators.
+
 ## Source-of-truth boundaries
 
 | Layer | Belongs here | Does not belong here |

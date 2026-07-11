@@ -170,6 +170,8 @@ aios update --dry-run       # Preview updates
 aios update                 # Update modules, OPS templates, and managed skills
 aios update skills          # Refresh managed runtime skills
 aios project list           # View project/resource registry
+aios source list            # View explicit Sources + Project federation projections
+aios source validate        # Validate Source identity/policy/locator structure
 aios lll doctor --json      # Agent-first: check LLL/Code Loop capabilities
 aios lll list --json        # Agent-first: enumerate LLL workdirs
 ```
