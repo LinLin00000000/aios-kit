@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import getpass
+import hashlib
+import html
 import json
 import os
 import re
@@ -95,6 +97,7 @@ def instance_paths(home: Path, *, root: str | None = None, ops: str | None = Non
         "state": root_path / "state",
         "logs": root_path / "logs",
         "cache": root_path / "cache",
+        "view": root_path / "view",
     }
 
 
@@ -764,7 +767,7 @@ def init_instance(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     apply = not bool(getattr(args, "dry_run", False))
     paths = instance_paths(home, root=args.root, ops=args.ops, skills_dir=args.skills_dir)
-    for key in ["root", "config", "vault", "ops", "projects", "sources", "data", "work", "skills", "agent_skills", "modules", "state", "logs", "cache"]:
+    for key in ["root", "config", "vault", "ops", "projects", "sources", "data", "work", "skills", "agent_skills", "modules", "state", "logs", "cache", "view"]:
         mkdir(paths[key], apply=apply)
     for data_dir in ["inbox", "managed", "archive", "quarantine"]:
         mkdir(paths["data"] / data_dir, apply=apply)
@@ -2568,6 +2571,438 @@ def assets_link(args: argparse.Namespace) -> None:
         symlink(src, dst, apply=apply)
 
 
+MATTER_OPEN_STATES = {"active", "paused"}
+MATTER_CLOSED_STATES = {"closed", "archived"}
+DELIVERY_EXTENSIONS = {".md", ".html", ".pdf", ".docx", ".pptx", ".xlsx", ".txt", ".zip"}
+CACHE_DIR_NAMES = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules"}
+
+
+def atomic_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw = tempfile.mkstemp(prefix=path.name + ".tmp-", dir=str(path.parent))
+    tmp = Path(raw)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(value, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def read_json_dict(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def mission_fields(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")[:40000]
+    except OSError:
+        return {}
+    out: dict[str, str] = {}
+    heading = re.search(r"^#\s+(.+?)\s*$", text, re.M)
+    if heading:
+        out["title"] = heading.group(1).strip()
+    for key in ["status", "kind", "project_id", "asset_policy", "retention", "updated_at", "created_at"]:
+        match = re.search(rf"^{re.escape(key)}:\s*([^\n#]+)", text, re.M)
+        if match:
+            out[key] = match.group(1).strip()
+    return out
+
+
+def normalize_matter_lifecycle(raw_status: str, lifecycle: dict[str, Any], location_kind: str) -> tuple[str, bool, str]:
+    explicit = str(lifecycle.get("state") or "").strip().lower()
+    attention = str(lifecycle.get("attention") or "").strip().lower() or "current"
+    status = (raw_status or "").strip().lower()
+    if location_kind in {"archive", "quarantine"}:
+        state = "archived" if location_kind == "archive" else "closed"
+    elif explicit in {"active", "paused", "closed", "archived"}:
+        state = explicit
+    elif any(token in status for token in ["archive", "closed", "cancel", "abandon"]):
+        state = "archived" if "archive" in status else "closed"
+    elif any(token in status for token in ["complete", "done", "succeeded"]):
+        state = "closed"
+    elif any(token in status for token in ["pause", "waiting", "defer", "backlog"]):
+        state = "paused"
+    else:
+        state = "active"
+    reopenable = bool(lifecycle.get("reopenable", state in {"active", "paused"}))
+    return state, reopenable, attention
+
+
+def matter_roots(home: Path) -> list[tuple[str, Path]]:
+    paths = instance_paths(home)
+    candidates = [
+        ("work", paths["work"]),
+        ("quarantine", paths["data"] / "quarantine" / "worksites"),
+        ("archive", paths["data"] / "archive" / "worksites"),
+        ("archive", home / "lll-archive"),
+    ]
+    out: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for kind, root in candidates:
+        try:
+            key = str(root.resolve())
+        except OSError:
+            key = str(root)
+        if key not in seen:
+            seen.add(key)
+            out.append((kind, root))
+    return out
+
+
+def infer_delivery_paths(workdir: Path, matter: dict[str, Any]) -> list[str]:
+    configured_raw = matter.get("delivery")
+    configured: dict[str, Any] = configured_raw if isinstance(configured_raw, dict) else {}
+    featured_raw = configured.get("featured")
+    featured: list[Any] = featured_raw if isinstance(featured_raw, list) else []
+    candidates: list[str] = ["mission.md"]
+    candidates.extend(str(x) for x in featured)
+    if not featured:
+        human_views_raw = matter.get("human_views")
+        human_views: list[Any] = human_views_raw if isinstance(human_views_raw, list) else []
+        for view in human_views:
+            if not isinstance(view, dict) or view.get("status") not in {"current", "accepted", "final", "final_validated_pass_with_notes"}:
+                continue
+            rel = str(view.get("path") or "")
+            if rel and "/" not in rel:
+                candidates.append(rel)
+        if len(candidates) == 1:
+            root_files = []
+            for child in workdir.iterdir():
+                if child.is_file() and child.name != "mission.md" and child.suffix.lower() in DELIVERY_EXTENSIONS:
+                    score = 0
+                    lowered = child.name.lower()
+                    for token, weight in [("final", 8), ("report", 7), ("summary", 6), ("delivery", 6), ("readme", 5), ("plan", 3), ("notes", 1)]:
+                        if token in lowered:
+                            score += weight
+                    root_files.append((-score, -child.stat().st_mtime, child.name))
+            candidates.extend(x[2] for x in sorted(root_files)[:8])
+    limit = int(configured.get("limit") or 12)
+    selected: list[str] = []
+    for rel in candidates:
+        if not rel or rel in selected:
+            continue
+        path = (workdir / rel).resolve()
+        try:
+            path.relative_to(workdir.resolve())
+        except ValueError:
+            continue
+        if path.is_file() and (rel == "mission.md" or path.suffix.lower() in DELIVERY_EXTENSIONS):
+            selected.append(rel)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def compile_matter_record(workdir: Path, *, location_kind: str, home: Path) -> dict[str, Any]:
+    matter_path = workdir / "internal" / "matter.json"
+    matter = read_json_dict(matter_path)
+    mission = mission_fields(workdir / "mission.md")
+    lifecycle_raw = matter.get("lifecycle")
+    lifecycle: dict[str, Any] = lifecycle_raw if isinstance(lifecycle_raw, dict) else {}
+    raw_status = str(matter.get("status") or mission.get("status") or "unknown")
+    state, reopenable, attention = normalize_matter_lifecycle(raw_status, lifecycle, location_kind)
+    matter_id = str(matter.get("id") or f"worksite:{workdir.name}")
+    title = str(matter.get("title") or mission.get("title") or workdir.name)
+    updated = str(matter.get("updated_at") or mission.get("updated_at") or _dt.datetime.fromtimestamp(workdir.stat().st_mtime).astimezone().isoformat(timespec="seconds"))
+    aliases_raw = matter.get("aliases")
+    aliases: list[Any] = aliases_raw if isinstance(aliases_raw, list) else []
+    return {
+        "id": matter_id,
+        "record_type": "matter" if matter else "inferred_worksite",
+        "title": title,
+        "aliases": [str(x) for x in aliases],
+        "status": raw_status,
+        "lifecycle_state": state,
+        "attention": attention,
+        "reopenable": reopenable,
+        "priority": matter.get("priority"),
+        "current_focus": matter.get("current_focus"),
+        "worksite_name": workdir.name,
+        "worksite_path": str(workdir.resolve()),
+        "display_path": display_path(workdir, home),
+        "location_kind": location_kind,
+        "mission_path": str(matter.get("mission_path") or "mission.md"),
+        "delivery_paths": infer_delivery_paths(workdir, matter),
+        "matter_path": str(matter_path) if matter_path.exists() else None,
+        "updated_at": updated,
+    }
+
+
+def compile_matter_index(home: Path) -> dict[str, Any]:
+    records: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for location_kind, root in matter_roots(home):
+        if not root.exists():
+            continue
+        for child in root.iterdir():
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            probable, _ = is_probable_lll_workdir(child)
+            if not probable and not (child / "internal" / "matter.json").exists():
+                continue
+            resolved = str(child.resolve())
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+            records.append(compile_matter_record(child, location_kind=location_kind, home=home))
+    records.sort(key=lambda x: (x.get("updated_at") or "", x["id"]), reverse=True)
+    return {
+        "schema": "aios.matter.index.v1",
+        "generated_at": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "authority": "derived_from_worksite_files",
+        "records": records,
+        "counts": {
+            "total": len(records),
+            **{state: sum(1 for r in records if r["lifecycle_state"] == state) for state in ["active", "paused", "closed", "archived"]},
+            "reopenable": sum(1 for r in records if r["reopenable"]),
+        },
+    }
+
+
+def matter_index_path(home: Path) -> Path:
+    return instance_paths(home)["state"] / "matters" / "index.json"
+
+
+def refresh_matter_index(home: Path, *, write: bool = True) -> dict[str, Any]:
+    index = compile_matter_index(home)
+    if write:
+        atomic_json(matter_index_path(home), index)
+    return index
+
+
+def resolve_matter_record(index: dict[str, Any], query: str) -> dict[str, Any] | None:
+    needle = query.strip().lower()
+    records = index.get("records", [])
+    exact = [r for r in records if needle in {str(r.get("id", "")).lower(), str(r.get("worksite_name", "")).lower(), *(str(x).lower() for x in r.get("aliases", []))}]
+    if len(exact) == 1:
+        return exact[0]
+    matches = [r for r in records if needle in " ".join([str(r.get("id", "")), str(r.get("title", "")), str(r.get("worksite_name", "")), " ".join(r.get("aliases", []))]).lower()]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise SystemExit("ambiguous Matter query: " + ", ".join(str(r["id"]) for r in matches[:10]))
+    return None
+
+
+def matter_index(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    index = refresh_matter_index(home, write=not args.dry_run)
+    if args.json:
+        print(json.dumps(index, ensure_ascii=False, indent=2))
+    else:
+        target = "dry-run" if args.dry_run else str(matter_index_path(home))
+        print(f"Matter index: {target}")
+        print(" ".join(f"{k}={v}" for k, v in index["counts"].items()))
+
+
+def matter_list(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    index = refresh_matter_index(home, write=True)
+    rows = index["records"]
+    if args.state:
+        rows = [r for r in rows if r["lifecycle_state"] == args.state]
+    if args.reopenable:
+        rows = [r for r in rows if r["reopenable"]]
+    if args.query:
+        needle = args.query.lower()
+        exact = [r for r in rows if needle in {r["id"].lower(), r["worksite_name"].lower(), *(str(x).lower() for x in r.get("aliases", []))}]
+        rows = exact or [r for r in rows if needle in " ".join([r["id"], r["title"], r["worksite_name"], " ".join(r.get("aliases", []))]).lower()]
+    if args.limit:
+        rows = rows[:args.limit]
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+    for row in rows:
+        reopen = " reopenable" if row["reopenable"] else ""
+        print(f"- {row['id']} [{row['lifecycle_state']}/{row['attention']}{reopen}] {row['title']} -> {row['display_path']}")
+
+
+def matter_get(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    index = refresh_matter_index(home, write=True)
+    record = resolve_matter_record(index, args.query)
+    if not record:
+        raise SystemExit(f"Matter not found: {args.query}")
+    print(json.dumps(record, ensure_ascii=False, indent=2))
+
+
+def safe_view_id(record: dict[str, Any]) -> str:
+    raw = str(record.get("id") or record.get("worksite_name") or "matter")
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-") or "matter"
+
+
+def render_matter_view(home: Path, index: dict[str, Any]) -> dict[str, Any]:
+    root = instance_paths(home)["view"] / "matters"
+    staging = root.with_name(root.name + ".tmp-" + hashlib.sha256(index["generated_at"].encode()).hexdigest()[:8])
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    open_cards: list[str] = []
+    closed_cards: list[str] = []
+    rendered = 0
+    for record in index["records"]:
+        workdir = Path(record["worksite_path"])
+        if not workdir.exists():
+            continue
+        view_id = safe_view_id(record)
+        item = staging / view_id
+        files = item / "files"
+        files.mkdir(parents=True)
+        links = []
+        for rel in record.get("delivery_paths", []):
+            src = (workdir / rel).resolve()
+            if not src.is_file():
+                continue
+            name = Path(rel).name
+            dst = files / name
+            if dst.exists() or dst.is_symlink():
+                stem, suffix = dst.stem, dst.suffix
+                dst = files / f"{stem}-{hashlib.sha256(rel.encode()).hexdigest()[:6]}{suffix}"
+            dst.symlink_to(src)
+            links.append(f'<li><a href="files/{urllib.parse.quote(dst.name)}">{html.escape(name)}</a></li>')
+        title = html.escape(str(record["title"]))
+        state = html.escape(str(record["lifecycle_state"]))
+        focus = html.escape(str(record.get("current_focus") or ""))
+        item_html = f"""<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title><style>body{{font:16px/1.6 system-ui;max-width:900px;margin:40px auto;padding:0 20px;color:#202124}}a{{color:#175cd3}}.meta{{color:#667085}}li{{margin:.45rem 0}}</style><h1>{title}</h1><p class=\"meta\">{state} · {html.escape(str(record['attention']))} · {html.escape(record['display_path'])}</p><p>{focus}</p><h2>交付物</h2><ul>{''.join(links)}</ul><p><a href=\"../\">返回事务列表</a></p></html>"""
+        (item / "index.html").write_text(item_html, encoding="utf-8")
+        card = f'<li><a href="{urllib.parse.quote(view_id)}/">{title}</a> <span>{state} · {len(links)} files</span></li>'
+        if record.get("reopenable") or record.get("lifecycle_state") in MATTER_OPEN_STATES:
+            open_cards.append(card)
+        else:
+            closed_cards.append(card)
+        rendered += 1
+    top = f"""<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>AIOS Matters</title><style>body{{font:16px/1.6 system-ui;max-width:1000px;margin:40px auto;padding:0 20px;color:#202124}}a{{color:#175cd3}}span{{color:#667085}}li{{margin:.6rem 0}}details{{margin-top:2rem}}</style><h1>AIOS 事务与交付物</h1><p>这是从 Worksite 真源生成的只读视图，不包含 internal 过程目录。</p><h2>打开或可继续</h2><ul>{''.join(open_cards)}</ul><details><summary>已关闭或已归档（{len(closed_cards)}）</summary><ul>{''.join(closed_cards)}</ul></details></html>"""
+    (staging / "index.html").write_text(top, encoding="utf-8")
+    if root.exists() or root.is_symlink():
+        if root.is_symlink() or root.is_file():
+            root.unlink()
+        else:
+            shutil.rmtree(root)
+    os.replace(staging, root)
+    return {"schema": "aios.matter.view.v1", "ok": True, "path": str(root), "rendered": rendered}
+
+
+def matter_view_build(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    index = refresh_matter_index(home, write=True)
+    report = render_matter_view(home, index)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print(f"rendered {report['rendered']} Matter views at {report['path']}")
+
+
+def classify_worksite_closeout(workdir: Path, record: dict[str, Any]) -> dict[str, Any]:
+    cache_candidates: list[dict[str, Any]] = []
+    archive_candidates: list[dict[str, Any]] = []
+    for base, dirs, _files in os.walk(workdir):
+        base_path = Path(base)
+        for name in list(dirs):
+            path = base_path / name
+            rel = path.relative_to(workdir).as_posix()
+            if name in CACHE_DIR_NAMES:
+                size = sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+                cache_candidates.append({"path": rel, "bytes": size, "action": "quarantine_candidate"})
+                dirs.remove(name)
+            elif rel in {"internal/agents", "internal/github-search"}:
+                size = sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+                archive_candidates.append({"path": rel, "bytes": size, "action": "review_then_archive"})
+    return {
+        "schema": "aios.lll.closeout-plan.v1",
+        "generated_at": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "worksite": record,
+        "promote_candidates": record.get("delivery_paths", []),
+        "archive_candidates": archive_candidates,
+        "quarantine_candidates": cache_candidates,
+        "safe_automatic_actions": [],
+        "requires_approval": [x["path"] for x in archive_candidates + cache_candidates],
+        "note": "No file is moved or deleted by this plan. Apply archive/promotion only through a reviewed change set.",
+    }
+
+
+def lll_closeout_plan(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    index = refresh_matter_index(home, write=True)
+    record = resolve_matter_record(index, args.workdir)
+    if record is None:
+        wd = resolve_lll_workdir(home, args.workdir)
+        if wd is None or not wd.exists():
+            raise SystemExit(f"worksite not found: {args.workdir}")
+        record = compile_matter_record(wd, location_kind="work", home=home)
+    plan = classify_worksite_closeout(Path(record["worksite_path"]), record)
+    if args.write:
+        stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        path = instance_paths(home)["state"] / "matters" / "change-sets" / f"{stamp}_{safe_view_id(record)}.json"
+        atomic_json(path, plan)
+        plan["change_set_path"] = str(path)
+    print(json.dumps(plan, ensure_ascii=False, indent=2))
+
+
+def worksite_quarantine_manifest_path(home: Path, token: str) -> Path:
+    return instance_paths(home)["state"] / "matters" / "quarantine" / f"{token}.json"
+
+
+def lll_quarantine(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    index = refresh_matter_index(home, write=True)
+    record = resolve_matter_record(index, args.workdir)
+    if not record:
+        raise SystemExit(f"Matter/worksite not found: {args.workdir}")
+    if record["location_kind"] != "work":
+        raise SystemExit("only a live worksite can be quarantined")
+    if record["lifecycle_state"] in MATTER_OPEN_STATES or record["reopenable"]:
+        raise SystemExit("refusing to quarantine an open/reopenable Matter; close it explicitly first")
+    src = Path(record["worksite_path"])
+    dest_root = instance_paths(home)["data"] / "quarantine" / "worksites"
+    dest = dest_root / src.name
+    token = _dt.datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + hashlib.sha256(str(src).encode()).hexdigest()[:10]
+    manifest = {"schema": "aios.worksite.quarantine.v1", "token": token, "created_at": _dt.datetime.now().astimezone().isoformat(timespec="seconds"), "source": str(src), "destination": str(dest), "matter_id": record["id"], "status": "planned" if not args.apply else "applied"}
+    if args.apply:
+        if dest.exists():
+            raise SystemExit(f"quarantine destination exists: {dest}")
+        dest_root.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dest))
+        atomic_json(worksite_quarantine_manifest_path(home, token), manifest)
+        refresh_matter_index(home, write=True)
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+
+
+def lll_restore(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    manifest_path = worksite_quarantine_manifest_path(home, args.token)
+    manifest = read_json_dict(manifest_path)
+    if not manifest:
+        raise SystemExit(f"quarantine token not found: {args.token}")
+    src = Path(str(manifest["destination"]))
+    dest = Path(str(manifest["source"]))
+    report = {**manifest, "restore_status": "planned" if not args.apply else "restored"}
+    if args.apply:
+        if not src.exists():
+            raise SystemExit(f"quarantined worksite missing: {src}")
+        if dest.exists():
+            raise SystemExit(f"restore destination exists: {dest}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dest))
+        manifest["status"] = "restored"
+        manifest["restored_at"] = _dt.datetime.now().astimezone().isoformat(timespec="seconds")
+        atomic_json(manifest_path, manifest)
+        refresh_matter_index(home, write=True)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
 def discover_lll(home: Path, paths: dict[str, Path] | None = None) -> dict[str, Any]:
     """Find the LLL CLI/helper without making AIOS own LLL state."""
     paths = paths or instance_paths(home)
@@ -2992,6 +3427,28 @@ def build_parser() -> argparse.ArgumentParser:
     sv = ssub.add_parser("validate")
     sv.set_defaults(func=source_validate)
 
+    matter = sub.add_parser("matter", help="build/query the derived Matter index and delivery view")
+    matter_sub = matter.add_subparsers(dest="matter_cmd", required=True)
+    mi = matter_sub.add_parser("index", help="rebuild the derived Matter index from Worksite files")
+    mi.add_argument("--dry-run", action="store_true", help="compile without writing ~/aios/state/matters/index.json")
+    mi.add_argument("--json", action="store_true")
+    mi.set_defaults(func=matter_index)
+    ml = matter_sub.add_parser("list", help="list/search Matters and inferred Worksites")
+    ml.add_argument("--state", choices=["active", "paused", "closed", "archived"])
+    ml.add_argument("--reopenable", action="store_true")
+    ml.add_argument("--query")
+    ml.add_argument("--limit", type=int, default=20)
+    ml.add_argument("--json", action="store_true")
+    ml.set_defaults(func=matter_list)
+    mg = matter_sub.add_parser("get", help="resolve one Matter by id, alias, title, or Worksite name")
+    mg.add_argument("query")
+    mg.set_defaults(func=matter_get)
+    mv = matter_sub.add_parser("view", help="build the curated static Matter/deliverable view")
+    mv_sub = mv.add_subparsers(dest="matter_view_cmd", required=True)
+    mvb = mv_sub.add_parser("build")
+    mvb.add_argument("--json", action="store_true")
+    mvb.set_defaults(func=matter_view_build)
+
 
     lll = sub.add_parser("lll", help="discover/proxy Lin's Living Loop workdirs")
     lll_sub = lll.add_subparsers(dest="lll_cmd", required=True)
@@ -3024,6 +3481,18 @@ def build_parser() -> argparse.ArgumentParser:
     lo.add_argument("--xdg-open", action="store_true")
     lo.add_argument("--json", action="store_true")
     lo.set_defaults(func=lll_open)
+    lcp = lll_sub.add_parser("closeout-plan", help="classify promotion/archive/quarantine candidates without changing files")
+    lcp.add_argument("workdir", help="Matter query or Worksite name/path")
+    lcp.add_argument("--write", action="store_true", help="persist the generated change set under AIOS state")
+    lcp.set_defaults(func=lll_closeout_plan)
+    lq = lll_sub.add_parser("quarantine", help="move a closed, non-reopenable Worksite into reversible quarantine")
+    lq.add_argument("workdir")
+    lq.add_argument("--apply", action="store_true", help="apply; default only prints the manifest")
+    lq.set_defaults(func=lll_quarantine)
+    lr = lll_sub.add_parser("restore", help="restore one Worksite from a quarantine manifest token")
+    lr.add_argument("token")
+    lr.add_argument("--apply", action="store_true", help="apply; default only prints the restore plan")
+    lr.set_defaults(func=lll_restore)
 
     d = sub.add_parser("doctor", help="validate instance, skillpack, and assets")
     d.add_argument("--target", default="universal", choices=["universal", "hermes", "both"])

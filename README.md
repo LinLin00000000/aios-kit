@@ -57,6 +57,7 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 | LLL 模块 | `~/aios/modules/lins-living-loop` | Linux / Windows | 文件化长期任务/Agent 工作流底座 | Windows 原生会安装模块；完整 `lll` CLI 当前仍建议 Git Bash/WSL/Linux |
 | 命令入口 | `~/aios/bin/aios`、`~/aios/bin/lll`；Windows 为 `.ps1/.cmd` shim | Linux / Windows | 给 Agent 和人类提供稳定入口，不依赖记住 repo 路径 | 可选择加入 PATH |
 | 工作目录 | `~/aios/work` | 全平台设计 | LLL / Agent 工作目录，承接长任务、调研、验证、交付物 | 对话外的持久工作层 |
+| Matter 派生索引与视图 | `~/aios/state/matters`、`~/aios/view/matters` | Linux / Windows | 跨 Worksite 查询 active/paused/closed/archived 事务，并只读展示精选交付物 | 可重建，不替代 Worksite 文件真源 |
 | 配置/状态/日志/缓存 | `~/aios/config`、`state`、`logs`、`cache` | 全平台设计 | 保存实例配置、安装状态、日志和缓存 | 避免散落在多个隐式位置 |
 | 私有 vault 边界 | `~/aios/vault/ops` | Linux 默认初始化；Windows 创建核心目录 | 放置 OPS vault、项目注册表、维护记录等私有事实 | 公共模板与真实私有数据分离 |
 | runtime skills 目标目录 | 默认 `~/.agents/skills`，可选 Hermes 目标 | Linux / WSL 完整同步；Windows 原生先初始化目标 | Agent 实际加载 skills 的位置 | 不接管整个 skills 目录，只逐个安装托管 skill |
@@ -80,7 +81,8 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 | `aios doctor` | 校验实例、skillpack 与本地资产配置 | Agent 优先 |
 | `aios update` | 更新模块、OPS 模板和托管 skills | Agent / 维护者 |
 | `aios project ...` | 管理最小项目/资源注册表与 alias | Agent / 维护者 |
-| `aios lll ...` | 发现、创建、打开、检查 LLL workdir，并代理部分 LLL 命令 | Agent 优先 |
+| `aios matter ...` | 重建/查询派生 Matter 索引，按生命周期与可重开状态检索，并生成精选交付物 View；详见 [Matter 生命周期](docs/matter-lifecycle.md) | Agent 优先 |
+| `aios lll ...` | 发现、创建、打开、检查 LLL workdir，生成 closeout change set，并以可恢复 quarantine 代替直接删除 | Agent 优先 |
 | `aios skillpack ...` | 列出、同步、检查托管 runtime skills；维护者可用 `adopt` 把本地新建 skill 接管进 Git 真源 | 维护者 / Agent |
 | `aios assets ...` | 检查或链接本地资产发现 manifest | 维护者 |
 
