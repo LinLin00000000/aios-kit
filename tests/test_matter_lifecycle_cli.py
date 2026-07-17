@@ -94,6 +94,11 @@ class MatterLifecycleCliTests(unittest.TestCase):
         plan = json.loads(self.run_cli("lll", "closeout-plan", "matter_closed").stdout)
         self.assertEqual(plan["schema"], "aios.lll.closeout-plan.v1")
         self.assertIn("final-report.md", plan["promote_candidates"])
+        self.assertNotIn("mission.md", plan["promote_candidates"])
+        self.assertIn("final-report.md", plan["requires_approval"])
+        self.assertEqual(plan["asset_retention_gate"]["status"], "awaiting_agent_assessment")
+        self.assertFalse(plan["asset_retention_gate"]["automatic_promotion"])
+        self.assertTrue(plan["asset_retention_gate"]["requires_explicit_user_trigger"])
         self.assertTrue(any(x["path"].endswith("__pycache__") for x in plan["quarantine_candidates"]))
 
         applied = json.loads(self.run_cli("lll", "quarantine", "matter_closed", "--apply").stdout)

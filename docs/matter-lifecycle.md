@@ -88,10 +88,14 @@ aios lll closeout-plan <matter-or-worksite> --write
 
 计划区分：
 
-- `promote_candidates`：精选成果；
+- `promote_candidates`：可进入语义评估的根交付物候选，不等于已判断值得沉淀；`mission.md` 只保留为工作契约/provenance，不因出现在 View 中自动成为资产候选；
 - `archive_candidates`：重型过程证据，需要审阅后归档；
 - `quarantine_candidates`：缓存等可回收内容；
 - `requires_approval`：不能静默执行的动作。
+
+对调研类交付物，Agent 在 closeout 自然收尾点执行一次 **Asset Retention Gate**：按复用/决策价值、重建成本、独立可读性、证据质量和 owner/维护适配度给出 `0–100` 分、置信度、时效性与具体落点建议。只有 `>=65` 且存在合理 owner 时才主动询问一次；`<65` 默认留在 Worksite，不制造保存弹窗。无论分数多高，当前都不自动 promotion：只有用户明确表达“保存为资产”等意图后，才生成并执行独立 change set。原 Worksite 文件默认保留不动。
+
+`closeout-plan` 只负责机械分类，因此 `asset_retention_gate.status=awaiting_agent_assessment`、`semantic_score=null`。CLI 不假装能用文件名判断知识价值；语义评估由 Agent 完成，授权由 Human 完成，确定性复制/链接/校验再交给 CLI/script。
 
 整个 Worksite 只有在 `closed` 且 `reopenable=false` 时才能进入回收站：
 

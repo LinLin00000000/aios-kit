@@ -2920,16 +2920,23 @@ def classify_worksite_closeout(workdir: Path, record: dict[str, Any]) -> dict[st
             elif rel in {"internal/agents", "internal/github-search"}:
                 size = sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
                 archive_candidates.append({"path": rel, "bytes": size, "action": "review_then_archive"})
+    promote_candidates = [path for path in record.get("delivery_paths", []) if path != "mission.md"]
     return {
         "schema": "aios.lll.closeout-plan.v1",
         "generated_at": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "worksite": record,
-        "promote_candidates": record.get("delivery_paths", []),
+        "promote_candidates": promote_candidates,
         "archive_candidates": archive_candidates,
         "quarantine_candidates": cache_candidates,
         "safe_automatic_actions": [],
-        "requires_approval": [x["path"] for x in archive_candidates + cache_candidates],
-        "note": "No file is moved or deleted by this plan. Apply archive/promotion only through a reviewed change set.",
+        "requires_approval": promote_candidates + [x["path"] for x in archive_candidates + cache_candidates],
+        "asset_retention_gate": {
+            "status": "awaiting_agent_assessment",
+            "semantic_score": None,
+            "automatic_promotion": False,
+            "requires_explicit_user_trigger": True,
+        },
+        "note": "No file is moved, deleted, or promoted by this plan. Promotion candidates still require Agent value assessment and an explicit user-triggered change set.",
     }
 
 
