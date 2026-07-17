@@ -136,8 +136,10 @@ def query_score(query: str, text: str) -> tuple[int, int, int]:
             compact_matches += 1
     if matched == len(terms):
         return (2, matched, compact_matches)
-    # Allow one noisy/missing term in 3+ term natural-language searches.
-    if len(terms) >= 3 and matched >= max(2, len(terms) - 1):
+    # Two strong terms are sufficient for exploratory recall. Conversational
+    # CJK wrappers often remain whole tokens, while object/name ranking keeps
+    # these partial matches below exact hits.
+    if len(terms) >= 3 and matched >= 2:
         return (1, matched, compact_matches)
     return (0, matched, compact_matches)
 

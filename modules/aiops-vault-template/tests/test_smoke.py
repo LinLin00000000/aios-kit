@@ -52,6 +52,19 @@ class SmokeTests(unittest.TestCase):
         out = subprocess.run([sys.executable, str(ROOT / "scripts" / "aiops.py"), "service", "notesweb systemd"], env=env, text=True, stdout=subprocess.PIPE)
         self.assertEqual(out.returncode, 0)
         self.assertIn("notes-web", out.stdout)
+        out = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "aiops.py"),
+                "service",
+                "帮我看看那个 example api 的历史遗留问题有没有解决",
+            ],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+        )
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("example-api", out.stdout)
 
     def test_cli_log_query(self):
         env = os.environ.copy()
