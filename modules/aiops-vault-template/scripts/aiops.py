@@ -4,13 +4,14 @@ from __future__ import annotations
 import argparse, json, os, re, sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 SECRET_PATTERNS = [
     re.compile(r"(?i)(api[_-]?key|token|secret|password|passwd|private[_-]?key|authorization|cookie)\s*[:=]\s*['\"]?[A-Za-z0-9_./+=:-]{12,}"),
     re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----"),
 ]
 DEFAULT_EXCLUDES = {".git", "__pycache__", ".pytest_cache", "archive", "evidence/private"}
+SERVICE_SCHEMA = "aios.ops.service.v1"
 
 def looks_like_vault(path: Path) -> bool:
     return any((path / name).exists() for name in ["resources.md", "resources.example.md", "maintenance-log.jsonl", "maintenance-log.example.jsonl"])
@@ -58,12 +59,12 @@ def cmd_index(args: argparse.Namespace) -> int:
         p = root / name
         status = "present" if p.exists() else "missing"
         print(f"{status:8} {name}")
-    service_dir = root / "services"
-    if service_dir.exists():
-        cards = sorted(service_dir.glob("*/service-card.md"))
-        print(f"services {len(cards)} service-card(s)")
-        for card in cards[:20]:
-            print(f"  - {card.relative_to(root)}")
+    records, errors = load_service_records(root)
+    print(f"services {len(records)} metadata record(s)")
+    for record in records[:20]:
+        print(f"  - {record['id']}: {record['name']} — {record['summary']}")
+    for error in errors:
+        print(f"WARN {error}")
     return 0
 
 def resources_path(root: Path) -> Path:
@@ -97,75 +98,115 @@ def cmd_resources(args: argparse.Namespace) -> int:
         print(text if args.full else "\n".join(text.splitlines()[:120]))
     return 0
 
-def tokenize_query(query: str) -> list[str]:
-    """Split human search text into stable lookup terms."""
-    return [t.lower() for t in re.split(r"[^\w\u4e00-\u9fff]+", query) if t.strip()]
+def normalize_identifier(value: str) -> str:
+    """Normalize only for exact id/name/alias resolution, not semantic matching."""
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", value).casefold()
 
 
-def compact_lookup_text(text: str) -> str:
-    """Normalize text across spaces, hyphens, underscores, punctuation, and case."""
-    return re.sub(r"[^\w\u4e00-\u9fff]+", "", text).lower()
-
-
-def query_score(query: str, text: str) -> tuple[int, int, int]:
-    """Return a sortable relevance score for a human query against text.
-
-    Score shape: (quality, matched_terms, compact_matches)
-    - quality 3: exact substring in the original lowercased text
-    - quality 2: all query terms match, allowing compact matching
-    - quality 1: partial multi-term match, useful for exploratory lookups
-    - quality 0: no meaningful match
-    """
-    q = query.strip().lower()
-    hay = text.lower()
-    if not q:
-        return (0, 0, 0)
-    if q in hay:
-        return (3, len(tokenize_query(query)) or 1, 0)
-    terms = tokenize_query(query)
-    if not terms:
-        return (0, 0, 0)
-    compact_hay = compact_lookup_text(text)
-    matched = 0
-    compact_matches = 0
-    for term in terms:
-        if term in hay:
-            matched += 1
-        elif compact_lookup_text(term) in compact_hay:
-            matched += 1
-            compact_matches += 1
-    if matched == len(terms):
-        return (2, matched, compact_matches)
-    # Two strong terms are sufficient for exploratory recall. Conversational
-    # CJK wrappers often remain whole tokens, while object/name ranking keeps
-    # these partial matches below exact hits.
-    if len(terms) >= 3 and matched >= 2:
-        return (1, matched, compact_matches)
-    return (0, matched, compact_matches)
-
-
-def query_matches_text(query: str, text: str) -> bool:
-    return query_score(query, text)[0] > 0
-
-
-def markdown_row_cells(line: str) -> list[str]:
-    if not line.startswith("|"):
-        return []
-    return [cell.strip() for cell in line.strip().strip("|").split("|")]
-
-
-def ranked_resource_hits(text: str, query: str) -> list[str]:
-    scored: list[tuple[tuple[int, int, int], tuple[int, int, int], int, str]] = []
-    for i, line in enumerate(text.splitlines(), 1):
-        score = query_score(query, line)
-        if score[0] <= 0:
+def load_service_records(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    records, errors = [], []
+    service_dir = root / "services"
+    paths = sorted(service_dir.glob("*/service.json")) if service_dir.exists() else []
+    for metadata_path in paths:
+        rel = metadata_path.relative_to(root)
+        try:
+            record = json.loads(read_text(metadata_path))
+        except json.JSONDecodeError as e:
+            errors.append(f"{rel}: invalid JSON: {e}")
             continue
-        cells = markdown_row_cells(line)
-        primary_text = " | ".join(cells[:2]) if cells else line
-        primary_score = query_score(query, primary_text)
-        scored.append((primary_score, score, -i, line))
-    scored.sort(reverse=True)
-    return [line for _, _, _, line in scored]
+        if not isinstance(record, dict) or record.get("schema") != SERVICE_SCHEMA:
+            errors.append(f"{rel}: expected {SERVICE_SCHEMA} object")
+            continue
+        missing = [key for key in ["id", "name", "summary", "references"] if key not in record]
+        if missing:
+            errors.append(f"{rel}: missing {', '.join(missing)}")
+            continue
+        if not all(isinstance(record[key], str) and record[key].strip() for key in ["id", "name", "summary"]):
+            errors.append(f"{rel}: id/name/summary must be non-empty strings")
+            continue
+        if not isinstance(record["references"], list) or not all(isinstance(ref, dict) for ref in record["references"]):
+            errors.append(f"{rel}: references must be an array of objects")
+            continue
+        aliases = record.get("aliases", [])
+        if not isinstance(aliases, list) or not all(isinstance(alias, str) and alias.strip() for alias in aliases):
+            errors.append(f"{rel}: aliases must be an array of non-empty strings")
+            continue
+        details = record.get("details")
+        if details is not None:
+            details_path = Path(details) if isinstance(details, str) else Path()
+            if not isinstance(details, str) or not details.strip() or details_path.is_absolute() or ".." in details_path.parts:
+                errors.append(f"{rel}: details must be a safe relative path")
+                continue
+            if not (metadata_path.parent / details_path).is_file():
+                errors.append(f"{rel}: missing details file {details}")
+                continue
+        item = dict(record)
+        item["_metadata_path"] = rel.as_posix()
+        item["_details_path"] = (rel.parent / details).as_posix() if details else None
+        records.append(item)
+    seen: dict[str, str] = {}
+    for record in records:
+        key = normalize_identifier(record["id"])
+        if key in seen:
+            errors.append(f"duplicate service id after normalization: {record['id']} / {seen[key]}")
+        seen[key] = record["id"]
+    return records, errors
+
+
+def cmd_services(args: argparse.Namespace) -> int:
+    records, errors = load_service_records(vault_root())
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    catalog = [{"id": r["id"], "name": r["name"], "summary": r["summary"]} for r in records]
+    if args.json:
+        print(json.dumps({"schema": "aios.ops.service-catalog.v1", "services": catalog}, ensure_ascii=False, indent=2))
+    elif catalog:
+        for item in catalog:
+            print(f"{item['id']}\t{item['name']}\t{item['summary']}")
+    else:
+        print("No service metadata records. Add services/<id>/service.json.")
+    return 0
+
+
+def cmd_service(args: argparse.Namespace) -> int:
+    root = vault_root()
+    records, errors = load_service_records(root)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    wanted = normalize_identifier(args.selector)
+    matches = [r for r in records if any(normalize_identifier(v) == wanted for v in [r["id"], r["name"], *r.get("aliases", [])])]
+    if len(matches) != 1:
+        print("service not found by exact id/name/alias; inspect `aiops.py services --json`, choose semantically, then retry with the selected id", file=sys.stderr)
+        return 1
+    record = matches[0]
+    details = read_text(root / record["_details_path"]) if record["_details_path"] else None
+    service = {key: value for key, value in record.items() if not key.startswith("_")}
+    context = {"schema": "aios.ops.service-context.v1", "metadata_path": record["_metadata_path"], "details_path": record["_details_path"], "service": service, "details": details}
+    if args.json:
+        print(json.dumps(context, ensure_ascii=False, indent=2))
+    else:
+        print(f"# {record['name']} ({record['id']})\nSummary: {record['summary']}\nMetadata: {record['_metadata_path']}")
+        if details:
+            print(f"Details: {record['_details_path']}\n\n{details}", end="" if details.endswith("\n") else "\n")
+        else:
+            print("Details: follow metadata references (no dedicated service card)")
+    return 0
+
+
+def text_filter_matches(query: str, text: str) -> bool:
+    """Deterministic all-term filter for host rows/logs; not semantic routing."""
+    q, hay = query.strip().casefold(), text.casefold()
+    if not q:
+        return False
+    if q in hay:
+        return True
+    compact = normalize_identifier(text)
+    terms = [term.casefold() for term in re.split(r"[^\w\u4e00-\u9fff]+", query) if term.strip()]
+    return bool(terms) and all(term in hay or normalize_identifier(term) in compact for term in terms)
 
 
 def search_resources(query: str, mode: str) -> int:
@@ -174,22 +215,13 @@ def search_resources(query: str, mode: str) -> int:
     if not p.exists():
         print(f"missing: {p}", file=sys.stderr)
         return 2
-    resource_text = read_text(p)
-    hits = ranked_resource_hits(resource_text, query)
+    hits = [line for line in read_text(p).splitlines() if text_filter_matches(query, line)]
     print(f"# {mode}: {query}")
     if hits:
         for line in hits[:40]:
             print(line)
     else:
         print("no direct resource row match")
-    if mode == "service":
-        service_dir = root / "services"
-        for card in service_dir.glob("*/service-card.md") if service_dir.exists() else []:
-            card_text = read_text(card)
-            if query_matches_text(query, card.as_posix()) or query_matches_text(query, card_text):
-                print(f"\n# service card: {card.relative_to(root)}")
-                print("\n".join(card_text.splitlines()[:120]))
-                break
     return 0 if hits else 1
 
 def cmd_log(args: argparse.Namespace) -> int:
@@ -202,7 +234,7 @@ def cmd_log(args: argparse.Namespace) -> int:
     selected = lines[-args.tail:] if args.tail else lines
     for line in selected:
         obj = json.loads(line)
-        if args.query and not query_matches_text(args.query, json.dumps(obj, ensure_ascii=False)):
+        if args.query and not text_filter_matches(args.query, json.dumps(obj, ensure_ascii=False)):
             continue
         if args.summary:
             print(f"{obj.get('ts','?')} [{obj.get('type','?')}/{obj.get('status','?')}] {obj.get('scope','?')}: {obj.get('summary','')}")
@@ -245,6 +277,8 @@ def cmd_check(args: argparse.Namespace) -> int:
             for key in ["schema_version", "ts", "type", "scope", "summary", "status"]:
                 if key not in obj:
                     warnings.append(f"maintenance-log.jsonl:{i}: missing recommended key {key}")
+    _, service_errors = load_service_records(root)
+    errors.extend(service_errors)
     gitignore = root / ".gitignore"
     if (root / "secrets-location.md").exists() and (not gitignore.exists() or "secrets-location.md" not in gitignore.read_text(encoding="utf-8", errors="ignore")):
         warnings.append("secrets-location.md exists but .gitignore does not mention it")
@@ -273,7 +307,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("index").set_defaults(func=cmd_index)
     p = sub.add_parser("resources"); p.add_argument("--section"); p.add_argument("--full", action="store_true"); p.set_defaults(func=cmd_resources)
-    p = sub.add_parser("service"); p.add_argument("query"); p.set_defaults(func=lambda a: search_resources(a.query, "service"))
+    p = sub.add_parser("services", help="emit compact id/name/summary catalog for Agent/LLM selection"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_services)
+    p = sub.add_parser("service", help="load one service by exact id, name, or alias"); p.add_argument("selector"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_service)
     p = sub.add_parser("host"); p.add_argument("query"); p.set_defaults(func=lambda a: search_resources(a.query, "host"))
     p = sub.add_parser("log"); p.add_argument("--tail", type=int, default=20); p.add_argument("--summary", action="store_true"); p.add_argument("--query"); p.set_defaults(func=cmd_log)
     p = sub.add_parser("append-log")

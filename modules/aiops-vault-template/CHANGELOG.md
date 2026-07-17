@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- Improved `scripts/aiops.py` service/host lookup with lightweight multi-term natural-language matching, including spacing, hyphen, underscore, punctuation, and case tolerance.
-- Added `log --query` filtering with the same lightweight matcher.
-- Documented fuzzy lookup examples and added smoke tests for the query behavior.
+- Replaced token-overlap service lookup with a compact `services --json` catalog plus exact `service <id> --json` context loading; the calling Agent/LLM now owns semantic selection.
+- Added `service.json` metadata/reference templates and validation while keeping detailed service cards lazily loaded.
+- Kept `host` and `log --query` as explicit deterministic text filters rather than presenting them as semantic natural-language routing.
+- Added provenance-aware public-fixture guidance and synthetic catalog/load smoke tests.
 
 ## 0.1.0 - 2026-06-15
 

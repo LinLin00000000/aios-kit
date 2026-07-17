@@ -14,11 +14,12 @@ This skill is a procedure layer. It does not contain the user's current assets. 
 Use this split:
 
 - `README.md`: stable local rules, file roles, safety boundaries, and project-specific conventions.
-- `resources.md`: current state that should be trusted now.
+- `resources.md`: global current state and cross-service resource relationships.
 - `maintenance-log.jsonl`: append-only history of decisions, maintenance, checks, incidents, and corrections.
 - `secrets-location.md`: secret names, storage locations, access/rotation notes only; never secret values.
-- `services/<service>/service-card.md`: per-service runbooks and details when the central resource file would get too large.
-- `scripts/aiops.py`: low-token command interface over the vault.
+- `services/<service>/service.json`: compact discovery metadata (`id`, `name`, one short `summary`, exact aliases, details path, references).
+- `services/<service>/service-card.md`: optional per-service runbook/details loaded only after selection; otherwise follow the metadata references to the canonical detail source.
+- `scripts/aiops.py`: deterministic catalog/load/filter interface over the vault; it is not the semantic reasoning layer.
 
 Do not infer current infrastructure from this skill. Read the vault and inspect live state where safe.
 
@@ -44,14 +45,18 @@ When operating through an actuator project:
 
 1. Resolve the vault path: `$AIOPS_ROOT` if set, otherwise `~/aios/vault/ops`.
 2. Read the local vault `README.md` first if the task may change files, services, exposure, credentials, or backups.
-3. Run the command layer before full reads:
+3. For a service request, use progressive context loading:
+   - run `python3 "$AIOPS_ROOT/scripts/aiops.py" services --json`;
+   - use the current Agent/LLM to compare the user's intent with each service's `name` and short `summary`;
+   - once one service is selected, run `python3 "$AIOPS_ROOT/scripts/aiops.py" service "<exact-id>" --json` to load its details and references;
+   - if several services remain plausible, ask one outcome-level choice or inspect only those candidates. Do not pass the whole natural-language sentence to a token-overlap matcher and call that semantic routing.
+4. Use the other command slices only when needed:
    - `python3 "$AIOPS_ROOT/scripts/aiops.py" index`
    - `python3 "$AIOPS_ROOT/scripts/aiops.py" resources --section "<section>"`
-   - `python3 "$AIOPS_ROOT/scripts/aiops.py" service "<name>"`
    - `python3 "$AIOPS_ROOT/scripts/aiops.py" host "<name>"`
    - `python3 "$AIOPS_ROOT/scripts/aiops.py" log --tail 20 --summary`
-4. Read full `resources.md`, service cards, or log lines only when the sliced output is insufficient.
-5. Use session history only when live state and vault docs cannot answer the question.
+5. Follow the selected service's references to current state, dynamic state, or filtered history. Read full `resources.md` or logs only when these slices are insufficient.
+6. Use session history only when live state and vault docs cannot answer the question.
 
 ## Safety boundaries
 
@@ -82,11 +87,12 @@ When operating through an actuator project:
 
 ## Write-back rules
 
-- Current state belongs in `resources.md` or a service card, not only in the history log.
+- Global current state belongs in `resources.md`; service-local current state belongs in its service card; discovery metadata stays short and stable in `service.json`. None of them should exist only in the history log.
 - History belongs in `maintenance-log.jsonl`, one valid JSON object per line.
 - New maintenance-log entries must include the schema-required core fields used by `aiops.py check`: `schema_version`, `ts`, `date`, `actor`, `type`, `scope`, `summary`, and `status`. Prefer starting from `templates/log-entry.json` or the local `maintenance-log.schema.md` example instead of ad-hoc JSON.
 - Corrections should be new `correction` or `supersede` entries; do not rewrite history unless the user asks for a migration. If the just-appended line is malformed and `aiops.py check` fails, fix that fresh line immediately before finalizing.
 - Avoid duplicating the same fact across README, resources, service cards, and logs. Pick the owning layer.
+- Do not add long lists of likely user utterances to public fixtures, skills, `resources.md`, or service metadata. Let the Agent perform semantic selection from compact metadata; exact aliases are only canonical names/shorthands.
 - Large raw evidence should live under `evidence/` or outside the vault with a path reference.
 - Do not put session history, deprecated paths, or migration baggage into active skills. Skills should describe the current workflow only; old lessons belong in `maintenance-log.jsonl`, `evidence/`, or current project docs when still useful.
 

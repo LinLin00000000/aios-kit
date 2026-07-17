@@ -6,8 +6,8 @@ It is not a CMDB SaaS, not a password manager, and not a deployment platform. It
 
 ## What this gives you
 
-- **File truth source**: `resources.md` for current state, `maintenance-log.jsonl` for append-only history, optional service cards for local details.
-- **Low-token CLI**: `scripts/aiops.py` extracts only the relevant section, service, host, or log summary before an agent reads full files; service/host/log lookups support lightweight multi-term natural-language matching so operators do not need exact continuous substrings.
+- **File truth source**: `resources.md` for global current state, `services/<id>/service.json` for compact service discovery metadata/references, optional `service-card.md` for dedicated details, and `maintenance-log.jsonl` for append-only history.
+- **Dynamic context CLI**: `scripts/aiops.py services --json` emits only `id + name + summary`; the Agent/LLM selects the relevant service semantically, then `service <id> --json` loads that service's metadata, details, and references. The CLI does not pretend token overlap is semantic understanding.
 - **Thin skills**: portable agent instructions for reading the vault, respecting secret boundaries, verifying changes, and writing back only the right layer.
 - **Safe defaults**: real secrets stay out of Git; the public repo ships examples only.
 
@@ -50,7 +50,12 @@ python3 ~/aios/vault/ops/scripts/aiops.py check
 ├── scripts/
 │   ├── aiops.py                          # low-token query/check CLI
 │   └── install.py                        # safe local installer
+├── services/                              # private instance records; not shipped with real facts
+│   └── <id>/
+│       ├── service.json                   # compact metadata + references
+│       └── service-card.md                # optional detailed runbook/current service context
 ├── templates/
+│   ├── service.json
 │   ├── service-card.md
 │   ├── log-entry.json
 │   └── resources-section.md
@@ -70,11 +75,12 @@ Keep these layers separate:
 
 | Layer | Owns | Should not own |
 |---|---|---|
-| `resources.md` | Current resource state: hosts, services, domains, runtime paths, backup status, unknowns | Long history or raw command dumps |
+| `resources.md` | Global current resource state: hosts, domains, resource pools, cross-service infrastructure, unknowns | Detailed service runbooks or conversational alias lists |
 | `maintenance-log.jsonl` | What changed, why, verification, impact, follow-ups | Current-state truth |
 | `secrets-location.md` | Names and locations of secrets, access/rotation notes | Secret values, tokens, private keys, cookies, recovery codes |
-| `services/<name>/service-card.md` | Detailed per-service runbooks when `resources.md` would get too large | Global inventory of unrelated services |
-| `scripts/aiops.py` | Cheap slices of the vault for humans and agents, including lightweight natural-language lookup for service/host/log queries | A second database of facts |
+| `services/<id>/service.json` | Stable discovery metadata: id, name, one short summary, exact aliases, optional details path, references | Dynamic status dumps, long symptom phrase lists, or secret values |
+| `services/<id>/service-card.md` | Optional detailed runbook/current service context loaded only after selection; metadata references may point to existing canonical detail sources instead | Global inventory of unrelated services |
+| `scripts/aiops.py` | Deterministic catalog/load/filter actuators for the Agent | An embedded LLM, semantic ranking engine, or second fact database |
 | Skills | When and how agents should read, act, verify, and write back | Private inventories or drifting service facts |
 
 ## Core commands
@@ -83,8 +89,9 @@ From the vault root or with `AIOPS_ROOT=/path/to/vault`:
 
 ```bash
 python3 scripts/aiops.py index
+python3 scripts/aiops.py services --json
+python3 scripts/aiops.py service example-api --json
 python3 scripts/aiops.py resources --section "Service Inventory"
-python3 scripts/aiops.py service "example api docker"
 python3 scripts/aiops.py host demo-vps
 python3 scripts/aiops.py log --query "example maintenance" --tail 20 --summary
 python3 scripts/aiops.py check
@@ -100,11 +107,12 @@ python3 scripts/aiops.py check
 
 ## First-use checklist
 
-1. Fill the smallest useful `resources.md`: one host, one service, backup status, and unknowns.
-2. Create your private `secrets-location.md` from the example and keep it out of Git.
-3. Run `python3 scripts/aiops.py index` and `python3 scripts/aiops.py check`.
-4. Ask your agent to use the installed `aiops-vault` skill before operating services.
-5. After the first real maintenance action, append one JSON line to `maintenance-log.jsonl`.
+1. Fill the smallest useful `resources.md`: one host, shared infrastructure, backup status, and unknowns.
+2. For each service the Agent should discover, create `services/<id>/service.json` and keep only a short stable summary plus references there; add the adjacent `service-card.md` only when the service needs its own runbook.
+3. Create your private `secrets-location.md` from the example and keep it out of Git.
+4. Run `python3 scripts/aiops.py services --json` and `python3 scripts/aiops.py check`.
+5. Ask your agent to use the installed `aiops-vault` skill before operating services.
+6. After the first real maintenance action, append one JSON line to `maintenance-log.jsonl`.
 
 ## Updating an installed vault
 

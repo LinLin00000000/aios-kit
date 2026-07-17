@@ -26,8 +26,8 @@ Do not store service facts in this skill. Use the AIOps vault and live inspectio
 ## Operation workflow
 
 1. Load `aiops-vault` first when available.
-2. Identify the target service and host through `aiops.py service <name>` or `resources --section`.
-3. Read the service card or project README if present.
+2. Run `aiops.py services --json`, semantically compare the user's intent with the compact `name + summary` catalog in the current Agent/LLM, then load the selected service with `aiops.py service <exact-id> --json`.
+3. Follow the selected service's details and references. Use `resources --section`, filtered logs, or live inspection only when the loaded context points there.
 4. Inspect runtime state safely:
    - Docker: `docker ps`, `docker compose ps`, `docker compose logs --tail`.
    - systemd: `systemctl status`, `journalctl --since`, `systemctl cat`.

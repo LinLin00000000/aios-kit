@@ -38,3 +38,9 @@ python3 -m unittest discover -s tests
 ```
 
 Then inspect for environment-specific facts: real hostnames, public IPs, private IPs, domains, usernames, home paths, provider account names, and secret-like strings.
+
+Treat provenance as part of privacy, not only string redaction:
+
+- Never copy a private service card, live resource row, maintenance event, or full user utterance into a public regression test and merely rename the service.
+- Reconstruct a synthetic fixture from the generic invariant (`catalog stays compact`, `exact get loads one card`) with fictional names and facts created directly in temporary test space.
+- Review the staged diff and its source boundary before push; a secret scanner cannot prove that private operational context was not repackaged as a public example.

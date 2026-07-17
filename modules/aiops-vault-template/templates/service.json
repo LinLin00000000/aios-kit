@@ -1,0 +1,22 @@
+{
+  "schema": "aios.ops.service.v1",
+  "id": "example-service",
+  "name": "Example Service",
+  "summary": "A short, stable description that lets an Agent decide whether this service is relevant.",
+  "aliases": [
+    "example-service"
+  ],
+  "details": "service-card.md",
+  "references": [
+    {
+      "kind": "current_state",
+      "path": "resources.md",
+      "selector": "Example Service"
+    },
+    {
+      "kind": "history",
+      "path": "maintenance-log.jsonl",
+      "scope": "example-service"
+    }
+  ]
+}

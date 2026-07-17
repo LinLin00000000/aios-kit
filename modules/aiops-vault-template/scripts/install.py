@@ -32,7 +32,7 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     vault = Path(args.vault).expanduser().resolve()
     installed, skipped = [], []
-    mapping = {"README.md":"README.md","resources.example.md":"resources.md","maintenance-log.schema.md":"maintenance-log.schema.md","maintenance-log.example.jsonl":"maintenance-log.jsonl","secrets-location.example.md":"secrets-location.example.md",".gitignore":".gitignore","scripts/aiops.py":"scripts/aiops.py","templates/service-card.md":"templates/service-card.md","templates/log-entry.json":"templates/log-entry.json","templates/resources-section.md":"templates/resources-section.md","docs/security-boundaries.md":"docs/security-boundaries.md"}
+    mapping = {"README.md":"README.md","resources.example.md":"resources.md","maintenance-log.schema.md":"maintenance-log.schema.md","maintenance-log.example.jsonl":"maintenance-log.jsonl","secrets-location.example.md":"secrets-location.example.md",".gitignore":".gitignore","scripts/aiops.py":"scripts/aiops.py","templates/service.json":"templates/service.json","templates/service-card.md":"templates/service-card.md","templates/log-entry.json":"templates/log-entry.json","templates/resources-section.md":"templates/resources-section.md","docs/security-boundaries.md":"docs/security-boundaries.md"}
     for src_rel, dst_rel in mapping.items():
         copy_file(repo/src_rel, vault/dst_rel, args.overwrite, installed, skipped)
     private_secret = vault / "secrets-location.md"
