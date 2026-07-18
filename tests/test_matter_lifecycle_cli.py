@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -21,10 +22,10 @@ class MatterLifecycleCliTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def run_cli(self, *args: str, ok: bool = True) -> subprocess.CompletedProcess[str]:
+    def run_cli(self, *args: str, ok: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         cp = subprocess.run(
             [sys.executable, str(CLI), "--home", str(self.home), *args],
-            cwd=str(ROOT), text=True, capture_output=True,
+            cwd=str(ROOT), text=True, capture_output=True, env={**os.environ, **(env or {})},
         )
         if ok and cp.returncode != 0:
             self.fail(f"command failed {args}:\nstdout={cp.stdout}\nstderr={cp.stderr}")
@@ -58,10 +59,11 @@ class MatterLifecycleCliTests(unittest.TestCase):
         self.assertEqual(index["schema"], "aios.matter.index.v1")
         self.assertEqual(index["counts"]["active"], 1)
         self.assertEqual(index["counts"]["reopenable"], 1)
-        record = json.loads(self.run_cli("matter", "get", "workflow").stdout)
+        record = json.loads(self.run_cli("matter", "get", "workflow", "--json").stdout)
         self.assertEqual(record["id"], "matter_workflow_core")
         self.assertEqual(record["attention"], "paused")
         self.assertEqual(record["delivery_paths"], ["mission.md", "final-report.md"])
+        self.assertEqual(Path(record["matter_path"]), (wd / "internal" / "matter.json").resolve())
         listed = json.loads(self.run_cli("matter", "list", "--reopenable", "--json").stdout)
         self.assertEqual([row["id"] for row in listed], ["matter_workflow_core"])
         exact_list = json.loads(self.run_cli("matter", "list", "--query", "workflow", "--json").stdout)
@@ -77,6 +79,32 @@ class MatterLifecycleCliTests(unittest.TestCase):
         self.assertTrue((item / "index.html").exists())
         self.assertEqual((item / "files" / "mission.md").resolve(), (wd / "mission.md").resolve())
         self.assertFalse((item / "internal").exists())
+
+    def test_matter_queries_compile_current_files_without_writing_index(self) -> None:
+        wd = self.create_worksite(
+            "20260718-100000_read-only-query",
+            matter={
+                "schema": "aios.workflow.state.v0",
+                "id": "matter_read_only",
+                "title": "Read Only Matter",
+                "aliases": ["readonly"],
+                "current_focus": "before",
+                "lifecycle": {"state": "active", "attention": "active", "reopenable": True},
+            },
+        )
+        self.run_cli("matter", "index", "--json")
+        index_path = self.home / "aios" / "state" / "matters" / "index.json"
+        frozen_index = index_path.read_bytes()
+        matter_path = wd / "internal" / "matter.json"
+        matter = json.loads(matter_path.read_text(encoding="utf-8"))
+        matter["current_focus"] = "after"
+        matter_path.write_text(json.dumps(matter), encoding="utf-8")
+
+        current = json.loads(self.run_cli("matter", "get", "readonly").stdout)
+        self.assertEqual(current["current_focus"], "after")
+        listed = json.loads(self.run_cli("matter", "list", "--query", "readonly", "--json").stdout)
+        self.assertEqual(listed[0]["current_focus"], "after")
+        self.assertEqual(index_path.read_bytes(), frozen_index, "read-only queries must not rewrite the derived index")
 
     def test_closeout_plan_and_quarantine_restore(self) -> None:
         wd = self.create_worksite(
@@ -100,6 +128,11 @@ class MatterLifecycleCliTests(unittest.TestCase):
         self.assertFalse(plan["asset_retention_gate"]["automatic_promotion"])
         self.assertTrue(plan["asset_retention_gate"]["requires_explicit_user_trigger"])
         self.assertTrue(any(x["path"].endswith("__pycache__") for x in plan["quarantine_candidates"]))
+        written = json.loads(self.run_cli("lll", "closeout-plan", "matter_closed", "--write").stdout)
+        self.assertIn("plan_path", written)
+        self.assertNotIn("change_set_path", written)
+        self.assertIn("closeout-plans", written["plan_path"])
+        self.assertTrue(Path(written["plan_path"]).is_file())
 
         applied = json.loads(self.run_cli("lll", "quarantine", "matter_closed", "--apply").stdout)
         self.assertFalse(wd.exists())
@@ -123,6 +156,23 @@ class MatterLifecycleCliTests(unittest.TestCase):
         cp = self.run_cli("lll", "quarantine", "matter_open", "--apply", ok=False)
         self.assertNotEqual(cp.returncode, 0)
         self.assertIn("open/reopenable", cp.stderr + cp.stdout)
+
+    def test_lll_status_compact_is_proxied_for_one_workdir(self) -> None:
+        wd = self.create_worksite("20260718-110000_compact-proxy")
+        fake = self.home / "fake-lll"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, sys\n"
+            "print(json.dumps({'schema':'lll.status.v1','argv':sys.argv[1:]}))\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o755)
+        env = {"AIOS_LLL_BIN": str(fake)}
+        report = json.loads(self.run_cli("lll", "status", str(wd), "--compact", "--json", env=env).stdout)
+        self.assertIn("--compact", report["argv"])
+        self.assertIn("--json", report["argv"])
+        missing_workdir = self.run_cli("lll", "status", "--compact", ok=False, env=env)
+        self.assertIn("--compact requires one workdir", missing_workdir.stderr + missing_workdir.stdout)
 
 
 if __name__ == "__main__":

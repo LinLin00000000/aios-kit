@@ -66,7 +66,7 @@ class SourceCliTests(unittest.TestCase):
 
     def test_add_get_list_and_validate(self) -> None:
         self.add_source()
-        item = json.loads(self.run_cli("source", "get", "knowledge").stdout)
+        item = json.loads(self.run_cli("source", "get", "knowledge", "--json").stdout)
         self.assertEqual(item["id"], "notes")
         listed = json.loads(self.run_cli("source", "list", "--json").stdout)
         self.assertEqual([row["id"] for row in listed], ["notes"])
@@ -121,7 +121,8 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(listed[0]["record_type"], "project_projection")
         idea_only = json.loads(self.run_cli("source", "list", "--status", "idea", "--json").stdout)
         self.assertEqual([row["id"] for row in idea_only], ["demo-project"])
-        self.assertEqual(json.loads(self.run_cli("source", "get", "demo").stdout)["id"], "demo-project")
+        self.assertEqual(json.loads(self.run_cli("source", "get", "demo", "--json").stdout)["id"], "demo-project")
+        self.assertEqual(json.loads(self.run_cli("project", "get", "demo", "--json").stdout)["id"], "demo-project")
 
         result = self.run_cli(
             "source", "add",

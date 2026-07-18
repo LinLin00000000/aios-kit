@@ -25,6 +25,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from aios_promotion import validate_promotion as validate_asset_promotion
+
 ROOT = Path(__file__).resolve().parents[1]
 SKILLPACK_FILE = ROOT / "skillpack.yaml"
 SKILLPACK_LOCAL_FILE = ROOT / "skillpack.local.yaml"
@@ -2736,7 +2738,7 @@ def compile_matter_record(workdir: Path, *, location_kind: str, home: Path) -> d
         "location_kind": location_kind,
         "mission_path": str(matter.get("mission_path") or "mission.md"),
         "delivery_paths": infer_delivery_paths(workdir, matter),
-        "matter_path": str(matter_path) if matter_path.exists() else None,
+        "matter_path": str(matter_path.resolve()) if matter_path.exists() else None,
         "updated_at": updated,
     }
 
@@ -2810,7 +2812,7 @@ def matter_index(args: argparse.Namespace) -> None:
 
 def matter_list(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
-    index = refresh_matter_index(home, write=True)
+    index = refresh_matter_index(home, write=False)
     rows = index["records"]
     if args.state:
         rows = [r for r in rows if r["lifecycle_state"] == args.state]
@@ -2832,7 +2834,7 @@ def matter_list(args: argparse.Namespace) -> None:
 
 def matter_get(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
-    index = refresh_matter_index(home, write=True)
+    index = refresh_matter_index(home, write=False)
     record = resolve_matter_record(index, args.query)
     if not record:
         raise SystemExit(f"Matter not found: {args.query}")
@@ -2942,7 +2944,7 @@ def classify_worksite_closeout(workdir: Path, record: dict[str, Any]) -> dict[st
 
 def lll_closeout_plan(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
-    index = refresh_matter_index(home, write=True)
+    index = refresh_matter_index(home, write=False)
     record = resolve_matter_record(index, args.workdir)
     if record is None:
         wd = resolve_lll_workdir(home, args.workdir)
@@ -2952,10 +2954,35 @@ def lll_closeout_plan(args: argparse.Namespace) -> None:
     plan = classify_worksite_closeout(Path(record["worksite_path"]), record)
     if args.write:
         stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-        path = instance_paths(home)["state"] / "matters" / "change-sets" / f"{stamp}_{safe_view_id(record)}.json"
+        path = instance_paths(home)["state"] / "matters" / "closeout-plans" / f"{stamp}_{safe_view_id(record)}.json"
         atomic_json(path, plan)
-        plan["change_set_path"] = str(path)
+        plan["plan_path"] = str(path)
     print(json.dumps(plan, ensure_ascii=False, indent=2))
+
+
+def promotion_validate(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    report = validate_asset_promotion(
+        home,
+        Path(args.path),
+        resolve_owner=lambda owner_id: resolve_source(home, owner_id),
+        work_root=instance_paths(home)["work"],
+    )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    raise SystemExit(0 if report["ok"] else 1)
+
+
+def promotion_undo_check(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    report = validate_asset_promotion(
+        home,
+        Path(args.path),
+        resolve_owner=lambda owner_id: resolve_source(home, owner_id),
+        work_root=instance_paths(home)["work"],
+    )
+    report["schema"] = "aios.asset-promotion-undo-check.v1"
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    raise SystemExit(0 if report["safe_to_remove_target_directory"] else 1)
 
 
 def worksite_quarantine_manifest_path(home: Path, token: str) -> Path:
@@ -3145,6 +3172,8 @@ def lll_list(args: argparse.Namespace) -> None:
 def lll_status(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     if not args.workdir:
+        if args.compact:
+            raise SystemExit("--compact requires one workdir")
         args.limit = getattr(args, "limit", 10)
         args.json = getattr(args, "json", False)
         args.all = False
@@ -3156,6 +3185,8 @@ def lll_status(args: argparse.Namespace) -> None:
     cmd = ["status", str(wd)]
     if args.all:
         cmd.append("--all")
+    if args.compact:
+        cmd.append("--compact")
     raise SystemExit(run_lll_proxy(home, cmd, json_mode=args.json))
 
 
@@ -3377,6 +3408,7 @@ def build_parser() -> argparse.ArgumentParser:
     pl.set_defaults(func=project_list)
     pg = psub.add_parser("get")
     pg.add_argument("query")
+    pg.add_argument("--json", action="store_true", help="accepted for namespace consistency; output is JSON by default")
     pg.set_defaults(func=project_get)
     pa = psub.add_parser("add")
     pa.add_argument("--id", required=True)
@@ -3406,6 +3438,7 @@ def build_parser() -> argparse.ArgumentParser:
     sl.set_defaults(func=source_list)
     sg = ssub.add_parser("get")
     sg.add_argument("query")
+    sg.add_argument("--json", action="store_true", help="accepted for namespace consistency; output is JSON by default")
     sg.set_defaults(func=source_get)
     sa = ssub.add_parser("add")
     sa.add_argument("--id", required=True)
@@ -3449,12 +3482,24 @@ def build_parser() -> argparse.ArgumentParser:
     ml.set_defaults(func=matter_list)
     mg = matter_sub.add_parser("get", help="resolve one Matter by id, alias, title, or Worksite name")
     mg.add_argument("query")
+    mg.add_argument("--json", action="store_true", help="accepted for namespace consistency; output is JSON by default")
     mg.set_defaults(func=matter_get)
     mv = matter_sub.add_parser("view", help="build the curated static Matter/deliverable view")
     mv_sub = mv.add_subparsers(dest="matter_view_cmd", required=True)
     mvb = mv_sub.add_parser("build")
     mvb.add_argument("--json", action="store_true")
     mvb.set_defaults(func=matter_view_build)
+
+    promotion = sub.add_parser("promotion", help="validate applied, explicitly authorized asset promotions")
+    promotion_sub = promotion.add_subparsers(dest="promotion_cmd", required=True)
+    promotion_validate_parser = promotion_sub.add_parser("validate", help="read-only hash, exact-set, owner, and provenance validation")
+    promotion_validate_parser.add_argument("path", help="applied promotion change set or target-local receipt JSON")
+    promotion_validate_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
+    promotion_validate_parser.set_defaults(func=promotion_validate)
+    promotion_undo_parser = promotion_sub.add_parser("undo-check", help="read-only precondition check; never deletes the target")
+    promotion_undo_parser.add_argument("path", help="applied promotion change set or target-local receipt JSON")
+    promotion_undo_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
+    promotion_undo_parser.set_defaults(func=promotion_undo_check)
 
 
     lll = sub.add_parser("lll", help="discover/proxy Lin's Living Loop workdirs")
@@ -3467,6 +3512,7 @@ def build_parser() -> argparse.ArgumentParser:
     ls = lll_sub.add_parser("status", help="proxy to `lll status` for one workdir, or show summary")
     ls.add_argument("workdir", nargs="?")
     ls.add_argument("--all", action="store_true")
+    ls.add_argument("--compact", action="store_true", help="proxy LLL compact status for one workdir")
     ls.add_argument("--json", action="store_true")
     ls.add_argument("--limit", type=int, default=10)
     ls.set_defaults(func=lll_status)
@@ -3490,7 +3536,7 @@ def build_parser() -> argparse.ArgumentParser:
     lo.set_defaults(func=lll_open)
     lcp = lll_sub.add_parser("closeout-plan", help="classify promotion/archive/quarantine candidates without changing files")
     lcp.add_argument("workdir", help="Matter query or Worksite name/path")
-    lcp.add_argument("--write", action="store_true", help="persist the generated change set under AIOS state")
+    lcp.add_argument("--write", action="store_true", help="persist the generated closeout plan under AIOS state; this is not an authorized change set")
     lcp.set_defaults(func=lll_closeout_plan)
     lq = lll_sub.add_parser("quarantine", help="move a closed, non-reopenable Worksite into reversible quarantine")
     lq.add_argument("workdir")

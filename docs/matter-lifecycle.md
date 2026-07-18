@@ -50,6 +50,8 @@ aios matter get "工作流设计"
 
 Agent 收到“继续工作流这个事务”时，应优先检索 `active` / `paused` 且 `reopenable` 的记录，然后从该 Worksite 的 Mission 和 Recovery 恢复。
 
+`matter list/get` 每次从 Worksite 文件现场编译当前结果，但不写 `index.json`；它们可以安全用于只读 reviewer。只有显式 `aios matter index` 持久化派生索引，`matter view build` 在生成 View 时也会刷新索引。
+
 ## 精简交付物视图
 
 Matter 可以声明精选文件：
@@ -86,6 +88,8 @@ aios lll closeout-plan <matter-or-worksite>
 aios lll closeout-plan <matter-or-worksite> --write
 ```
 
+`--write` 将机械分类结果保存到 `~/aios/state/matters/closeout-plans/` 并返回 `plan_path`。这是 closeout plan，不是已评估、已授权或可执行的 promotion change set。
+
 计划区分：
 
 - `promote_candidates`：可进入语义评估的根交付物候选，不等于已判断值得沉淀；`mission.md` 只保留为工作契约/provenance，不因出现在 View 中自动成为资产候选；
@@ -96,6 +100,17 @@ aios lll closeout-plan <matter-or-worksite> --write
 对调研类交付物，Agent 在 closeout 自然收尾点执行一次 **Asset Retention Gate**：按复用/决策价值、重建成本、独立可读性、证据质量和 owner/维护适配度给出 `0–100` 分、置信度、时效性与具体落点建议。只有 `>=65` 且存在合理 owner 时才主动询问一次；`<65` 默认留在 Worksite，不制造保存弹窗。无论分数多高，当前都不自动 promotion：只有用户明确表达“保存为资产”等意图后，才生成并执行独立 change set。原 Worksite 文件默认保留不动。
 
 `closeout-plan` 只负责机械分类，因此 `asset_retention_gate.status=awaiting_agent_assessment`、`semantic_score=null`。CLI 不假装能用文件名判断知识价值；语义评估由 Agent 完成，授权由 Human 完成，确定性复制/链接/校验再交给 CLI/script。
+
+首次真实 promotion 已形成一个窄的只读验证面。对于已应用的 `aios.asset-promotion-change-set.v0` 或目标目录内的 `aios.asset-promotion-receipt.v0`：
+
+```bash
+aios promotion validate <change-set-or-receipt.json>
+aios promotion undo-check <change-set-or-receipt.json>
+```
+
+`validate` 检查 change set ↔ receipt 绑定、Source owner、Managed Zone containment、精确文件集合、源/目标/receipt hash、copy-only/no-overwrite/no-source-mutation 和 Backup Gate 边界。`undo-check` 复用同一只读检查，只报告“目标目录当前是否满足撤销前置条件”；它不删除文件，也不替代人类授权。`backup_status=planned` 时只接受“原 Worksite 独立保留”的 copy-only promotion，不放行 move/delete/overwrite/bulk curation。
+
+当前尚不提供通用 promotion apply engine。评分、owner 判断、授权和 change set 编译继续由 Agent/Human 完成；只有第二次真实 promotion 再次复现同一机械复制/receipt 劳动或 validator 暴露 apply 不一致时，才把 copy-if-absent apply 下沉为同边界 actuator。
 
 整个 Worksite 只有在 `closed` 且 `reopenable=false` 时才能进入回收站：
 

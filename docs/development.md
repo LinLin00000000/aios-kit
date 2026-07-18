@@ -189,7 +189,7 @@ cd ~/projects/aios-kit
 ```bash
 ./aios skillpack doctor --target universal
 ./aios skillpack dev-link --dry-run
-python3 -m py_compile scripts/aios.py scripts/audit_public.py
+python3 -m py_compile scripts/aios.py scripts/aios_promotion.py scripts/audit_public.py
 python3 scripts/audit_public.py
 ```
 
@@ -345,7 +345,7 @@ go test ./...
 go vet ./...
 go build ./cmd/aios-install
 scripts/build_aios_install_release.sh /tmp/aios-install-dist
-python3 -m py_compile scripts/aios.py scripts/audit_public.py
+python3 -m py_compile scripts/aios.py scripts/aios_promotion.py scripts/audit_public.py
 python3 scripts/audit_public.py
 aios update --dry-run
 aios update skills --dry-run
