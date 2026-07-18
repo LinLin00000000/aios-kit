@@ -137,20 +137,21 @@ class SmokeTests(unittest.TestCase):
             self.assertIsNone(referenced_only["details_path"])
             self.assertEqual(referenced_only["service"]["references"][0]["selector"], "notes-web")
 
-            non_exact = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT),
-                    "service",
-                    "unregistered semantic request",
-                ],
-                env=env,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            self.assertEqual(non_exact.returncode, 1)
-            self.assertIn("services --json", non_exact.stderr)
+            for query in (
+                "unregistered semantic request",
+                "please inspect example-api health",
+                "what is wrong with Example API today",
+            ):
+                with self.subTest(non_exact_query=query):
+                    non_exact = subprocess.run(
+                        [sys.executable, str(SCRIPT), "service", query],
+                        env=env,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    self.assertEqual(non_exact.returncode, 1)
+                    self.assertIn("services --json", non_exact.stderr)
 
     def test_cli_log_query(self):
         env = os.environ.copy()
