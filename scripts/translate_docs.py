@@ -260,12 +260,15 @@ def strip_translated_language_switch(text: str) -> str:
 
 
 def rewrite_markdown_links(translated: str, source: Path, target: Path, target_code: str) -> str:
-    """Rewrite links to source Markdown files so generated English docs stay in translations/en.
+    """Rewrite repository-internal Markdown links for the generated file location.
 
     Each generated file header already links back to the Simplified Chinese source.
-    Body links between docs should point to generated English counterparts when available.
+    Body links between translatable docs point to generated counterparts. Links to
+    existing Markdown files without generated counterparts point back to their
+    canonical source paths instead of retaining a now-broken relative path.
     """
     known_sources = {p.resolve(): target_path(p, target_code) for p in source_files()}
+    root = ROOT.resolve()
 
     def repl(match: re.Match[str]) -> str:
         label, url = match.group(1), match.group(2)
@@ -275,10 +278,15 @@ def rewrite_markdown_links(translated: str, source: Path, target: Path, target_c
         if not path_part.endswith(".md"):
             return match.group(0)
         source_target = (source.parent / path_part).resolve()
-        generated = known_sources.get(source_target)
-        if not generated:
+        try:
+            source_target.relative_to(root)
+        except ValueError:
             return match.group(0)
-        rel = os.path.relpath(generated, target.parent).replace(os.sep, "/")
+        generated = known_sources.get(source_target)
+        link_target = generated or (source_target if source_target.is_file() else None)
+        if not link_target:
+            return match.group(0)
+        rel = os.path.relpath(link_target, target.parent).replace(os.sep, "/")
         if sep:
             rel = rel + "#" + fragment
         return f"[{label}]({rel})"

@@ -188,7 +188,7 @@ The default product preference is `upstream-first-with-quality-floor`: when upst
 
 Add a canonical `UPSTREAM.md` to the project repo, using YAML front matter for minimal machine fields and the body to explain human semantics. Do not create a separate YAML source of truth with overlapping content.
 
-Template: [`templates/upstream-reconciliation/UPSTREAM.md`](../templates/upstream-reconciliation/UPSTREAM.md)
+Template: [`templates/upstream-reconciliation/UPSTREAM.md`](../../../templates/upstream-reconciliation/UPSTREAM.md)
 
 Minimum content:
 
@@ -314,7 +314,7 @@ The following must produce a Human Decision: R2+, behavioral conflicting/unknown
 
 A Decision must bind the exact candidate SHA and evidence set; if new commits are added to the candidate, the old approval is invalidated.
 
-Template: [`templates/upstream-reconciliation/decision-card.md`](../templates/upstream-reconciliation/decision-card.md)
+Template: [`templates/upstream-reconciliation/decision-card.md`](../../../templates/upstream-reconciliation/decision-card.md)
 
 ### 7.5 Apply / Deploy / Health / Rollback
 
