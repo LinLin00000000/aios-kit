@@ -66,6 +66,8 @@ update = propose / reconcile / merge / validate，而不是 reset
 
 未来 AIOS 更新工具应优先提供 `status`、`diff`、`doctor`、`propose`、`reconcile` 这类语义，而不是扩大破坏性的 `update --force`。
 
+外部组件、adapter/overlay、patch queue 与 maintained fork 的详细对象模型、风险门禁和最小文件契约见 [上游协调与开源二开维护协议](./upstream-reconciliation.md)。
+
 ## Source、runtime 与 state
 
 不要把所有 repo 都移动到 `aios-kit` 下面。边界应清晰：

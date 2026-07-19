@@ -185,6 +185,7 @@ aios lll list --json        # Agent-first: 枚举 LLL workdirs
 | [docs/installation.md](docs/installation.md) | 安装流程、交互选项、非交互参数 |
 | [docs/mihomo-network.md](docs/mihomo-network.md) | Mihomo 配置、TUN 兼容性、订阅/节点输入 |
 | [docs/architecture.md](docs/architecture.md) | repo 边界、本地结构、source/runtime 模型、关键决策 |
+| [docs/upstream-reconciliation.md](docs/upstream-reconciliation.md) | 外部组件、adapter/overlay、patch queue 与 maintained fork 的上游协调协议 |
 | [docs/evolution.md](docs/evolution.md) | AIOS 演化协议、模块成熟度地图和复杂度预算 |
 | [docs/aios-resource-architecture.md](docs/aios-resource-architecture.md) | AIOS 资源、项目注册表与 resolver 结构 |
 | [docs/security-and-privacy.md](docs/security-and-privacy.md) | 安全与隐私边界、公开发布审计 |
