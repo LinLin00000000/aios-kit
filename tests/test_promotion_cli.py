@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "aios.py"
@@ -210,6 +211,213 @@ class PromotionCliTests(unittest.TestCase):
         tampered = json.loads(self.run_cli("promotion", "undo-check", str(self.receipt_path), ok=False).stdout)
         self.assertFalse(tampered["safe_to_remove_target_directory"])
         self.assertTrue(any("target_hash" in error for error in tampered["errors"]))
+
+
+class PromotionApplyCliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aios-promotion-apply-test-")
+        self.home = Path(self.tmp.name)
+        self.worksite = self.home / "aios" / "work" / "20260719-130000_workflow-core"
+        self.worksite.mkdir(parents=True)
+        (self.worksite / "mission.md").write_text("# Workflow Core\n", encoding="utf-8")
+        self.source = self.worksite / "decision.md"
+        self.source.write_text("# Decision\n\nUse a thin adapter.\n", encoding="utf-8")
+        self.data_root = self.home / "aios" / "data"
+        self.target_dir = self.data_root / "managed" / "product-decisions" / "workflow-core" / "fixture"
+        self.target = self.target_dir / self.source.name
+        self.change_path = self.home / "aios" / "state" / "matters" / "change-sets" / "apply-fixture.json"
+        self.change_path.parent.mkdir(parents=True)
+        self.run_cli(
+            "source", "add",
+            "--id", "aios-managed-zone",
+            "--name", "AIOS Managed Zone",
+            "--kind", "managed_zone",
+            "--path", str(self.data_root),
+            "--owner-ref", "source:aios-managed-zone",
+            "--access-mode", "curate_reversible",
+            "--sync-mode", "server_canonical_replica",
+            "--backup-status", "planned",
+            "--sensitivity", "mixed",
+        )
+        digest = sha256(self.source)
+        size = self.source.stat().st_size
+        self.change = {
+            "schema": "aios.asset-promotion-change-set.v0",
+            "id": "pcs_apply_fixture",
+            "status": "authorized_pending",
+            "matter_ref": "matter_enterprise_ai_workflow_core",
+            "trigger": {"kind": "explicit_user_instruction", "summary": "Persist this asset."},
+            "assessment": {"score": 92, "confidence": "high", "main_caveat": "Fixture."},
+            "source": {
+                "worksite_id": "worksite:20260719-130000_workflow-core",
+                "worksite_path": str(self.worksite),
+                "lifecycle_state": "closed",
+                "validation_verdict": "PASS_WITH_NOTES",
+            },
+            "target": {
+                "owner_ref": "source:aios-managed-zone",
+                "asset_type": "platform_adapter_adr/workflow-core",
+                "asset_id": "workflow-core-fixture",
+                "directory": str(self.target_dir),
+            },
+            "scope": {
+                "selected": [{
+                    "source": str(self.source),
+                    "target": str(self.target),
+                    "sha256": digest,
+                    "bytes": size,
+                }],
+                "excluded": ["mission.md", "internal/**"],
+                "operation": "copy_if_absent",
+                "overwrite": False,
+                "source_mutation": False,
+            },
+            "gates": {
+                "explicit_authorization": "pass",
+                "managed_zone_backup_status": "planned",
+            },
+            "undo": {"reversible": True, "source_restoration_required": False},
+        }
+        self.change_path.write_text(json.dumps(self.change, indent=2) + "\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_cli(self, *args: str, ok: bool = True) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            [sys.executable, str(CLI), "--home", str(self.home), *args],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        if ok and result.returncode != 0:
+            self.fail(f"command failed: {args}\nstdout={result.stdout}\nstderr={result.stderr}")
+        if not ok and result.returncode == 0:
+            self.fail(f"command unexpectedly passed: {args}\nstdout={result.stdout}")
+        return result
+
+    def test_apply_is_dry_run_by_default_then_applies_and_validates(self) -> None:
+        plan = json.loads(self.run_cli("promotion", "apply", str(self.change_path)).stdout)
+        self.assertEqual(plan["schema"], "aios.asset-promotion-apply.v1")
+        self.assertEqual(plan["status"], "planned")
+        self.assertFalse(self.target_dir.exists())
+
+        applied = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply").stdout)
+        self.assertTrue(applied["ok"])
+        self.assertEqual(applied["status"], "applied_validated")
+        self.assertTrue(self.target.is_file())
+        self.assertEqual(sha256(self.target), sha256(self.source))
+
+        validation = json.loads(self.run_cli("promotion", "validate", str(self.change_path)).stdout)
+        self.assertTrue(validation["ok"])
+        replay = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply").stdout)
+        self.assertTrue(replay["ok"])
+        self.assertEqual(replay["status"], "already_applied_validated")
+
+    def test_apply_fails_closed_on_source_hash_mismatch(self) -> None:
+        changed = copy.deepcopy(self.change)
+        changed["scope"]["selected"][0]["sha256"] = "0" * 64
+        self.change_path.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8")
+        report = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply", ok=False).stdout)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("source_hash" in error for error in report["errors"]))
+        self.assertFalse(self.target_dir.exists())
+
+    def test_apply_recovers_target_installed_before_change_set_finalize(self) -> None:
+        first = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply").stdout)
+        self.assertTrue(first["ok"])
+        interrupted = json.loads(self.change_path.read_text(encoding="utf-8"))
+        interrupted["status"] = "authorized_pending"
+        interrupted.pop("result", None)
+        self.change_path.write_text(json.dumps(interrupted, indent=2) + "\n", encoding="utf-8")
+
+        plan = json.loads(self.run_cli("promotion", "apply", str(self.change_path)).stdout)
+        self.assertEqual(plan["status"], "existing_target_ready_to_finalize")
+        recovered = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply").stdout)
+        self.assertTrue(recovered["ok"])
+        self.assertEqual(recovered["status"], "applied_validated")
+        self.assertTrue(json.loads(self.change_path.read_text(encoding="utf-8"))["result"]["source_files_unchanged"])
+
+    def test_apply_rejects_existing_unowned_target_without_overwrite(self) -> None:
+        self.target_dir.mkdir(parents=True)
+        report = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply", ok=False).stdout)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["status"], "target_exists_invalid")
+        self.assertEqual(list(self.target_dir.iterdir()), [])
+
+    def test_apply_rejects_unsafe_boundaries_before_mutation(self) -> None:
+        cases: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
+            ("explicit_authorization", lambda value: value["gates"].update(explicit_authorization="missing")),
+            ("change_set_status", lambda value: value.update(status="draft")),
+            ("change_set_id", lambda value: value.update(id="")),
+            ("source_worksite_id", lambda value: value["source"].update(worksite_id="")),
+            ("asset_id", lambda value: value["target"].update(asset_id="")),
+            ("asset_type", lambda value: value["target"].update(asset_type="")),
+            ("owner", lambda value: value["target"].update(owner_ref="source:missing")),
+            ("copy_only_operation", lambda value: value["scope"].update(operation="copy")),
+            ("overwrite", lambda value: value["scope"].update(overwrite=True)),
+            ("source_mutation", lambda value: value["scope"].update(source_mutation=True)),
+            ("undo", lambda value: value["undo"].update(reversible=False)),
+            ("reserved_name", lambda value: value["scope"]["selected"][0].update(target=str(self.target_dir / "promotion-receipt.json"))),
+        ]
+        for expected, mutate in cases:
+            with self.subTest(expected=expected):
+                changed = copy.deepcopy(self.change)
+                mutate(changed)
+                self.change_path.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8")
+                report = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply", ok=False).stdout)
+                self.assertFalse(report["ok"])
+                self.assertTrue(any(expected in error for error in report["errors"]), report["errors"])
+                self.assertFalse(self.target_dir.exists())
+
+    def test_apply_rejects_target_inside_source_worksite(self) -> None:
+        nested_root = self.worksite / "managed-zone"
+        self.run_cli(
+            "source", "add",
+            "--id", "nested-zone",
+            "--name", "Nested Managed Zone",
+            "--kind", "managed_zone",
+            "--path", str(nested_root),
+            "--owner-ref", "source:nested-zone",
+            "--access-mode", "curate_reversible",
+            "--sync-mode", "server_canonical_replica",
+            "--backup-status", "planned",
+            "--sensitivity", "mixed",
+        )
+        changed = copy.deepcopy(self.change)
+        nested_target = nested_root / "managed" / "fixture"
+        changed["target"].update(owner_ref="source:nested-zone", directory=str(nested_target))
+        changed["scope"]["selected"][0]["target"] = str(nested_target / self.source.name)
+        self.change_path.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8")
+        report = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply", ok=False).stdout)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("source_target_disjoint" in error for error in report["errors"]))
+        self.assertFalse(nested_target.parent.exists())
+
+    def test_apply_rejects_unsupported_backup_state_before_mutation(self) -> None:
+        unknown_root = self.home / "aios" / "unknown-data"
+        self.run_cli(
+            "source", "add",
+            "--id", "unknown-zone",
+            "--name", "Unknown Backup Zone",
+            "--kind", "managed_zone",
+            "--path", str(unknown_root),
+            "--owner-ref", "source:unknown-zone",
+            "--access-mode", "curate_reversible",
+            "--sync-mode", "server_canonical_replica",
+            "--backup-status", "unknown",
+            "--sensitivity", "mixed",
+        )
+        changed = copy.deepcopy(self.change)
+        changed_target_dir = unknown_root / "managed" / "fixture"
+        changed["target"].update(owner_ref="source:unknown-zone", directory=str(changed_target_dir))
+        changed["scope"]["selected"][0]["target"] = str(changed_target_dir / self.source.name)
+        changed["gates"]["managed_zone_backup_status"] = "unknown"
+        self.change_path.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8")
+        report = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply", ok=False).stdout)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("backup_status_supported" in error for error in report["errors"]))
+        self.assertFalse(changed_target_dir.exists())
 
 
 if __name__ == "__main__":

@@ -107,16 +107,18 @@ For research-oriented deliverables, the Agent performs an **Asset Retention Gate
 
 `closeout-plan` is responsible only for mechanical classification, so `asset_retention_gate.status=awaiting_agent_assessment` and `semantic_score=null`. The CLI does not pretend it can judge knowledge value from filenames; semantic evaluation is completed by the Agent, authorization by the Human, and deterministic copy/link/verification is then handed to the CLI/script.
 
-The first real promotion has already formed a narrow read-only validation surface. For an applied `aios.asset-promotion-change-set.v0` or an `aios.asset-promotion-receipt.v0` in the target directory:
+The first real promotion established a narrow read-only validation surface; the second promotion with the same boundary added a minimal copy-if-absent execution surface. An explicitly authorized change set is dry-run by default and copies only with `--apply`:
 
 ```bash
+aios promotion apply <authorized-pending-change-set.json>
+aios promotion apply <authorized-pending-change-set.json> --apply
 aios promotion validate <change-set-or-receipt.json>
 aios promotion undo-check <change-set-or-receipt.json>
 ```
 
-`validate` checks change set ↔ receipt binding, Source owner, Managed Zone containment, exact file set, source/target/receipt hashes, copy-only/no-overwrite/no-source-mutation, and Backup Gate boundaries. `undo-check` reuses the same read-only checks and only reports “whether the target directory currently satisfies the preconditions for undo”; it does not delete files and does not replace human authorization. When `backup_status=planned`, only copy-only promotion where the original Worksite is independently retained is accepted; move/delete/overwrite/bulk curation is not allowed.
+`apply` accepts only an `authorized_pending`, explicitly authorized, Managed-Zone-contained, target-absent, copy-only change set whose source Worksite remains preserved. Change-set, Worksite, and Asset identities; owner, backup boundary, undo, hash, filename, target scope, and source/target directory disjointness must all pass before the first target mutation. It copies into a sibling staging directory, verifies hashes, then uses Linux atomic no-replace directory installation so an existing target is never replaced; it updates the change set afterward. If the process stops after target installation but before the change-set update, a retry verifies the installed directory and receipt and only finishes the change set without copying again. Replaying an already completed change set only revalidates it. On non-Linux platforms where atomic no-replace installation is unavailable, the current actuator fails closed. It does not support move, rename, delete, overwrite, or bulk curation, and it does not replace semantic scoring or Human authorization.
 
-A general promotion apply engine is not currently provided. Scoring, owner judgment, authorization, and change set compilation continue to be completed by the Agent/Human. Only when a second real promotion reproduces the same mechanical copy/receipt labor, or the validator exposes apply inconsistency, should copy-if-absent apply be moved down into an actuator with the same boundaries.
+`validate` checks change set ↔ receipt binding, Source owner, Managed Zone containment, exact file set, source/target/receipt hashes, copy-only/no-overwrite/no-source-mutation, and Backup Gate boundaries. `undo-check` reuses the same read-only checks and only reports “whether the target directory currently satisfies the preconditions for undo”; it does not delete files and does not replace human authorization. When `backup_status=planned`, only copy-only promotion where the original Worksite is independently retained is accepted; move/delete/overwrite/bulk curation is not allowed.
 
 An entire Worksite can enter quarantine only when it is `closed` and `reopenable=false`:
 

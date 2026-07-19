@@ -87,6 +87,7 @@ For more platform, parameter, non-interactive, and troubleshooting details, see:
 | `aios project ...` | Manage the minimal project/resource registry and aliases | Agents / maintainers |
 | `aios matter ...` | Rebuild/query the derived Matter index, search by lifecycle and reopenability state, and generate selected deliverable Views; see [Matter lifecycle](docs/matter-lifecycle.md) | Agents first |
 | `aios lll ...` | Discover, create, open, and inspect LLL workdirs, generate closeout change sets, and use recoverable quarantine instead of direct deletion | Agents first |
+| `aios promotion ...` | Dry-run, copy-if-absent apply, validate, and perform read-only undo checks for explicitly authorized long-term asset promotions | Agents first |
 | `aios skillpack ...` | List, sync, and inspect managed runtime skills; maintainers can use `adopt` to bring locally created skills under the Git source of truth | Maintainers / Agents |
 | `aios assets ...` | Check or link local asset discovery manifests | Maintainers |
 

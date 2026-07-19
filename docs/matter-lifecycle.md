@@ -101,16 +101,18 @@ aios lll closeout-plan <matter-or-worksite> --write
 
 `closeout-plan` 只负责机械分类，因此 `asset_retention_gate.status=awaiting_agent_assessment`、`semantic_score=null`。CLI 不假装能用文件名判断知识价值；语义评估由 Agent 完成，授权由 Human 完成，确定性复制/链接/校验再交给 CLI/script。
 
-首次真实 promotion 已形成一个窄的只读验证面。对于已应用的 `aios.asset-promotion-change-set.v0` 或目标目录内的 `aios.asset-promotion-receipt.v0`：
+首次真实 promotion 形成了窄的只读验证面；第二次同边界 promotion 已补充最小 copy-if-absent 执行面。明确授权的 change set 先 dry-run，只有传入 `--apply` 才复制：
 
 ```bash
+aios promotion apply <authorized-pending-change-set.json>
+aios promotion apply <authorized-pending-change-set.json> --apply
 aios promotion validate <change-set-or-receipt.json>
 aios promotion undo-check <change-set-or-receipt.json>
 ```
 
-`validate` 检查 change set ↔ receipt 绑定、Source owner、Managed Zone containment、精确文件集合、源/目标/receipt hash、copy-only/no-overwrite/no-source-mutation 和 Backup Gate 边界。`undo-check` 复用同一只读检查，只报告“目标目录当前是否满足撤销前置条件”；它不删除文件，也不替代人类授权。`backup_status=planned` 时只接受“原 Worksite 独立保留”的 copy-only promotion，不放行 move/delete/overwrite/bulk curation。
+`apply` 仅接受 `authorized_pending`、显式授权、Managed Zone 内、目标不存在、原 Worksite 保留的 copy-only change set；change set、Worksite 与 Asset 身份，owner、备份边界、undo、hash、文件名、目标范围，以及源/目标目录互不重叠，都必须在首次目标写入前通过。它先在目标同级 staging 复制并核对 hash，再使用 Linux 原子 no-replace 安装目录，绝不替换已有目标；随后写回 change set。若进程恰好在“目标已安装、change set 未更新”之间中断，重试会核对目标目录与 receipt 后只补完 change set，不重复复制。已完成 change set 的重复执行只重新验证。当前执行面遇到不支持原子 no-replace 的非 Linux 平台会 fail closed。它不支持 move、rename、delete、overwrite、bulk curation，也不替代语义评分与 Human 授权。
 
-当前尚不提供通用 promotion apply engine。评分、owner 判断、授权和 change set 编译继续由 Agent/Human 完成；只有第二次真实 promotion 再次复现同一机械复制/receipt 劳动或 validator 暴露 apply 不一致时，才把 copy-if-absent apply 下沉为同边界 actuator。
+`validate` 检查 change set ↔ receipt 绑定、Source owner、Managed Zone containment、精确文件集合、源/目标/receipt hash、copy-only/no-overwrite/no-source-mutation 和 Backup Gate 边界。`undo-check` 复用同一只读检查，只报告“目标目录当前是否满足撤销前置条件”；它不删除文件，也不替代人类授权。`backup_status=planned` 时只接受“原 Worksite 独立保留”的 copy-only promotion，不放行 move/delete/overwrite/bulk curation。
 
 整个 Worksite 只有在 `closed` 且 `reopenable=false` 时才能进入回收站：
 

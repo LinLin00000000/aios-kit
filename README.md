@@ -83,6 +83,7 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 | `aios project ...` | 管理最小项目/资源注册表与 alias | Agent / 维护者 |
 | `aios matter ...` | 重建/查询派生 Matter 索引，按生命周期与可重开状态检索，并生成精选交付物 View；详见 [Matter 生命周期](docs/matter-lifecycle.md) | Agent 优先 |
 | `aios lll ...` | 发现、创建、打开、检查 LLL workdir，生成 closeout change set，并以可恢复 quarantine 代替直接删除 | Agent 优先 |
+| `aios promotion ...` | 对已明确授权的长期资产提升做 dry-run、copy-if-absent 执行、校验与只读撤销检查 | Agent 优先 |
 | `aios skillpack ...` | 列出、同步、检查托管 runtime skills；维护者可用 `adopt` 把本地新建 skill 接管进 Git 真源 | 维护者 / Agent |
 | `aios assets ...` | 检查或链接本地资产发现 manifest | 维护者 |
 

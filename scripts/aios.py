@@ -25,6 +25,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from aios_promotion import apply_promotion as apply_asset_promotion
 from aios_promotion import validate_promotion as validate_asset_promotion
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2960,6 +2961,19 @@ def lll_closeout_plan(args: argparse.Namespace) -> None:
     print(json.dumps(plan, ensure_ascii=False, indent=2))
 
 
+def promotion_apply(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    report = apply_asset_promotion(
+        home,
+        Path(args.path),
+        apply=args.apply,
+        resolve_owner=lambda owner_id: resolve_source(home, owner_id),
+        work_root=instance_paths(home)["work"],
+    )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    raise SystemExit(0 if report["ok"] else 1)
+
+
 def promotion_validate(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     report = validate_asset_promotion(
@@ -3490,8 +3504,13 @@ def build_parser() -> argparse.ArgumentParser:
     mvb.add_argument("--json", action="store_true")
     mvb.set_defaults(func=matter_view_build)
 
-    promotion = sub.add_parser("promotion", help="validate applied, explicitly authorized asset promotions")
+    promotion = sub.add_parser("promotion", help="apply or validate explicitly authorized asset promotions")
     promotion_sub = promotion.add_subparsers(dest="promotion_cmd", required=True)
+    promotion_apply_parser = promotion_sub.add_parser("apply", help="plan or apply a copy-if-absent promotion change set")
+    promotion_apply_parser.add_argument("path", help="explicitly authorized pending promotion change set")
+    promotion_apply_parser.add_argument("--apply", action="store_true", help="perform the copy; default is a read-only plan")
+    promotion_apply_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
+    promotion_apply_parser.set_defaults(func=promotion_apply)
     promotion_validate_parser = promotion_sub.add_parser("validate", help="read-only hash, exact-set, owner, and provenance validation")
     promotion_validate_parser.add_argument("path", help="applied promotion change set or target-local receipt JSON")
     promotion_validate_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
