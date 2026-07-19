@@ -13,66 +13,66 @@
 Keep independent projects independent, and connect them with manifests, modules, registries, and local links:
 
 - `aios-kit`: installer, CLI, public manifest, selected first-party skills, and documentation.
-- `lins-living-loop`: an independent first-party workflow skill / project.
-- `aiops-vault-template`: a public OPS vault template module built into `aios-kit/modules/aiops-vault-template`.
-- `~/aios/vault/ops`: the default and only live OPS vault for a new AIOS instance.
+- `lins-living-loop`: independent first-party workflow skill / project.
+- `aiops-vault-template`: public OPS vault template module built into `aios-kit/modules/aiops-vault-template`.
+- `~/aios/vault/ops`: the default and only live OPS vault for new AIOS instances.
 
 ## Agent-first / Human fallback
 
-The AIOS architecture assumes: **the Agent is the default operator, while humans are authorizers, goal setters, and fallback operators**. Regular users do not need to remember low-level commands; low-level commands exist to give the Agent a stable, verifiable, and recoverable execution surface.
+The AIOS architecture assumes that: **the Agent is the default operator; humans are authorizers, goal setters, and fallback operators**. Regular users do not need to memorize low-level commands. Low-level commands exist so Agents have a stable, verifiable, and recoverable execution surface.
 
 Minimal interaction model:
 
 ```text
 Human Intent -> Agent Policy -> Machine Actuation -> State/Evidence
-Human intent -> Agent policy -> Machine execution -> State/evidence
+人类意图 -> Agent 策略 -> 机器执行 -> 状态/证据
 ```
 
-| Layer | Responsibility | Typical carrier |
+| Layer | Responsibility | Typical carriers |
 |---|---|---|
 | Human Intent | The user expresses goals, constraints, authorization, and acceptance criteria in natural language | Conversations, confirmations, preferences |
 | Agent Policy | The Agent decides what to do, whether it is safe, whether to ask, and which tool to use | skills, repo docs, registry, vault facts, LLL mission |
-| Machine Actuation | Executes deterministic actions, preferably dry-runnable, doctorable, validatable, JSON-producing, and idempotent | `aios` CLI, scripts, MCP tools, APIs, file operations |
-| State/Evidence | Long-term facts, evidence of changes, installation state, maintenance records, and recoverable working context | manifest, registry, vault, install-state, logs, LLL workdir |
+| Machine Actuation | Executes deterministic actions, preferably supporting dry-run, doctor, validate, JSON output, and idempotency | `aios` CLI, scripts, MCP tools, APIs, file operations |
+| State/Evidence | Long-term facts, evidence of changes, installation state, maintenance records, and recoverable work context | manifest, registry, vault, install-state, logs, LLL workdir |
 
 This is not a slogan about “automating everything”; it directly affects repository boundaries and command design:
 
-1. **Stable probes first**: Every long-lived module should expose `doctor`, `status`, `validate`, and `--json` whenever possible, so agents can decide whether to continue.
-2. **Human commands are fallback**: Shell commands in documentation must be copyable, but their main value is to give agents a clear operation surface; under normal circumstances, humans do not need to understand them line by line.
-3. **The control plane does not absorb the state machine**: AIOS can proxy `aios lll ...`, but LLL queues, leases, runners, and artifacts remain managed by the LLL protocol/CLI.
-4. **File-based governance**: Project registries, OPS vaults, installation state, maintenance logs, and LLL workdirs are the shared fact layer across agents.
-5. **Publicly recoverable**: Public repositories must be able to recover key capabilities from a fresh clone, Docker, or a new machine, and must not rely only on implicit symlinks on the author’s machine.
-6. **Self-iteration first**: When an Agent encounters repeated failures, lengthy processes, validation gaps, or unclear tool boundaries in AIOS-related tasks, it should proactively propose or make improvements to skills, documentation, CLI, validation scripts, and workflows.
+1. **Stable probes first**: Every long-term module should expose `doctor`, `status`, `validate`, and `--json` whenever possible, so agents can determine whether they can continue.
+2. **Human commands are fallback**: Shell commands in the documentation should be copyable, but their primary value is to give agents a clear operation surface; under normal circumstances, humans do not need to understand them line by line.
+3. **The control plane does not absorb the state machine**: AIOS can proxy `aios lll ...`, but LLL’s queues, leases, runners, and artifacts remain managed by the LLL protocol/CLI.
+4. **File-based governance**: Project registration, OPS vaults, installation state, maintenance logs, and LLL workdirs are the shared fact layer across agents.
+5. **Publicly recoverable**: Public repositories must be able to recover key capabilities from a fresh clone / Docker / new machine, and must not rely only on implicit symlinks on the author’s machine.
+6. **Self-iteration first**: When an Agent encounters repeated failures, lengthy processes, validation gaps, or unclear tool boundaries in AIOS-related tasks, it should proactively propose or carry out improvements to skills, docs, CLI, validation scripts, and workflows.
 
 ## Progressive Evolution
 
-AIOS architecture evolves according to breadth-first development, progressive enhancement, and synchronized module evolution. A single module should not become too heavy too early while the overall system is still immature; advanced mechanisms should first enter the evolution map, and be implemented only after real friction and trigger conditions appear.
+AIOS architecture evolves by breadth-first development, progressive enhancement, and synchronized module evolution. A single module should not become too heavy too early, ahead of the overall maturity level. Advanced mechanisms enter the evolution map first, and are implemented only after real friction appears and trigger conditions are met.
 
-See the full rules in the [AIOS Evolution Protocol](evolution.md).
+For the full rules, see [AIOS Evolution Protocol](evolution.md).
 
-## Reconciliation Between Upstream and User Instances
+## Merging Upstream and User Instances
 
-`aios-kit` is the seed/upstream, not the sole source of truth that permanently overwrites user instances. The longer a user runs AIOS, the more their instance accumulates its own habits, local overlays, runtime skill edits, private registry, OPS records, and Agent self-iteration improvements. Therefore, updates must be reconciliation, not blind overwrites in the style of traditional software.
+`aios-kit` is the seed/upstream, not the sole long-term source of truth that overwrites user instances. The longer users use AIOS, the more their instances accumulate their own habits, local overlays, runtime skill edits, private registries, OPS records, and Agent self-iteration improvements. Therefore, updates must be reconciliation, not blind overwrites in the style of traditional software.
 
 ```text
 aios-kit upstream = default skeleton + reusable improvements
-user instance = a long-term evolving local organism
+user instance = long-evolving local organism
 update = propose / reconcile / merge / validate, not reset
 ```
 
-Classify objects first during updates:
+Classify objects first when updating:
 
 | Type | Update strategy |
 |---|---|
-| upstream-managed copy | Use install-state/hash to determine whether the local copy was modified; if not modified, update automatically; if modified, offer merge/force options |
+| upstream-managed copy | Use install-state/hash to determine whether it was modified locally; if not, it can be updated automatically; if modified, offer merge/force options |
 | user-owned / local overlay | Belongs to the instance, is not overwritten by public upstream, and does not publish real private facts |
 | runtime skill local edits | Treat as possible user/Agent self-iteration; attempt a three-way merge with upstream or clearly report conflicts |
 | generated/cache | Rebuildable; safely clean according to state records |
-| external/app-owned | AIOS only indexes/checks it; AIOS does not move or take ownership of it |
+| external/app-owned | AIOS only indexes/checks it; it does not move or take ownership of it |
 
 Future AIOS update tools should prioritize semantics such as `status`, `diff`, `doctor`, `propose`, and `reconcile`, rather than expanding destructive `update --force`.
 
-For the detailed object model, risk gates, and minimum file contract for external components, adapters/overlays, patch queues, and maintained forks, see the [Upstream Reconciliation and Open Source Secondary Development Maintenance Protocol](upstream-reconciliation.md).
+For the detailed object model, risk gates, and minimal file contract for external components, adapters/overlays, patch queues, and maintained forks, see [Upstream Coordination and Open Source Derivative Maintenance Protocol](upstream-reconciliation.md).
 
 ## Source, Runtime, and State
 
@@ -82,11 +82,11 @@ Do not move every repo under `aios-kit`. Boundaries should be clear:
 |---|---|---|
 | Distribution source | Installer, CLI, public docs/manifest | `~/projects/aios-kit` or `~/aios/modules/aios-kit` |
 | Modules | Updatable checkout / template | `~/aios/modules/lins-living-loop` |
-| Runtime skills | skills actually loaded by agents | `~/.agents/skills`, `~/.hermes/skills` |
+| Runtime skills | Skills actually loaded by the agent | `~/.agents/skills`, `~/.hermes/skills` |
 | Live vault | Private/current operations facts | `~/aios/vault/ops` |
 | Skillpack state | Safe update/prune records | `~/aios/vault/ops/state/aios-kit/install-state.json` |
 
-External skills are installed through `npx skills`. First-party skills can be installed by copy for regular users, and by symlink on the author’s development machine.
+External skills are installed through `npx skills`. For regular users, first-party skills can be installed by copying; on the author’s development machine, they can be symlinked.
 
 ## Installation Mode and Development Mode
 
@@ -96,13 +96,13 @@ Use the installer for friends or clean machines:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
 ```
 
-When the repository has already been checked out:
+If you have already checked out the repository:
 
 ```bash
 bash install.sh
 ```
 
-During author development, use per-skill symlinks so edits in runtime can land in a Git-visible worktree:
+During author development, symlink skills one by one so edits in runtime land in a Git-visible worktree:
 
 ```bash
 cd ~/projects/aios-kit
@@ -110,33 +110,33 @@ cd ~/projects/aios-kit
 ./aios skillpack doctor
 ```
 
-Do not symlink or replace the entire agent skills directory. Public installation defaults to copying/synchronizing selected skills one by one.
+Do not symlink or replace the entire agent skills directory. Public installation copies/syncs selected skills one by one by default.
 
 ## Local Structure and Linking Strategy
 
-The standard development path is intentionally separate from the runtime installation path:
+The standard development path is intentionally separated from the runtime installation path:
 
 | Object | Path | Strategy |
 |---|---|---|
-| Main suite | `~/projects/aios-kit` | Source of truth for assembly scripts, manifest, and documentation |
+| Main suite | `~/projects/aios-kit` | Source of truth for assembly scripts, manifests, and docs |
 | LLL | `~/projects/lins-living-loop` | Independent first-party source project |
 | AIOps template | `~/projects/aios-kit/modules/aiops-vault-template` | Public reusable template |
 | Live AIOps vault | `~/aios/vault/ops` | Default instance vault; private/current facts |
-| Universal skills | `~/.agents/skills` | Runtime installation target, not automatically the source of truth |
+| Universal skills | `~/.agents/skills` | Runtime installation target; not automatically the source of truth |
 | Hermes skills | `~/.hermes/skills` | Hermes profile runtime skills |
 
 Rules:
 
 1. Templates are not live assets.
-2. Runtime directories become the source of truth only after explicit promotion.
-3. Active first-party skills should be traceable by Git.
+2. Runtime directories become sources of truth only after explicit promotion.
+3. Active first-party skills should be trackable by Git.
 4. Symlinks are for the author’s local development; copy/install is the public default behavior.
-5. Only paths recorded by the current install-state may be automatically pruned.
+5. Only paths recorded in the current install-state may be automatically pruned.
 
 ## Key Decisions
 
 - **Main project name**: Use `aios-kit`; skillpack is a module, not a repo boundary.
 - **LLL remains independent**: `aios-kit` references, links, or copies it, but does not vendor it.
 - **OPS template and live vault are separate**: The template is a reusable starting point; the live vault is user/private state.
-- **Symlink for author development, copy for public distribution**: The author’s machine optimizes for editability; public installation optimizes for portability.
+- **Symlink for author development, copy for public distribution**: The author’s machine is optimized for editability; public installation is optimized for portability.
 - **Manifest + thin scripts, not a new package manager**: `aios-kit` reads `skillpack.yaml`, calls `npx skills` for external skills, and directly copies/symlinks first-party skills.

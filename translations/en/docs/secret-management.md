@@ -8,19 +8,19 @@
 
 The AIOS Secret module is currently a lightweight **Secret Registry + Minimal Secret Runtime**. It is not a general-purpose password manager, nor is it a resident credential agent.
 
-- **Secret Registry**: Registers a secret's identity, purpose, consumer, external replica, request, receipt, and audit, so Agents can safely understand "what capabilities exist, who can use them, and where they are synced."
-- **Secret Runtime**: Safely uses secrets at runtime. The only runtime supported by the current MVP is `aios secret run`, which injects the fields required by a specified consumer into a subprocess's environment variables.
+- **Secret Registry**: Registers a secret’s identity, purpose, consumer, external replica, request, receipt, and audit records, so Agents can safely understand “what capability exists, who can use it, and where it is synced.”
+- **Secret Runtime**: Safely uses secrets at runtime. The only runtime supported by the current MVP is `aios secret run`, which injects the fields required by a specified consumer into a child process as environment variables.
 
-At this stage, resident brokers, HTTP proxies, MCP secret tools, provider plugins, and session leases are not implemented. They should only enter implementation discussion when multiple AI API consumers use secrets at high frequency, env injection presents real risks, or multiple Agents need short-term authorization.
+At this stage, resident brokers, HTTP proxies, MCP secret tools, provider plugins, and session leases are not implemented. They should only enter implementation discussions when multiple AI API consumers use secrets frequently, env injection presents real risks, or multiple Agents need short-term authorization.
 
 ## Boundaries
 
 - Secret state belongs to the AIOS instance: `$AIOS_ROOT/vault/secrets`, defaulting to `~/aios/vault/secrets`.
 - `items/`, `consumers/`, and `replicas/` are long-lived YAML metadata.
-- `requests/pending|done|expired/` are short-lived intake transactions, not long-term sources of truth.
-- `receipts/` and `audit.jsonl` only record state, field names, and validation results. They do not contain secret values.
+- `requests/pending|done|expired/` are short-lived intake transactions, not the long-term source of truth.
+- `receipts/` and `audit.jsonl` record only status, field names, and validation results. They do not contain secret values.
 - `values/` is the local value backend, with permissions tightened to `0600` / `0700`; Agents should not read it directly.
-- App/OS-owned secrets such as SSH and Caddy keep their native paths. AIOS only indexes and validates them; it does not migrate or symlink them.
+- SSH, Caddy, and other app/OS-owned secrets stay in their native paths. AIOS only indexes and validates them; it does not migrate or symlink them.
 
 ## CLI
 
@@ -41,9 +41,9 @@ aios secret run --consumer aios-kit.translation -- python3 scripts/translate_doc
 aios secret index native --ssh --caddy
 ```
 
-`aios secret intake` must run in a real shell/TTY. Password fields use hidden input; the CLI does not provide a `--value` argument and will not write values into receipts, audits, Markdown, or chat logs.
+`aios secret intake` must run in a real shell/TTY. Password fields use hidden input; the CLI does not provide a `--value` argument, and it never writes values to receipts, audit logs, Markdown, or chat history.
 
-All Agent-readable JSON/status output should contain, or equivalently express:
+All JSON/status output readable by Agents should include or equivalently express:
 
 ```json
 {"secret_values_exposed": false}
@@ -51,7 +51,7 @@ All Agent-readable JSON/status output should contain, or equivalently express:
 
 ## Request manifest
 
-Dynamic secret intake should prefer manifests, instead of asking users to paste values into chat or temporarily creating long-lived `.env` files.
+Dynamic secret intake should prefer manifests instead of asking users to paste values into chat or temporarily creating long-lived `.env` files.
 
 Minimal manifest shape:
 
@@ -85,13 +85,13 @@ consumers:
 replicas: []
 ```
 
-Before creating it, you can ask the CLI to validate only, without writing anything:
+Before creation, the CLI can validate only, without writing anything:
 
 ```bash
 aios secret request create --manifest ./request.yaml --dry-run --json
 ```
 
-The CLI rejects request manifests that obviously contain secret values. A manifest is a short-lived transaction file; the long-term sources of truth remain the `items/`, `consumers/`, `replicas/`, `receipts/`, and `audit.jsonl` generated after intake.
+The CLI rejects request manifests that clearly contain secret values. A manifest is a short-lived transaction file; the long-term source of truth is still the `items/`, `consumers/`, `replicas/`, `receipts/`, and `audit.jsonl` generated after intake.
 
 ## Consumer runtime
 
@@ -104,13 +104,13 @@ runtime:
     TRANSLATE_API_KEY: api_key
 ```
 
-Currently only the following is supported:
+Currently, only the following is supported:
 
 ```yaml
 runtime.kind: env
 ```
 
-For compatibility with earlier metadata, top-level `env_map` may still be kept as a mirror:
+For compatibility with earlier metadata, the top-level `env_map` can still be kept as a mirror:
 
 ```yaml
 env_map:
@@ -121,7 +121,7 @@ runtime:
     TRANSLATE_API_KEY: api_key
 ```
 
-If real needs emerge in the future, `runtime.kind: proxy` or leases can be added, but they must remain optional layers and must not pollute the default path.
+If real demand appears in the future, `runtime.kind: proxy` or leases can be added, but they must remain optional layers and must not pollute the default path.
 
 ## Translation API profile
 
@@ -131,7 +131,7 @@ The default request creates:
 - consumer: `aios-kit.translation`
 - replica: `github.aios-kit.translation`
 
-The recommended local translation workflow is to inject environment variables through the consumer:
+The recommended local translation workflow injects environment variables through the consumer:
 
 ```bash
 aios secret run --consumer aios-kit.translation -- python3 scripts/translate_docs.py --check-api --dry-run
@@ -145,13 +145,13 @@ GitHub Actions still reads repo secrets:
 - `TRANSLATE_API_MODE`
 - `TRANSLATE_API_KEY`
 
-Dry-run before syncing:
+Run a dry run before syncing:
 
 ```bash
 aios secret sync github ai-api.translation.default --replica github.aios-kit.translation --dry-run
 ```
 
-After confirming everything is correct, the user can perform the actual sync with `--yes` in a trusted shell. This operation writes to GitHub through `gh secret set` and does not print values.
+After confirming everything is correct, the user can run the actual sync with `--yes` in a trusted shell. This operation writes to GitHub through `gh secret set` and does not print values.
 
 ## Validate / doctor
 
@@ -169,23 +169,23 @@ They check:
 - whether `runtime.env_map` and replica `keys` reference existing item fields;
 - whether request manifests have no value fields, whether field names are duplicated, and whether secret fields have no default values;
 - whether app/OS-owned secrets declare `do_not_move` / `do_not_symlink`;
-- whether metadata, receipts, and audits do not declare exposure of secret values;
-- whether the secret directory, audit, and value backend are not group/world accessible.
+- whether metadata, receipts, and audit logs do not claim to expose secret values;
+- whether the secret directory, audit log, and value backend are not group/world accessible.
 
 ## Legacy env file
 
-`~/aios/config/secrets/aios-kit-translation.env` is only a historical materialization, not a long-term source of truth. `scripts/translate_docs.py` now reads environment variables by default; if temporary compatibility with the legacy file is needed, it must be passed explicitly:
+`~/aios/config/secrets/aios-kit-translation.env` is only a historical materialization, not the long-term source of truth. `scripts/translate_docs.py` now reads environment variables by default; to temporarily support the legacy file, pass it explicitly:
 
 ```bash
 python3 scripts/translate_docs.py --secret-file ~/aios/config/secrets/aios-kit-translation.env --dry-run
 ```
 
-After intake for `ai-api.translation.default` is complete, local runtime validation for `aios-kit.translation` passes, and GitHub replica sync is confirmed, the legacy env file can be deleted and marked as cleaned up in the ops record.
+After intake is complete for `ai-api.translation.default`, local run validation passes for `aios-kit.translation`, and the GitHub replica sync is confirmed, the legacy env file can be deleted and marked as cleaned up in the ops records.
 
 ## Agent operating discipline
 
 - Do not ask users to paste API keys into chat.
-- Do not use Agent tools to read `values/*.json` or legacy env file contents.
+- Do not use Agent tools to read the contents of `values/*.json` or legacy env files.
 - Prefer reading redacted outputs such as `receipt`, `item`, `consumer`, `replica`, `validate --json`, and `doctor --json`.
 - For high-risk operations (deleting legacy env files, changing permissions, actual GitHub sync), dry-run first, then ask the user to confirm.
-- External reports should only contain key names, repo, receipt paths, metadata paths, and status. They must not contain values.
+- External reports should include only key name, repo, receipt path, metadata path, and status, not values.

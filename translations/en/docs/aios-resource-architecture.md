@@ -6,9 +6,9 @@
 
 # AIOS Resource Architecture
 
-AIOS is not a giant folder, but a **resource registry + context resolver + workflow layer**. It points to projects, devices, services, data assets, skills, and vaults, but does not need to own all of their contents.
+AIOS is not a huge folder, but a **resource registry + context resolver + workflow layer**. It points to projects, devices, services, data assets, skills, and vaults, but does not need to own all of their contents.
 
-For the boundaries between repo, source, and runtime, see [architecture.md](architecture.md). This document only describes the semantics of the resource registry.
+For the boundaries between repo, source, and runtime, see [architecture.md](architecture.md). This document only explains the semantics of the resource registry.
 
 ## One-Sentence Architecture
 
@@ -17,17 +17,17 @@ When a user says “LLL project,” the agent should resolve that phrase into a 
 ## Resource Boundaries
 
 ```text
-AIOS                 overall personal digital operating system
-├── AIOps            operations/infrastructure subsystem
-├── Project Graph    creation/project asset subsystem
-├── Data Assets      file/data governance subsystem
-├── Devices          central server and edge node registry
+AIOS                 Overall personal digital operating system
+├── AIOps            Ops/infrastructure subsystem
+├── Project Graph    Creation/project asset subsystem
+├── Data Assets      File/data governance subsystem
+├── Devices          Registry of central servers and edge nodes
 ├── Workflows        LLL, Kanban, cron, agent runners
-├── Identity/Self    preferences, narrative, digital self context
-└── Worlds           digital worlds/long-term creative world layer
+├── Identity/Self    Preferences, narrative, digital self context
+└── Worlds           Digital worlds/long-term creative world layer
 ```
 
-AIOps is a subsystem of AIOS, not the entirety of AIOS.
+AIOps is a subsystem of AIOS, not the entire AIOS.
 
 ## Registry Files
 
@@ -38,16 +38,16 @@ The default project registry is located inside the instance OPS vault:
 ~/aios/vault/ops/projects/aliases.yaml
 ```
 
-Explicit personal-data Source records live at:
+Explicit records for personal data Sources are located at:
 
 ```text
 ~/aios/vault/ops/sources/registry.jsonl
 ~/aios/vault/ops/sources/aliases.yaml
 ```
 
-This is not a second global path table. `aios source list` compiles explicit Source records with Project Registry projections into a unified view. The Project Registry continues to own local checkout and GitHub remote facts. Full file paths, hashes, mtimes, and retrieval indexes remain rebuildable projections/caches.
+This is not a second global master path table. `aios source list` compiles explicit Source records and Project Registry projections into a unified view; the local checkout and GitHub remote of a Project are still owned as facts by the Project Registry. Full file paths, hashes, mtimes, and retrieval indexes can only be rebuildable projections/caches.
 
-New public installations treat `~/aios/vault/ops` as the default live vault; do not maintain additional compatibility entry points for the OPS vault.
+New public installations treat `~/aios/vault/ops` as the default live vault; do not maintain an additional compatibility entry point for the OPS vault.
 
 ## Resource Structure
 
@@ -75,7 +75,7 @@ Project/resource entries should be explicit and file-based:
 
 ## Resource/Project Registry CLI
 
-When the CLI is available, prefer using the CLI instead of editing manually:
+When the CLI is available, prefer the CLI instead of editing manually:
 
 ```bash
 aios project list
@@ -88,7 +88,7 @@ aios project validate
 
 ## Source Registry CLI
 
-The Agent understands natural-language intent, then uses the CLI for deterministic structural mutation. Humans normally do not need to memorize these commands; they are Agent actuators and troubleshooting entry points:
+Agents understand the target through natural language, then use the CLI to make deterministic structural changes. Humans usually do not need to memorize commands; the following commands are the agent actuator and troubleshooting entry points:
 
 ```bash
 aios source list
@@ -101,13 +101,13 @@ aios source alias <alias> <id>
 aios source validate
 ```
 
-`source list` also shows read-only Project Registry projections by default; `--explicit-only` shows only explicit Source records. The CLI does not scan whole disks, move files, create retrieval truth, or equate indexing with write authority.
+By default, `source list` also displays the read-only projection of the Project Registry; `--explicit-only` displays only explicit Source records. The CLI does not scan the entire disk, move files, create a retrieval source of truth, or treat indexed as equivalent to writable.
 
 Key Source-level boundaries:
 
 - `access_mode`: `read_only_reference` / `maintain_in_place` / `curate_reversible` / `source_specific`;
 - `sync_mode`: `none` / `device_authoritative_mirror` / `managed_bidirectional` / `server_canonical_replica` / `metadata_only_remote`;
-- `backup_status`: only `verified` means actual restore evidence passed, not merely that a copy appears to exist.
+- `backup_status`: only `verified` means there is actual recovery evidence, not merely that “a copy seems to exist.”
 
 ## Resolver Flow
 
@@ -119,10 +119,10 @@ When resolving a resource mentioned by the user, the agent should:
 4. Prefer the local path when it exists and permissions allow it;
 5. Fall back to GitHub, remote devices, or other locations when necessary;
 6. Respect sensitivity and write permissions;
-7. Ask the user only when an alias is genuinely ambiguous.
+7. Ask the user only when the alias is truly ambiguous.
 
 ## Skill Strategy
 
 Keep skills thin enough: skills describe **how to resolve and operate**, while registries store **what things exist**.
 
-Start with a single umbrella skill, `aios-resource-resolver`. Only split out a new skill when a subsystem becomes complex enough to need an independent workflow, such as `project-graph`, `data-governance`, `device-and-edge`, or `digital-self-context`.
+Start with one umbrella skill, `aios-resource-resolver`. Only split out a new skill when a subsystem becomes complex enough to require an independent workflow, such as `project-graph`, `data-governance`, `device-and-edge`, or `digital-self-context`.

@@ -6,18 +6,18 @@
 
 # Mihomo Network Configuration
 
-AIOS's network bootstrap goal is: when a new Linux server cannot directly reach the public Internet, it can quickly obtain a controllable, recoverable, and auditable proxy layer.
+The goal of AIOS network bootstrap is: if a new Linux server cannot directly access the Internet, it can quickly obtain a controllable, recoverable, and auditable proxy layer.
 
-## Current Positioning
+## Current Scope
 
 Default installation location:
 
 ```text
 ~/aios/network/mihomo/
-  build.py          # configuration generation script
-  policy.toml       # non-sensitive policy configuration
-  .env.example      # private env example
-  secrets/.env      # private provider order and subscription URLs
+  build.py          # Script for generating configuration
+  policy.toml       # Non-sensitive policy configuration
+  .env.example      # Private env example
+  secrets/.env      # Private provider order and subscription URLs
   secrets/config.yaml
   secrets/providers/
 ```
@@ -29,9 +29,9 @@ Linux/systemd service:
 ExecStart=<mihomo-bin> -d ~/aios/network/mihomo -f ~/aios/network/mihomo/secrets/config.yaml
 ```
 
-Windows/macOS should not directly reuse systemd/TUN/CAP_NET_ADMIN behavior. Use the template as a reference and let an Agent adapt it for the local environment.
+Windows/macOS should not directly reuse systemd/TUN/CAP_NET_ADMIN behavior; they can refer to the template and have the Agent adapt it to the local environment.
 
-## Fastest Start
+## Quickest Start
 
 Enter a single provider during installation:
 
@@ -85,18 +85,18 @@ MIHOMO_PROVIDER_MAIN_URL=...
 MIHOMO_PROVIDER_BACKUP_URL=...
 ```
 
-`policy.toml` only stores non-sensitive policy: groups, rules, and default switches. Provider inventory, order, and subscription URLs do not belong in `policy.toml`.
+`policy.toml` only contains non-sensitive policies: groups, rules, and default switches. The provider list, order, and subscription URLs are not written to `policy.toml`.
 
-The rule base can be selected through `[rules].mode`:
+The rule base can be selected via `[rules].mode`:
 
-- `geox`: uses `geosite.dat` / `geoip.dat`; fewer files and a smaller startup surface, suitable as the AIOS Kit network bootstrap default.
-- `rule-set`: uses DustinWin `mihomo-ruleset` MRS/list `rule-providers`; finer categories, suitable for long-running daily proxy configurations.
+- `geox`: Uses `geosite.dat` / `geoip.dat`. It has fewer files and a smaller startup surface, making it suitable as the default for AIOS Kit network bootstrap.
+- `rule-set`: Uses DustinWin `mihomo-ruleset` MRS/list `rule-providers`. It provides finer-grained categories and is suitable for long-term daily proxy configuration.
 
-If `--proxy-proxies-file` is used, or if you have a self-managed node snippet after installation, the installer calls `python3 build.py build-local --proxies-file <path>` and still writes `secrets/config.yaml`. It no longer depends on the old separate YAML template.
+If `--proxy-proxies-file` is used, or if there is a self-hosted node snippet after installation, the installer will run `python3 build.py build-local --proxies-file <path>`, continue writing to `secrets/config.yaml`, and no longer depend on a separate legacy YAML template.
 
 ## AIOS Secret Runtime
 
-`build.py` reads `secrets/.env` first and then lets current process environment variables override it. This naturally supports AIOS Secret Runtime:
+`build.py` first reads `secrets/.env`, then overrides it with environment variables from the current process. Therefore, it naturally supports AIOS Secret Runtime:
 
 ```bash
 cd ~/aios/network/mihomo
@@ -104,7 +104,7 @@ aios secret run --consumer network.mihomo.default -- python3 build.py build
 aios secret run --consumer network.mihomo.default -- python3 build.py check
 ```
 
-The consumer's core job is mapping secret fields to the env variables required by the Mihomo build:
+The core of the consumer is mapping secret fields to the env required by the Mihomo build:
 
 ```yaml
 runtime:
@@ -114,11 +114,11 @@ runtime:
     MIHOMO_PROVIDER_MAIN_URL: main_url
 ```
 
-An Agent may help generate request/consumer metadata, but must not read or paste real subscription URLs.
+The Agent can help generate request/consumer metadata, but it must not read or paste real subscription URLs.
 
 ## Agent-Assisted Configuration
 
-Safe entries for an Agent:
+Safe entry points for the Agent:
 
 ```bash
 python3 build.py doctor
@@ -126,21 +126,21 @@ python3 build.py preview
 python3 build.py check
 ```
 
-Do not let an Agent read or print:
+Do not let the Agent read or print:
 
 ```text
 secrets/.env
 secrets/config.yaml
 secrets/providers/**
 provider cache
-any subscription URL, UUID, password, or token
+Any subscription URL, UUID, password, token
 ```
 
-`preview` redacts URLs and is suitable for reviewing policy structure. Only `build` writes the sensitive generated artifact.
+`preview` redacts URLs and is suitable for reviewing the policy structure; only `build` writes sensitive generated artifacts.
 
-## Is TUN Configuration Universal?
+## Is the TUN Configuration Universal?
 
-The current template is suitable as a Linux server default, but it is not an absolutely universal cross-platform configuration:
+The current template is suitable as the default for Linux servers, but it is not an absolutely universal cross-platform configuration:
 
 ```yaml
 tun:
@@ -155,4 +155,4 @@ tun:
   endpoint-independent-nat: true
 ```
 
-Linux cloud servers usually work, but require root/systemd capability, `CAP_NET_ADMIN`, and kernel TUN support. macOS/Windows are better configured through their local clients or a dedicated adaptation flow.
+It is usually usable on Linux cloud servers, but requires root/systemd capabilities, `CAP_NET_ADMIN`, and kernel TUN support. macOS/Windows are better configured through a local client or a dedicated adaptation process.
