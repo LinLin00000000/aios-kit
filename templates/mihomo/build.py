@@ -64,6 +64,7 @@ BASE_RULES = [
 ]
 
 RULE_MODES = {"geox", "rule-set"}
+DNS_MODES = {"fake-ip", "redir-host"}
 
 # AIOS keeps Tailscale and private LAN/CIDR direct rules in front of both rule
 # engines. The rule-set mode below otherwise follows the DustinWin mihomo-ruleset
@@ -192,6 +193,7 @@ class BuildSpec:
     base_proxy: bool = True
     base_rules: bool = True
     rules_mode: str = "geox"
+    dns_mode: str = "fake-ip"
     tun_enable: bool = True
 
 
@@ -486,6 +488,13 @@ def load_toml_spec(config_path: Path, providers: list[Provider]) -> BuildSpec:
     base_proxy = toml_bool(defaults, "base_proxy", default=True)
     base_rules = toml_bool(defaults, "base_rules", default=True)
     tun_enable = toml_bool(defaults, "tun_enable", default=True)
+    dns_mode = toml_choice(
+        defaults,
+        "dns_mode",
+        default="fake-ip",
+        allowed=DNS_MODES,
+        source="policy.toml defaults.dns_mode",
+    )
 
     if "providers" in data:
         raise BuilderError(
@@ -524,6 +533,7 @@ def load_toml_spec(config_path: Path, providers: list[Provider]) -> BuildSpec:
         base_proxy=base_proxy,
         base_rules=base_rules,
         rules_mode=rules_mode,
+        dns_mode=dns_mode,
         tun_enable=tun_enable,
     )
 
@@ -545,6 +555,13 @@ def load_local_policy_spec(base_dir: Path) -> BuildSpec:
         raise BuilderError("policy.toml [defaults] must be a table")
     base_rules = toml_bool(defaults, "base_rules", default=True)
     tun_enable = toml_bool(defaults, "tun_enable", default=True)
+    dns_mode = toml_choice(
+        defaults,
+        "dns_mode",
+        default="fake-ip",
+        allowed=DNS_MODES,
+        source="policy.toml defaults.dns_mode",
+    )
 
     rules_table = data.get("rules", {})
     if rules_table is None:
@@ -569,6 +586,7 @@ def load_local_policy_spec(base_dir: Path) -> BuildSpec:
         base_proxy=False,
         base_rules=base_rules,
         rules_mode=rules_mode,
+        dns_mode=dns_mode,
         tun_enable=tun_enable,
     )
 
@@ -691,27 +709,34 @@ def ruleset_providers() -> dict[str, Any]:
     return providers
 
 
-def dns_config(rules_mode: str) -> dict[str, Any]:
-    fake_ip_filter = [
-        "rule-set:fakeip-filter" if rules_mode == "rule-set" else "geosite:fakeip-filter",
-        "tailscale.com",
-        "*.tailscale.com",
-        "*.ts.net",
-    ]
-    return {
+def dns_config(rules_mode: str, dns_mode: str) -> dict[str, Any]:
+    config: dict[str, Any] = {
         "enable": True,
         "listen": "0.0.0.0:1053",
         "ipv6": False,
-        "enhanced-mode": "fake-ip",
-        "fake-ip-range": "198.18.0.1/16",
-        "fake-ip-filter-mode": "blacklist",
-        "fake-ip-filter": fake_ip_filter,
+        "enhanced-mode": dns_mode,
         "respect-rules": True,
         "default-nameserver": ["223.5.5.5", "119.29.29.29"],
         "proxy-server-nameserver": ["223.5.5.5", "119.29.29.29"],
         "direct-nameserver": ["https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"],
         "nameserver": ["https://8.8.8.8/dns-query", "https://1.1.1.1/dns-query"],
     }
+    if dns_mode == "fake-ip":
+        config.update(
+            {
+                "fake-ip-range": "198.18.0.1/16",
+                "fake-ip-filter-mode": "blacklist",
+                "fake-ip-filter": [
+                    "rule-set:fakeip-filter" if rules_mode == "rule-set" else "geosite:fakeip-filter",
+                    "tailscale.com",
+                    "*.tailscale.com",
+                    "*.ts.net",
+                ],
+            }
+        )
+    elif dns_mode != "redir-host":
+        raise BuilderError(f"Unsupported DNS mode: {dns_mode}")
+    return config
 
 
 def provider_mode(providers: list[Provider]) -> str:
@@ -760,7 +785,7 @@ def make_config_sections(
 
     config.update(
         {
-            "profile": {"store-selected": True, "store-fake-ip": True},
+            "profile": {"store-selected": True, "store-fake-ip": spec.dns_mode == "fake-ip"},
             "tun": {
                 "enable": spec.tun_enable,
                 "stack": "mixed",
@@ -770,7 +795,7 @@ def make_config_sections(
                 "strict-route": False,
                 "endpoint-independent-nat": True,
             },
-            "dns": dns_config(spec.rules_mode),
+            "dns": dns_config(spec.rules_mode, spec.dns_mode),
             "proxies": [],
             "proxy-providers": proxy_providers,
             "proxy-groups": proxy_groups,
@@ -781,6 +806,7 @@ def make_config_sections(
                 "provider-order": [p.id for p in spec.providers],
                 "extra-group-count": len(spec.extra_groups),
                 "rules-mode": spec.rules_mode,
+                "dns-mode": spec.dns_mode,
                 "tun-enable": spec.tun_enable,
                 "secret-values-exposed": False if redact else "written-to-sensitive-config",
             },

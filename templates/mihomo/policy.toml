@@ -10,6 +10,8 @@ base_proxy = true
 base_rules = true
 # 生成配置是否默认开启 TUN。AIOS Kit 默认开启；私有/本地 overlay 可设为 false。
 tun_enable = true
+# DNS 增强模式：TUN 场景默认 fake-ip；作为系统 DNS 上游且需要返回公开地址时使用 redir-host。
+dns_mode = "fake-ip"
 
 # 可选策略组示例：AI 流量使用单独分组。
 # tiered-url-test 会生成 ${NAME}-Auto fallback 和 ${NAME} select 两层。

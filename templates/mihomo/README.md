@@ -31,6 +31,13 @@ MIHOMO_PROVIDER_MAIN_URL=你的订阅链接
 
 `policy.toml` 的 `[defaults].tun_enable` 控制生成配置是否开启 TUN。AIOS Kit 默认开启；私有 overlay 或本地/Ansible 部署可设为 `false`。
 
+`policy.toml` 的 `[defaults].dns_mode` 控制 DNS 增强模式：
+
+- `fake-ip`：默认值，适合 TUN/透明代理；会返回 `198.18.0.0/16` 合成地址。
+- `redir-host`：返回上游解析的公开地址，适合把 Mihomo `1053` 作为系统 DNS 上游，或需要通过 SSRF 公网地址检查的 Agent 工具。
+
+当 TUN 关闭且 Mihomo 只作为显式 HTTP/SOCKS 代理时，通常优先 `redir-host`；不要通过放宽 Agent 的私网 URL 安全策略来兼容 fake IP。
+
 `policy.toml` 的 `[rules].mode` 可在两种基础规则之间切换：
 
 - `geox`：使用 `geosite.dat` / `geoip.dat`，下载对象少，适合 AIOS Kit 网络引导默认值。
