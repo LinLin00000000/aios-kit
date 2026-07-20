@@ -15,9 +15,24 @@ Use this skill when the user refers to a project, repo, service, device, vault, 
 ```text
 Skill = how to resolve and act
 Registry = what exists and where it lives
+Managed by AIOS ≠ owned by AIOS Kit
 ```
 
 Do not store large project/resource facts in this skill.
+
+Before choosing a durable destination, resolve the **content owner** separately from the **management plane**:
+
+1. classify the artifact as project-owned documentation, private operational fact, personal knowledge/data asset, or episodic Worksite material;
+2. identify who maintains it and its intended audience/publication state;
+3. only then select the owning Source/project/path.
+
+A request to “save in AIOS” or “let AIOS manage it” does not authorize writing to the public `aios-kit` repository. For independently shareable personal knowledge, the default route is:
+
+```text
+private Worksite provenance → reviewed standalone artifact → AIOS Managed Zone
+```
+
+Keep session identifiers, personal source context, mission files, and review traces in the Worksite; promote only the standalone artifact. Public-repo indexing, cross-linking, commits, or publication require a separate owner justification and explicit publication intent.
 
 ## Lookup order
 
