@@ -231,6 +231,11 @@ def target_dirs(target: str, home: Path) -> dict[str, Path]:
     return {target: all_dirs[target]}
 
 
+def skills_cli_agent(target: str) -> str:
+    """Translate an AIOS runtime target to the external skills CLI agent id."""
+    return "hermes-agent" if target == "hermes" else target
+
+
 def state_path(home: Path, manifest: dict[str, Any], state_dir: str | None = None) -> Path:
     raw = state_dir or (manifest.get("defaults") or {}).get("state_dir")
     base = expand(raw, home=home) if raw else instance_paths(home)["ops"] / "state" / "aios-kit"
@@ -613,7 +618,7 @@ def install_first_party(item: dict[str, Any], target: str, dst_root: Path, mode:
     if not src or not src.exists():
         source = item.get("source")
         if source and source not in {"local-only", "local-hermes"}:
-            cmd = ["npx", "--yes", "skills@latest", "add", source, "--skill", name, "-g", "-y", "--agent", target]
+            cmd = ["npx", "--yes", "skills@latest", "add", source, "--skill", name, "-g", "-y", "--agent", skills_cli_agent(target)]
             if mode == "copy":
                 cmd.append("--copy")
             rc = run(cmd, apply=apply)
@@ -697,7 +702,7 @@ def skillpack_sync(args: argparse.Namespace) -> None:
                     print(f"SKIP locally modified external skill {target}:{skill_name} at {dst} ({reason}); rerun with --force to overwrite")
                     new_entries.append(old_entry or {"kind": "external", "id": item.get("id"), "skill": skill_name, "target": target, "mode": mode, "source": item.get("source"), "installed_path": str(dst), "local_modified": True})
                     continue
-                cmd = ["npx", "--yes", "skills@latest", "add", item["source"], "--skill", skill_name, "-g", "-y", "--agent", target]
+                cmd = ["npx", "--yes", "skills@latest", "add", item["source"], "--skill", skill_name, "-g", "-y", "--agent", skills_cli_agent(target)]
                 if mode == "copy":
                     cmd.append("--copy")
                 rc = run(cmd, apply=apply)
