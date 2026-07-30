@@ -192,7 +192,7 @@ Safety requirements:
 - `intake` reads secret values only from a real TTY / safe local intake channel.
 - Password fields use hidden input and optional confirmation.
 - Do not support passing secret values via `--value`, command-line arguments, chat text, logs, or receipts.
-- `show --metadata`, `list`, `verify`, and `sync` never print values.
+- `list`, `verify`, and `sync` must never print secret values. Treat `show --metadata` as **secret-adjacent** in current runtimes: it may include plaintext for fields marked `secret: false` (for example an access-key identifier). Prefer `list`, receipts, or a field-name-only parser for routine Agent audits; do not retain or quote raw `show --metadata` output unless those non-secret values are genuinely required.
 - `run` is the MVP Secret Runtime: it supports only `runtime.kind: env`, injects values only into the child process environment, and scrubs output where possible.
 
 ## App/OS-owned secrets
