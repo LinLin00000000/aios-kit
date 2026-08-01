@@ -144,7 +144,7 @@ bash install.sh --global-bin ~/.local/bin
 | Umbrella skill | 跨 AIOS 架构、更新、local/private boundary、Agent 操作策略；流程仍在演化；需要统一心智 | 过大后可能变成垃圾桶，需保持薄入口和路由职责 |
 | Narrow companion skill | 高频、高风险、有独立验证模型、加载后不污染其他任务，例如 secrets、服务运维、资源解析 | 拆太多会重复原则、增加触发和维护成本 |
 
-当前默认：`aios-agent` 作为 umbrella policy skill；`aios-resource-resolver`、`aios-secret-management`、`aiops-vault`、`aiops-service-operations` 保持窄领域 skill。
+当前默认：`aios-agent` 作为 umbrella policy skill；`aios-resource-resolver`、`aios-secret-management`、`aios-capability-operations`、`aiops-vault`、`aiops-service-operations` 保持窄领域 skill。
 
 ### 一方 skill 真源位置
 

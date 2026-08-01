@@ -18,7 +18,8 @@ jobs:
         run: |
           bash -n install.sh
           python3 -m py_compile scripts/aios.py scripts/audit_public.py scripts/translate_docs.py scripts/export_translation_secrets.py
-          python3 -m unittest tests.test_source_cli -v
+          python3 scripts/audit_public.py
+          python3 -m unittest discover -s tests -v
           go test ./...
       - name: Linux core dry-run
         run: |
@@ -56,7 +57,7 @@ jobs:
       - name: macOS conservative checks
         run: |
           bash -n install.sh
-          python3 -m unittest tests.test_source_cli -v
+          python3 -m unittest tests.test_source_cli tests.test_secret_intake tests.test_audit_public -v
           go test ./...
           tmp=$(mktemp -d)
           HOME="$tmp/home" bash install.sh \
@@ -78,7 +79,7 @@ jobs:
         shell: pwsh
         run: |
           go test ./...
-          python -m unittest tests.test_source_cli -v
+          python -m unittest tests.test_source_cli tests.test_secret_intake tests.test_audit_public -v
       - name: PowerShell parse
         shell: pwsh
         run: |

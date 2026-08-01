@@ -10,9 +10,11 @@ PATTERNS = [
     ("absolute-home", re.compile(r"/home/[A-Za-z0-9._-]+")),
     ("windows-drive", re.compile(r"(?<![A-Za-z])[A-Za-z]:[/\\][^\s`'\"]+")),
     ("private-key", re.compile(r"BEGIN [A-Z ]*PRIVATE KEY")),
-    ("token-assignment", re.compile(r"(?i)(token|password|secret|api[_-]?key)\s*[:=]\s*['\"]?[^\s,'\"]{8,}")),
     ("tailscale-ip", re.compile(r"\b100\.(?!64\.0\.0/10)\d{1,3}\.\d{1,3}\.\d{1,3}\b")),
 ]
+SECRET_ASSIGNMENT = re.compile(
+    r"(?i)(?<![A-Za-z0-9_])(token|password|secret|api[_-]?key)\s*([:=])\s*(.+?)\s*$"
+)
 ALLOW = [
     ("relative-doc", re.compile(r"~/")),
 ]
@@ -28,6 +30,29 @@ def entropy(s: str) -> float:
         return 0.0
     return -sum((s.count(c)/len(s)) * math.log2(s.count(c)/len(s)) for c in set(s))
 
+
+def token_assignment_value(line: str) -> str | None:
+    """Return a literal secret-like assignment, not a variable/reference expression."""
+    match = SECRET_ASSIGNMENT.search(line)
+    if not match:
+        return None
+    operator = match.group(2)
+    value = match.group(3).split("#", 1)[0].strip().rstrip(",")
+    quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in "'\""
+    if quoted:
+        value = value[1:-1].strip()
+    elif not re.fullmatch(r"[A-Za-z0-9_./+=-]+", value):
+        return None
+    if len(value) < 8:
+        return None
+    if value.startswith(("$", "${", "{{")):
+        return None
+    if value.lower() in {"required", "optional", "placeholder", "redacted"}:
+        return None
+    if not quoted and operator == "=" and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        return None
+    return value
+
 def main() -> int:
     findings = []
     for path in candidate_files():
@@ -41,9 +66,9 @@ def main() -> int:
         for i, line in enumerate(text.splitlines(), 1):
             for name, rx in PATTERNS:
                 if rx.search(line):
-                    if name == "token-assignment" and re.search(r"(?i)\b(uses_secret|source_secret_ref)\s*[:=]", line):
-                        continue
                     findings.append((str(rel), i, name, line.strip()[:220]))
+            if token_assignment_value(line) is not None:
+                findings.append((str(rel), i, "token-assignment", line.strip()[:220]))
             for m in re.finditer(r"[A-Za-z0-9_./+=-]{32,}", line):
                 candidate = m.group(0)
                 if candidate.startswith("CAP_") or candidate.startswith("AmbientCapabilities=CAP_") or candidate.startswith("CapabilityBoundingSet=CAP_"):

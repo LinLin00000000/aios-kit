@@ -150,7 +150,7 @@ Split skills by stable domain boundaries, not by “each CLI subcommand” or �
 | Umbrella skill | Cross-AIOS architecture, updates, local/private boundary, Agent operation strategy; the flow is still evolving; unified mental model is needed | Can become a junk drawer if too large; keep it as a thin entry point and router |
 | Narrow companion skill | Frequent, high-risk, with an independent validation model, and does not pollute other tasks after loading, such as secrets, service operations, and resource resolution | Too many splits duplicate principles and increase triggering and maintenance cost |
 
-Current default: `aios-agent` as the umbrella policy skill; `aios-resource-resolver`, `aios-secret-management`, `aiops-vault`, and `aiops-service-operations` remain narrow domain skills.
+Current default: `aios-agent` as the umbrella policy skill; `aios-resource-resolver`, `aios-secret-management`, `aios-capability-operations`, `aiops-vault`, and `aiops-service-operations` remain narrow domain skills.
 
 ### First-Party Skill Source-of-Truth Locations
 

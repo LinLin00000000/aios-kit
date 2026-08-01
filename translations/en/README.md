@@ -75,7 +75,7 @@ For more platform, parameter, non-interactive, and troubleshooting details, see:
 | MCP / tool discovery | `awesome-mcp-servers-discovery` | Research and filter MCP servers |
 | Frontend and design | `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines` | UI/UX, frontend architecture, and web design review |
 | Solution refinement | `grilling`, `grill-me`, `grill-with-docs`, `domain-modeling` | Ask clarifying questions, refine plans, and capture domain models and ADRs |
-| First-class AIOS capabilities | `aios-agent`, `aios-resource-resolver`, `lins-living-loop`, `github-repo-search` | AIOS Agent strategy entry point, resource resolution, long-task workflow, GitHub repo search recommendations |
+| First-class AIOS capabilities | `aios-agent`, `aios-resource-resolver`, `aios-secret-management`, `aios-capability-operations`, `lins-living-loop`, `github-repo-search` | AIOS Agent strategy entry point, resource and capability routing, secrets control plane, long-running task workflows, and GitHub repo search recommendations |
 
 ### `aios` CLI capabilities
 
