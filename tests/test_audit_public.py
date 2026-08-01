@@ -21,6 +21,8 @@ class AuditPublicAssignmentTests(unittest.TestCase):
             'api_key = next(field for field in fields if field["name"] == "api_key")',
             'password: ${PASSWORD}',
             'uses_secret: "ai-api.translation.default"',
+            'source_secret_ref: "ai-api.translation.default"',
+            '"TRANSLATE_API_KEY": credential_value,',
         ):
             with self.subTest(line=line):
                 self.assertIsNone(AUDIT.token_assignment_value(line))
@@ -28,12 +30,19 @@ class AuditPublicAssignmentTests(unittest.TestCase):
     def test_literal_secret_like_assignments_remain_detected(self) -> None:
         key = "".join(("to", "ken"))
         api_key_name = "".join(("api", "_key"))
+        refresh_key = "_".join(("refresh", key))
+        client_secret = "_".join(("client", "secret"))
         samples = (
             f'{key} = "literal-' + "value-1234567890" + '"',
             "password: 'correct-" + "horse-battery-staple'",
             f'{api_key_name} = "fixture-' + "value-1234567890" + '"',
             f"{key}: fixture-" + "value-1234567890",
             "".join(("pass", "word", ": ", "correct", "horse", "battery", "staple")),
+            f"{refresh_key}=fixture-" + "value-1234567890",
+            f'{client_secret}: "fixture-' + "value-1234567890" + '"',
+            f'"{key}": "fixture-' + "value-1234567890" + '",',
+            f'{key} = "' + "aaaaaaaa" + '"',
+            f'{key}=' + "aaaaaaaa",
         )
         for line in samples:
             with self.subTest(line=line):

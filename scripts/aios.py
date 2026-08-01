@@ -3063,7 +3063,9 @@ def discover_lll(home: Path, paths: dict[str, Path] | None = None) -> dict[str, 
     paths = paths or instance_paths(home)
     env_bin = os.environ.get("AIOS_LLL_BIN")
     if env_bin:
-        return {"kind": "env-bin", "cmd": [env_bin], "source_dir": None, "script": Path(env_bin), "external_to_aios_root": True}
+        env_script = Path(env_bin)
+        command = [sys.executable, str(env_script)] if env_script.suffix == ".py" else [env_bin]
+        return {"kind": "env-bin", "cmd": command, "source_dir": None, "script": env_script, "external_to_aios_root": True}
     env_dir = expand(os.environ.get("AIOS_LLL_DIR"), home=home) if os.environ.get("AIOS_LLL_DIR") else None
     candidates: list[tuple[str, Path]] = []
     if env_dir:
@@ -3077,8 +3079,8 @@ def discover_lll(home: Path, paths: dict[str, Path] | None = None) -> dict[str, 
     for kind, c in candidates:
         tried.append(str(c))
         if c.exists():
-            if c.name == "lll.py":
-                return {"kind": kind, "cmd": ["python3", str(c)], "source_dir": c.parents[1], "script": c, "external_to_aios_root": not str(c).startswith(str(paths["root"]))}
+            if c.suffix == ".py":
+                return {"kind": kind, "cmd": [sys.executable, str(c)], "source_dir": c.parents[1], "script": c, "external_to_aios_root": not str(c).startswith(str(paths["root"]))}
             return {"kind": kind, "cmd": [str(c)], "source_dir": c.parent, "script": c, "external_to_aios_root": not str(c).startswith(str(paths["root"]))}
     return {"kind": "missing", "cmd": None, "source_dir": module_dir, "script": None, "external_to_aios_root": False, "tried": tried}
 

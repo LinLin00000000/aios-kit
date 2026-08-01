@@ -159,14 +159,12 @@ class MatterLifecycleCliTests(unittest.TestCase):
 
     def test_lll_status_compact_is_proxied_for_one_workdir(self) -> None:
         wd = self.create_worksite("20260718-110000_compact-proxy")
-        fake = self.home / "fake-lll"
+        fake = self.home / "fake-lll.py"
         fake.write_text(
-            "#!/usr/bin/env python3\n"
             "import json, sys\n"
             "print(json.dumps({'schema':'lll.status.v1','argv':sys.argv[1:]}))\n",
             encoding="utf-8",
         )
-        fake.chmod(0o755)
         env = {"AIOS_LLL_BIN": str(fake)}
         report = json.loads(self.run_cli("lll", "status", str(wd), "--compact", "--json", env=env).stdout)
         self.assertIn("--compact", report["argv"])

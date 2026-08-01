@@ -13,8 +13,9 @@ PATTERNS = [
     ("tailscale-ip", re.compile(r"\b100\.(?!64\.0\.0/10)\d{1,3}\.\d{1,3}\.\d{1,3}\b")),
 ]
 SECRET_ASSIGNMENT = re.compile(
-    r"(?i)(?<![A-Za-z0-9_])(token|password|secret|api[_-]?key)\s*([:=])\s*(.+?)\s*$"
+    r"(?i)(?<![A-Za-z0-9_])(?P<quote>['\"]?)(?P<key>[A-Za-z0-9_-]*(?:api[_-]?key|token|password|secret))(?P=quote)\s*(?P<operator>[:=])\s*(?P<value>.+?)\s*$"
 )
+SECRET_METADATA_KEYS = {"uses_secret", "source_secret_ref"}
 ALLOW = [
     ("relative-doc", re.compile(r"~/")),
 ]
@@ -36,12 +37,19 @@ def token_assignment_value(line: str) -> str | None:
     match = SECRET_ASSIGNMENT.search(line)
     if not match:
         return None
-    operator = match.group(2)
-    value = match.group(3).split("#", 1)[0].strip().rstrip(",")
-    quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in "'\""
-    if quoted:
-        value = value[1:-1].strip()
-    elif not re.fullmatch(r"[A-Za-z0-9_./+=-]+", value):
+    key = match.group("key").lower().replace("-", "_")
+    key_quoted = bool(match.group("quote"))
+    if key in SECRET_METADATA_KEYS:
+        return None
+    operator = match.group("operator")
+    raw_value = match.group("value").strip()
+    quoted_match = re.fullmatch(r"(?s)(['\"])(.*)\1\s*,?\s*(?:#.*)?", raw_value)
+    quoted = quoted_match is not None
+    if quoted_match:
+        value = quoted_match.group(2).strip()
+    else:
+        value = raw_value.split("#", 1)[0].strip().rstrip(",")
+    if not quoted and not re.fullmatch(r"[A-Za-z0-9_./+=-]+", value):
         return None
     if len(value) < 8:
         return None
@@ -49,7 +57,11 @@ def token_assignment_value(line: str) -> str | None:
         return None
     if value.lower() in {"required", "optional", "placeholder", "redacted"}:
         return None
-    if not quoted and operator == "=" and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+    if (
+        not quoted
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value)
+        and key_quoted
+    ):
         return None
     return value
 
