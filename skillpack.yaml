@@ -134,6 +134,14 @@ first_party:
     default_mode: copy
     targets: universal
     reason: AIOS Secret/Credential Control Plane procedure skill for metadata-first secret workflows without exposing values.
+  - id: aios-capability-operations
+    path: skills/aios-capability-operations
+    source: LinLin00000000/aios-kit
+    skill: aios-capability-operations
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: Cross-provider capability, organization binding, Secret consumer routing, maturity, and self-organization boundaries.
   - id: aiops-vault
     path: modules/aiops-vault-template
     source: LinLin00000000/aios-kit
