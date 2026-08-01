@@ -35,7 +35,7 @@ aios secret run --consumer aios-kit.translation -- python3 scripts/translate_doc
 aios secret index native --ssh --caddy
 ```
 
-`aios secret intake` 必须在真实 shell/TTY 中运行。password 字段用 hidden input；CLI 不提供 `--value` 参数，也不会把值写进 receipt、audit、Markdown 或聊天记录。
+`aios secret intake` 必须在真实 shell/TTY 中运行。password 字段用 hidden input；CLI 不提供 `--value` 参数，也不会把值写进 receipt、audit、Markdown 或聊天记录。二次确认默认关闭：一般从网页或密码管理器复制粘贴的 API key、token 等，不需要重复粘贴；只有 request 明确设置 `confirm: true` 时才会启用。
 
 所有 Agent 可读的 JSON/状态输出都应包含或等价表达：
 
@@ -62,7 +62,7 @@ fields:
     type: password
     secret: true
     required: true
-    confirm: true
+    confirm: false
 item:
   kind: api_token
   intended_use: [example-api]
@@ -79,7 +79,7 @@ consumers:
 replicas: []
 ```
 
-创建前可以让 CLI 只校验、不写入：
+`confirm` 是显式 opt-in 开关，默认值为 `false`。只有用户明确要求、凭据特别机密，或其他特殊场景需要降低手工输入错误风险时，才设置 `confirm: true`。创建前可以让 CLI 只校验、不写入：
 
 ```bash
 aios secret request create --manifest ./request.yaml --dry-run --json

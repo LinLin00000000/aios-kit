@@ -103,7 +103,7 @@ Minimum pattern:
 1. Create `requests/pending/<request-id>.yaml` with:
    - `secret_id` at class/resource granularity, e.g. `cloudflare.<zone>.admin`;
    - non-secret fields such as zone/account name with safe defaults;
-   - secret fields marked `type: password`, `secret: true`, and usually `confirm: true`;
+   - secret fields marked `type: password` and `secret: true`; confirmation is opt-in with `confirm: true`, and is otherwise off by default for copy/pasted API keys and tokens;
    - `item.kind`, `intended_use`, and `metadata.agent_can_read_plaintext: false`;
    - a `consumer` with an explicit `runtime.kind: env` and `runtime.env_map` for the CLI/API commands that need injected values.
 2. Run `aios secret intake <request-id> --dry-run` and show only field names / `secret_values_exposed: false`.
@@ -190,7 +190,7 @@ aios secret run --consumer <consumer-id> -- <command...>
 Safety requirements:
 
 - `intake` reads secret values only from a real TTY / safe local intake channel.
-- Password fields use hidden input and optional confirmation.
+- Password fields use hidden input. Confirmation is off by default; set the field-level boolean `confirm: true` only when the user explicitly requests it, the credential is exceptionally sensitive, or a special manual-entry scenario justifies the extra prompt. Treat omitted/`false` confirmation as the normal path for copied API keys and tokens.
 - Do not support passing secret values via `--value`, command-line arguments, chat text, logs, or receipts.
 - `list`, `verify`, and `sync` must never print secret values. Treat `show --metadata` as **secret-adjacent** in current runtimes: it may include plaintext for fields marked `secret: false` (for example an access-key identifier). Prefer `list`, receipts, or a field-name-only parser for routine Agent audits; do not retain or quote raw `show --metadata` output unless those non-secret values are genuinely required.
 - `run` is the MVP Secret Runtime: it supports only `runtime.kind: env`, injects values only into the child process environment, and scrubs output where possible.

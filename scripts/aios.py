@@ -1050,6 +1050,8 @@ def request_manifest_issues(req: dict[str, Any]) -> list[dict[str, str]]:
         if name in field_names:
             add(f"fields[{i}].name", f"duplicate field name: {name}")
         field_names.add(name)
+        if "confirm" in field and not isinstance(field.get("confirm"), bool):
+            add(f"fields[{i}].confirm", "confirm must be a boolean; use true to opt in")
         if field_is_secret(field) and field.get("default") not in (None, ""):
             add(f"fields[{i}].default", "secret fields must not define defaults")
 
@@ -1154,7 +1156,7 @@ def default_translation_request(request_id: str = "req_ai_api_translation_defaul
             {"name": "base_url", "label": "OpenAI-compatible Base URL", "type": "url", "secret": False, "required": True},
             {"name": "model", "label": "Model name", "type": "string", "secret": False, "required": True},
             {"name": "api_mode", "label": "API mode", "type": "enum", "choices": ["chat_completions", "responses"], "default": "chat_completions", "secret": False, "required": True},
-            {"name": "api_key", "label": "API Key", "type": "password", "secret": True, "required": True, "confirm": True},
+            {"name": "api_key", "label": "API Key", "type": "password", "secret": True, "required": True, "confirm": False},
         ],
         "routes": {"canonical": {"backend": "aios-local", "item_path": "$AIOS_ROOT/vault/secrets/items/ai-api.translation.default.yaml"}},
         "item": {"kind": "ai_api_profile", "intended_use": ["docs-translation", "batch-text-generation"], "metadata": {"agent_can_read_plaintext": False}},
@@ -1270,7 +1272,7 @@ def prompt_field(field: dict[str, Any]) -> str:
     while True:
         if field_is_secret(field):
             value = getpass.getpass(f"{label}: ")
-            if field.get("confirm"):
+            if field.get("confirm") is True:
                 again = getpass.getpass(f"Confirm {label}: ")
                 if value != again:
                     print("values did not match; try again", file=sys.stderr)

@@ -41,7 +41,7 @@ aios secret run --consumer aios-kit.translation -- python3 scripts/translate_doc
 aios secret index native --ssh --caddy
 ```
 
-`aios secret intake` must run in a real shell/TTY. Password fields use hidden input; the CLI does not provide a `--value` argument, and it never writes values to receipts, audit logs, Markdown, or chat history.
+`aios secret intake` must run in a real shell/TTY. Password fields use hidden input; the CLI does not provide a `--value` argument, and it never writes values to receipts, audit logs, Markdown, or chat history. Confirmation is off by default: API keys and tokens copied from a web page or password manager do not need to be pasted twice; it is enabled only when the request explicitly sets `confirm: true`.
 
 All JSON/status output readable by Agents should include or equivalently express:
 
@@ -68,7 +68,7 @@ fields:
     type: password
     secret: true
     required: true
-    confirm: true
+    confirm: false
 item:
   kind: api_token
   intended_use: [example-api]
@@ -85,7 +85,7 @@ consumers:
 replicas: []
 ```
 
-Before creation, the CLI can validate only, without writing anything:
+`confirm` is an explicit opt-in switch and defaults to `false`. Set `confirm: true` only when the user explicitly requests it, the credential is exceptionally sensitive, or a special manual-entry scenario justifies reducing input errors. Before creation, the CLI can validate only, without writing anything:
 
 ```bash
 aios secret request create --manifest ./request.yaml --dry-run --json
