@@ -6,24 +6,25 @@
 
 # AIOS Evolution Protocol
 
-`aios-kit` is not a toolkit where more features are always better. It is the minimal portable skeleton for a Personal AIOS. Its evolution goal is to let Agents work continuously, safely, and recoverably around the user’s real digital world, while minimizing accidental complexity.
+`aios-kit` is not a toolkit where more features are always better, but the minimal portable skeleton of a Personal AIOS. Its evolution goal is to let Agents work continuously, safely, and recoverably around the user's real digital world, while minimizing accidental complexity.
 
-This document is the source of truth for the AIOS evolution protocol, module maturity map, and complexity budget. The README, development docs, and skills only reference it as an entry point; they do not duplicate the full set of principles.
+This document is the source of truth for the AIOS evolution protocol, module maturity map, and complexity budget. README, development documentation, and skills only reference it as entry points; they do not duplicate the full set of principles.
 
 ## Core Principles
 
-1. **Breadth first**: Prioritize giving all key modules minimal vital signs, rather than making a single module deep and complete too early.
-2. **Progressive enhancement**: Establish the shared reality layer first, then add the execution surface; file-based state and validation probes come before daemon, service, CI/CD, or UI.
-3. **Human / Agent / CLI layering**: Humans are responsible for direction, value, risk authorization, and acceptance; Agents are responsible for understanding, judgment, coordination, and control handoff; CLI/scripts are responsible for repeatable, verifiable, low-ambiguity deterministic structural actions.
-4. **Synchronized module evolution**: Modules should maintain roughly aligned conceptual maturity. A module should only be deepened further when it is clearly blocking the overall closed loop.
-5. **Complexity budget**: Every new capability must explain what repetition, risk, manual steps, or leakage surface it reduces. If it is only “possibly useful in the future,” do not add it by default.
-6. **Evidence driven**: Real failure modes, repeated friction, validation gaps, and explicit user needs matter more than abstract architectural completeness.
-7. **Docs are the source of truth; skills are thin entry points**: Complex principles belong in repo docs. Skills are only responsible for triggering, routing, and safety boundaries, avoiding duplicated rule sets in multiple places.
-8. **Semantic layer before platform lock-in**: Workflow concepts such as Matter, Decision, Approval, Artifact, and Asset should first be expressed as protocol semantics, then projected onto Kanban, GitHub, runner, UI, or enterprise systems.
+1. **Breadth first**: Prioritize giving all key modules minimal signs of life, rather than making a single module deep and complete too early.
+2. **Progressive enhancement**: Establish the shared reality layer first, then add the execution surface; file-based state and validation probes first, then consider daemon, service, CI/CD, or UI.
+3. **Human / Agent / CLI layering**: Human is responsible for direction, value, risk authorization, and acceptance; Agent is responsible for understanding, judgment, coordination, and control handoff; CLI/script is responsible for repeatable, verifiable, low-ambiguity deterministic structural actions.
+4. **Synchronized module evolution**: Modules should keep their conceptual maturity roughly aligned. A module should only be deepened when it clearly blocks the overall closed loop.
+5. **Complexity budget**: Any new capability must explain what repetition, risk, manual steps, or leakage surface it reduces. If it is only "possibly useful in the future", do not add it by default.
+6. **Evidence-driven**: Real failure modes, repeated friction, validation gaps, and explicit user needs are more important than abstract architectural completeness.
+7. **One fact, one owner; keep entry points thin**: Complex principles and protocols are owned by explicit documents or configuration. README, skill, memory, product notes, projections, and Worksite may only reference, explain, or preserve evidence according to their respective roles; they must not manually maintain multiple independent copies of the same body text.
+8. **Semantic layer before platform lock-in**: Workflow concepts such as Matter, Decision, Approval, Artifact, and Asset should first be expressed as protocol semantics, then projected into Kanban, GitHub, runner, UI, or enterprise systems.
+9. **Instance strategies have scope and lifecycle**: Only local behaviors that apply across tasks, can reasonably be turned off, and significantly affect interaction/cost/risk should enter AIOS-managed policy. Use a small number of modes and clear exit conditions to avoid the growth of boolean switches and permanent compatibility layers.
 
 ## First Principles
 
-The core of AIOS is not automating everything, nor piling up features. It is establishing a shared reality layer that Agents can rely on: projects, resources, secrets, tasks, services, docs, state, and evidence can all be found, verified, and recovered.
+The core of AIOS is not automating everything, nor stacking features, but building a shared reality layer that Agents can rely on: projects, resources, secrets, tasks, services, documents, state, and evidence can all be found, verified, and recovered.
 
 Therefore, each module should first answer three questions:
 
@@ -37,65 +38,84 @@ Capabilities that cannot clearly answer these questions do not enter the core pa
 
 Essential complexity can only be named and isolated; it cannot be pretended away:
 
-| Area | Essential Complexity |
+| Area | Essential complexity |
 |---|---|
-| Projects / Resources | The same object may have a local path, remote repo, alias, state, and runtime location |
-| Secrets | Agents cannot see plaintext, but runtime needs a trusted boundary to use secrets |
+| Projects / Resources | The same object may have a local path, remote repo, alias, status, and runtime location |
+| Secrets | The Agent cannot see plaintext, but secrets must be used within a trusted boundary at runtime |
 | LLL | Long-running tasks need state, recovery, evidence, and handoff |
-| OPS Vault | Private facts cannot enter the public repo, but Agents need to know where to look |
-| Skills | Agents need procedural memory, but too many skills pollute triggering and maintenance |
-| Updates | The upstream base and user instances will diverge over time and must be reconciled |
+| OPS Vault | Private facts cannot enter the public repo, but the Agent needs to know where to look |
+| Skills | The Agent needs procedural memory, but too many skills pollute triggering and maintenance |
+| Updates | The upstream base and user instance will diverge over time and must be reconciled |
 
 Accidental complexity should be actively removed or deferred:
 
-- Building daemon, broker, runner, or dashboard in advance for imagined future needs;
-- Creating a plugin system for every module;
+- Building a daemon, broker, runner, or dashboard in advance for imagined future needs;
+- Building a plugin system for every module;
 - Splitting every principle into a new skill;
-- Maintaining the same rule repeatedly in the README, docs, skills, and OPS log;
+- Maintaining the same rule repeatedly in README, docs, skill, and OPS log;
 - Using a database to hide state that could be expressed as files;
-- Making one module locally deep and causing overall conceptual imbalance;
-- Producing many inspection reports without decision value.
+- Making one module locally deep, causing overall conceptual imbalance;
+- Producing many inspection reports that have no decision value.
+
+## Rule Ownership and Instance Policy
+
+AIOS does not require the whole system to have only one file; it requires **each fact to have exactly one authoritative owner**. Common roles should stay separated:
+
+| Role | Typical owner |
+|---|---|
+| General product/protocol semantics | Public repo documentation, protocol, or ADR |
+| Cross-task policies currently enabled in the user instance | Local policy in the AIOS Managed Zone |
+| Agent triggering and operation entry points | Thin skill / sidecar, responsible only for loading the owner |
+| Deterministic execution | CLI, script, API, runtime |
+| One-time work state and change evidence | Matter / LLL Worksite |
+| Stable user preferences | Short memory statement or policy pointer |
+
+Instance policy is not a new platform. In the initial stage, prioritize one auditable declarative file; do not add a database, daemon, GUI, or general-purpose policy engine. A behavior is worth registering only if it satisfies most of the following conditions: it repeatedly applies across multiple tasks, the user may reasonably turn it off, it clearly affects interaction/cost/risk, it has an experimental or compatibility lifecycle, and it cannot be naturally derived from general judgment.
+
+Policy modes should remain few and orthogonal, such as `off | compact | auto | expanded`, rather than being split into many boolean fields. Temporary compatibility behaviors must declare removal conditions; after native capabilities are validated through real use, remove the entire compatibility policy, without retaining an empty `native` shell or migrating meaningless historical state.
+
+The default override order is: current explicit user instruction > current Matter/mission > local instance policy > product default. Turning off a policy only changes the current policy state; it does not delete or write back historical Worksite.
 
 ## Module Maturity Map
 
-Maturity is not a scheduling commitment; it constrains “what the next step can do at most.”
+Maturity is not a scheduling commitment; it constrains "what can be done next at most".
 
-| Module / Capability | Current Stage | Existing Minimal Closed Loop | Candidate Next Enhancements | Not Doing for Now |
+| Module / Capability | Current stage | Existing minimal closed loop | Candidate next enhancements | Not doing for now |
 |---|---|---|---|---|
-| Project / Resource registry | L1 | `aios project ...`, aliases, registry files | More stable JSON/status/doctor output | Full project management system |
-| Data Sources | L1 | `aios source list/get/add/alias/validate`, explicit Source records + Project projections, Managed Zone directory boundary | Add inventory/backup/sync adapters based on real device integrations | Full-disk ingestion, database, general-purpose file manager |
-| Secret management | L1.5 | request → intake → metadata/consumer/replica → run/sync/audit; `doctor`/`validate` provide low-risk probes | More general provider preset docs/templates; consider optional proxy/lease only after real friction appears | Resident broker, default proxy, MCP secret tools, plugin system |
-| LLL integration | L1 | `aios lll ...` discovery, creation, status proxying | Express more clearly that AIOS only proxies LLL and does not absorb its state machine | Rewriting the LLL runner in `aios-kit` |
-| OPS vault | L1 | Separation between templates and live vault, OPS skill entry point | Better resource index and maintenance record templates | Turning the public repo into a private CMDB |
+| Project / Resource registry | L1 | `aios project ...`, alias, registry file | More stable JSON/status/doctor output | Full project management system |
+| Data Sources | L1 | `aios source list/get/add/alias/validate`, explicit Source records + Project projection, Managed Zone directory boundary | Add inventory/backup/sync adapters from real device integrations | Full-disk ingestion, database, general-purpose file manager |
+| Secret management | L1.5 | request → intake → metadata/consumer/replica → run/sync/audit; `doctor`/`validate` provide low-risk probes | More general provider preset documentation/templates; consider optional proxy/lease only after real friction appears | Resident broker, default proxy, MCP secret tools, plugin system |
+| LLL integration | L1 | `aios lll ...` discovery, creation, status proxy | Express more clearly that AIOS only proxies and does not absorb the LLL state machine | Rewriting the LLL runner in `aios-kit` |
+| OPS vault | L1 | Separation of templates and live vault, OPS skill entry point | Better resource index and maintenance record templates | Turning the public repo into a private CMDB |
 | Skillpack | L1 | sync/adopt/doctor/dev-link | Better conflict explanations and reconcile output | Taking over the entire runtime skills directory |
-| Assets | L0/L1 | manifest, doctor, link | Only enforce discovery and linking discipline | General-purpose file manager |
-| Agent governance | L1 | `aios-agent` skill, development docs, self-iteration rules | Use this file to unify evolution decisions | Creating a pile of principle skills |
+| Assets | L0/L1 | manifest, doctor, link | Only discovery and linking discipline | General-purpose file manager |
+| Agent governance | L1 | `aios-agent` skill, development documentation, self-iteration rules | Use this file to unify evolution judgments | Creating a pile of new principle skills |
 
 ## Enhancement Decision Thresholds
 
 Before adding a new capability, the maintainer or Agent should answer:
 
 1. Does it solve real friction, or imagined future completeness?
-2. What duplicate configuration, leakage risk, manual steps, or recovery cost does it reduce?
-3. Can it exist as an optional layer instead of polluting the default path?
+2. What repeated configuration, leakage risk, manual steps, or recovery cost does it reduce?
+3. Can it exist as an optional layer, rather than polluting the default path?
 4. Does it require new long-term state, background processes, permission boundaries, or maintenance surface?
-5. Should it be written into the docs or roadmap first, instead of being implemented immediately?
+5. Should it first be written into documentation or the roadmap, rather than implemented immediately?
 
 If the answers are unclear, record it only as a candidate enhancement by default, and do not implement it.
 
 ## Secret Module Example
 
-The Secret module currently stays at L1.5: secret registration, intake, consumers, replicas, receipts, audit, `aios secret run`, `doctor`, and `validate` already form a diagnosable minimal closed loop.
+The Secret module currently remains at L1.5: secret registration, intake, consumer, replica, receipt, audit, `aios secret run`, `doctor`, and `validate` have formed a diagnosable minimal closed loop.
 
-Use the following language to distinguish boundaries:
+The following language can be used to distinguish boundaries:
 
-- **Secret Registry**: Registers secret identity, purpose, consumers, replicas, requests, receipts, and audit.
-- **Secret Runtime**: Safely uses secrets at runtime. The only recognized minimal runtime for now is `aios secret run`.
+- **Secret Registry**: Registers secret identity, purpose, consumer, replica, request, receipt, and audit.
+- **Secret Runtime**: Safely uses secrets at runtime. The only currently recognized minimal runtime is `aios secret run`.
 
-Not implemented for now: resident broker, proxy, MCP secret tools, provider plugins, session lease. They should only enter implementation discussion when multiple AI API consumers use them at high frequency, env injection creates real risk, or multiple Agents need short-term authorization.
+Not implemented for now: resident broker, proxy, MCP secret tools, provider plugin, session lease. They enter implementation discussion only when multiple AI API consumers use secrets frequently, env injection shows real risk, or multiple Agents need short-term authorization.
 
 ## Automation and Inspection
 
-AIOS may introduce project health inspections in the future, but by default it should not start with local cron or a resident Agent. The preferred direction is GitHub CI/CD or other cloud workflows: checking documentation drift, public audit, skillpack distribution, module health, and installation smoke tests.
+AIOS may introduce project health inspections in the future, but by default it should not start from local cron or a resident Agent. The higher-priority direction is GitHub CI/CD or other cloud workflows: checking documentation drift, public audit, skillpack distribution, module health, and installation smoke tests.
 
-At the current stage, only the principles are recorded. No inspection commands, cron, daemon, or workflow are implemented. Automation should be added only after the process is stable, checks are clear, and it can provide actionable recommendations.
+At the current stage, only the principles are recorded; no inspection command, cron, daemon, or workflow is implemented. Automation should be added only after the process is stable, check items are clear, and actionable recommendations can be produced.
