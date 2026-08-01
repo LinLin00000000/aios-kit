@@ -10,47 +10,27 @@
 
 It is not “just installing a few more AI tools,” but building a local foundation your project, knowledge, services, scripts, skills, and long-running tasks can live on in a way an Agent can understand: humans state goals, Agents make strategies, CLI/API execute deterministic actions, and file-based state preserves facts and evidence.
 
-## Installation
+## Current stage
 
-For now, the two entry points you most need to remember are:
+`aios-kit` is still in rapid iteration and maintainer preview. The public one-line installation entry points have been withdrawn for now; stable installation, upgrades, and cross-platform compatibility are not currently promised to general users.
 
-### Option 1: One-line interactive install
+The installers and installation documentation remain in the repository as development and validation material. To evaluate or contribute, first read the [development guide](docs/development.md), [security and privacy boundaries](docs/security-and-privacy.md), and [evolution roadmap](docs/evolution.md), then begin with source review and dry-run in an isolated environment.
 
-Ubuntu/Debian Linux:
+### Evaluate and install through an Agent (currently recommended)
 
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
-```
-
-Windows PowerShell (native core install):
-
-```powershell
-iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 | iex
-```
-
-After the script starts, it will first ask whether to use the modern CLI wizard (default yes). The wizard will only be downloaded after confirmation; if the wizard is unavailable, it will automatically fall back to native Bash interaction. The Windows native entry point installs core capabilities only; if you need Linux/server add-on capabilities, use WSL or `install.sh` on a Linux server.
-
-If GitHub access is unstable, you can switch to a mirror you trust:
-
-```bash
-bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
-```
-
-### Option 2: Let an existing Agent help with installation
-
-Send the following lines to a terminal Agent such as Codex, Claude Code, OpenClaw, or Hermes:
+Give the repository link and the following goal to a terminal Agent you trust, such as Hermes, Codex, or Claude Code. The Agent should read the project files and adapt to the current platform instead of blindly copying a fixed command:
 
 ```text
-Please help me install aios-kit: https://github.com/LinLin00000000/aios-kit
-Please first read README.md, docs/installation.md, docs/security-and-privacy.md, and check install.sh --help.
-First generate and run a dry-run installation command, and explain which system configurations it will change; after I confirm, perform the actual installation.
-After installation, please run ~/aios/bin/aios status and ~/aios/bin/aios doctor.
-Do not leak or commit my subscription URL, token, keys, or private configuration.
+Please evaluate and help install aios-kit: https://github.com/LinLin00000000/aios-kit
+First read the repository README, installation, security, development, and evolution documentation, then identify the current platform and any capability boundaries still under development.
+Review the installer and run a dry-run first. Explain the paths, system configuration, platform limitations, and rollback that would be involved; perform the actual installation only after I confirm.
+Do not read, print, or commit secret values, subscription URLs, tokens, keys, or private configuration.
 ```
 
-For more platform, parameter, non-interactive, and troubleshooting details, see: [docs/installation.md](docs/installation.md).
+<details>
+<summary>Current capability overview (maintainer reference)</summary>
 
-## What you get after installation
+## Current capability overview
 
 ### Core modules and directories
 
@@ -102,6 +82,8 @@ For more platform, parameter, non-interactive, and troubleshooting details, see:
 | OPS vault template | `~/aios/vault/ops` | Generate the public template structure while keeping real private facts local | Windows native creates core directories only |
 | Ubuntu source recovery | apt/npm/pip/Docker source configuration | Fixing a new server polluted by mirrors or old configs | Not shown |
 
+</details>
+
 ## Vision and design philosophy
 
 The goal of Personal AIOS is simple: turn AI from a “temporary chat assistant” into an operating layer that can keep working around your real digital world. It needs to know where projects live, how services are checked, what the boundaries are for data and secrets, which work can be automated, and which parts require confirmation.
@@ -119,6 +101,9 @@ Design trade-offs:
 | Progressive evolution | Prefer module breadth first and stop at what is sufficient; new capabilities must prove that the complexity they remove is greater than the complexity they add, see [docs/evolution.md](docs/evolution.md). |
 | Self-iteration | When using AIOS, Agents should proactively propose or capture improvements to skills, docs, CLI, validation scripts, and workflows when they discover failure modes, overly long paths, or verification gaps. |
 | Portable, not locked to a platform | Default paths are clear, backup-friendly, and reinstallable; Hermes is the default center, but not the only Agent. |
+
+<details>
+<summary>Maintainer technical reference</summary>
 
 ## Capability layers
 
@@ -182,11 +167,13 @@ aios lll list --json        # Agent-first: enumerate LLL workdirs
 
 Maintenance/debugging entry points: `aios skillpack doctor`, `aios skillpack sync --dry-run`, `aios assets doctor`. If PATH is not configured, use `~/aios/bin/aios status` or `~/aios/bin/lll --version`.
 
+</details>
+
 ## Documentation index
 
 | Document | Purpose |
 |---|---|
-| [docs/installation.md](docs/installation.md) | Installation flow, interactive options, non-interactive parameters |
+| [docs/installation.md](docs/installation.md) | Maintainer installation flow, dry-run, interactive options, and parameter reference |
 | [docs/mihomo-network.md](docs/mihomo-network.md) | Mihomo configuration, TUN compatibility, subscription/node input |
 | [docs/architecture.md](docs/architecture.md) | Repo boundaries, local structure, source/runtime model, key decisions |
 | [docs/upstream-reconciliation.md](docs/upstream-reconciliation.md) | External components, adapter/overlay, patch queue, and upstream coordination protocol for maintained forks |

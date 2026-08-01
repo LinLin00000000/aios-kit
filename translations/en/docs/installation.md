@@ -6,7 +6,7 @@
 
 # Installation Guide
 
-The installer is currently maintained by “capability layers.” Core features are designed for all platforms, with Ubuntu and Windows currently prioritized. Add-on features are intended for Linux/server environments, especially Ubuntu/Debian cloud servers. For macOS/Termux and other distributions, it is recommended to use `--dry-run` first, or ask an existing Agent to read the source code and documentation before assisting with installation.
+The installer is currently a maintainer preview and continues to be developed by “capability layers.” The following is evaluation reference for Agents and maintainers, not a stable installation promise for general users. On every platform, first ask an Agent to read the current repository, identify capability boundaries, and run `--dry-run` in an isolated environment.
 
 ## Capability Layers
 
@@ -16,86 +16,49 @@ The installer is currently maintained by “capability layers.” Core features 
 | Add-on features | Mihomo/TUN, development/runtime environment bootstrap, Hermes, OPS vault template, Ubuntu software source recovery, systemd/24x7 service operation | Recommended for Linux/server. The native Windows installer does not display unsupported items. If you need these capabilities, use Linux or WSL. |
 
 
-## Recommended Entrypoints
+## Current Entry Point: Agent-assisted Evaluation
 
-### One-line Interactive Installation
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
-```
-
-Default behavior: the script first asks, using native Bash, whether to enable the modern CLI wizard. The default is yes. Only after you choose yes will it download or start `aios-install`.
-
-`aios-install` is a modern CLI frontend written with Go/huh. It provides arrow-key selection, spacebar multi-select, and installation plan preview. It does not duplicate the real installation logic; it only converts your choices into a stable:
-
-```bash
-install.sh --non-interactive ...
-```
-
-If you want to force or skip the modern wizard:
-
-```bash
-bash install.sh --wizard
-bash install.sh --no-wizard
-```
-
-### Agent-assisted Installation
-
-If you already have a terminal Agent such as Codex, Claude Code, OpenClaw, or Hermes, it is recommended to ask the Agent to generate a dry-run plan first, then perform the real installation:
+Give the repository to a terminal Agent you trust and ask it to generate a plan from the current platform and repository contents instead of executing a remote one-line installer:
 
 ```text
-Please help me install aios-kit: https://github.com/LinLin00000000/aios-kit
-Please first read README.md, docs/installation.md, docs/security-and-privacy.md, and check install.sh --help.
-First generate and run a dry-run installation command, and explain which system configurations will be changed; after I confirm, run the real installation.
-After installation, please run ~/aios/bin/aios status and ~/aios/bin/aios doctor.
-Do not leak or commit my subscription URLs, tokens, keys, or private configurations.
+Please evaluate and help install aios-kit: https://github.com/LinLin00000000/aios-kit
+First read the repository README, installation, security, development, and evolution documentation, then inspect the current platform, installer, and parameter help.
+Run a dry-run first. Explain the paths, system configuration, platform limitations, and rollback that would be involved; perform the actual installation only after I confirm.
+Do not read, print, or commit secret values, subscription URLs, tokens, keys, or private configuration.
 ```
 
-The stable entrypoint for Agent/CI is not the interactive wizard, but:
+An Agent or maintainer starts from a reviewed local checkout:
 
 ```bash
 bash install.sh --non-interactive -y --dry-run
+# Run only after user confirmation:
 bash install.sh --non-interactive -y
 ```
 
-If you have not cloned the repo yet:
+The interactive wizard and full parameter surface are still evolving. The Agent should obtain current behavior through `bash install.sh --help` rather than relying on fixed command combinations from old documentation.
 
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- \
-  --non-interactive -y \
-  --root ~/aios \
-  --proxy auto \
-  --add-to-path yes
-```
-
-## Native Core Installation on Windows PowerShell
+## Native Core Installation on Windows PowerShell (Experimental)
 
 The Windows entrypoint is now a native PowerShell core installer: it creates `~/aios`, installs/updates `aios-kit` and the LLL module, generates `aios.ps1`/`aios.cmd`, provides `lll.ps1`/`lll.cmd` proxies when Git Bash/WSL is detected, initializes core directories such as work/config/vault/skills/state/logs/cache, and can add `~/aios/bin` to the user PATH. It checks for Python 3 because the `aios` command depends on Python.
 
-```powershell
-iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 | iex
-```
-
 The native Windows entrypoint does not display add-on capabilities unsupported on Linux/server, such as systemd 24/7 services, Mihomo TUN service, Ubuntu source recovery, Docker/Caddy bootstrap, or managed skillpack sync. If you need the full Linux/server capabilities, run `install.sh` in WSL or on a cloud server.
 
-A more auditable method:
+Run dry-run from a reviewed local checkout:
 
 ```powershell
-$script = "$env:TEMP\aios-kit-install.ps1"
-iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 -OutFile $script
-powershell -ExecutionPolicy Bypass -File $script -DryRun -PrintPlan
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -DryRun -PrintPlan
 ```
 
 Example non-interactive core installation:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File $script -NonInteractive -Yes -Root "$HOME\aios"
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -NonInteractive -Yes -Root "$HOME\aios"
 ```
 
 If you only want to print the WSL/Git Bash backend command:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File $script -UseBashBackend -DryRun
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -UseBashBackend -DryRun
 ```
 
 ## Modern Wizard Startup Order
@@ -116,10 +79,10 @@ AIOS_INSTALL_RELEASE_BASE_URL=https://github.com/LinLin00000000/aios-kit/release
 
 ## GitHub Mirrors
 
-When a new machine cannot connect directly to GitHub, you can use:
+When a test environment cannot connect directly to GitHub, the reviewed local installer can explicitly use a mirror you trust:
 
 ```bash
-bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
+bash install.sh --dry-run --github-mirror https://gh-proxy.com/
 ```
 
 `--github-mirror` adds a prefix to GitHub/raw URLs, including aios-kit, LLL, OPS template clone, Hermes/NVM installer, and GitHub URLs in Mihomo release/UI/geodata.

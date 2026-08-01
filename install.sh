@@ -119,10 +119,10 @@ Automation:
   --no-wizard              Use the built-in Bash prompts instead of the modern wizard
   -h, --help               Show this help
 
-One-line install:
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
+Maintainer preview (reviewed local checkout):
+  bash install.sh --non-interactive -y --dry-run
 
-Non-interactive example:
+Non-interactive apply example (run only after review and confirmation):
   bash install.sh --non-interactive -y --root ~/aios --proxy auto --add-to-path yes --target universal --mode copy
 EOF
 }

@@ -6,47 +6,27 @@
 
 它不是“再装几个 AI 工具”，而是给你的项目、知识、服务、脚本、skills 和长期任务建立一个可被 Agent 理解的本地底座：人类表达目标，Agent 制定策略，CLI/API 执行确定性动作，文件化状态留下事实和证据。
 
-## 安装
+## 当前阶段
 
-当前最推荐只记住两个入口：
+`aios-kit` 仍处于快速迭代和维护者预览阶段。公开一键安装入口暂时撤下；当前不面向普通用户承诺稳定安装、升级或跨平台兼容性。
 
-### 方式 1：一行交互式安装
+仓库中的安装器与安装文档继续作为开发和验证材料保留。若要评估或参与开发，请先阅读 [开发指南](docs/development.md)、[安全与隐私边界](docs/security-and-privacy.md) 和 [演化路线图](docs/evolution.md)，在隔离环境中从源码审查与 dry-run 开始。
 
-Ubuntu/Debian Linux：
+### 通过 Agent 评估与安装（当前推荐入口）
 
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
-```
-
-Windows PowerShell（原生核心安装）：
-
-```powershell
-iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 | iex
-```
-
-脚本启动后会先问是否使用现代 CLI 向导（默认 yes）。确认后才会下载向导；如果向导不可用，会自动回退到原生 Bash 交互。Windows 原生入口只安装核心能力；如果需要 Linux/server 附加能力，请使用 WSL 或 Linux 服务器上的 `install.sh`。
-
-如果 GitHub 访问不稳定，可以换成你信任的镜像：
-
-```bash
-bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
-```
-
-### 方式 2：让已有 Agent 辅助安装
-
-把下面几行发给 Codex、Claude Code、OpenClaw、Hermes 等终端 Agent：
+把仓库链接和下面的目标交给你信任的终端 Agent（如 Hermes、Codex 或 Claude Code）。Agent 应读取项目文件并根据当前平台自适应，不应盲目复制固定命令：
 
 ```text
-请帮我安装 aios-kit：https://github.com/LinLin00000000/aios-kit
-请先阅读 README.md、docs/installation.md、docs/security-and-privacy.md，并查看 install.sh --help。
-先生成并运行 dry-run 安装命令，说明会改哪些系统配置；我确认后再执行正式安装。
-安装后请运行 ~/aios/bin/aios status 和 ~/aios/bin/aios doctor。
-不要泄露或提交我的订阅 URL、token、密钥或私人配置。
+请评估并协助安装 aios-kit：https://github.com/LinLin00000000/aios-kit
+先阅读仓库中的 README、安装、安全、开发和演化文档，识别当前平台与仍在开发中的能力边界。
+先审查安装脚本并执行 dry-run，说明将修改的路径、系统配置、平台限制和回滚方式；得到我确认后再实际安装。
+不要读取、打印或提交 secret value、订阅 URL、token、密钥或私人配置。
 ```
 
-更多平台、参数、非交互和排障细节见：[docs/installation.md](docs/installation.md)。
+<details>
+<summary>当前能力概览（维护者参考）</summary>
 
-## 安装后会得到什么
+## 当前能力概览
 
 ### 核心模块与目录
 
@@ -98,6 +78,8 @@ bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Lin
 | OPS vault 模板 | `~/aios/vault/ops` | 生成公开模板结构，真实私有事实仍留本地 | Windows 原生只创建核心目录 |
 | Ubuntu 源恢复 | apt/npm/pip/Docker source 配置 | 修复被镜像/旧配置污染的新服务器 | 不显示 |
 
+</details>
+
 ## 愿景与设计哲学
 
 Personal AIOS 的目标很简单：让 AI 从“临时聊天助手”变成“能围绕你的真实数字世界持续工作的操作层”。它需要知道项目在哪里、服务怎么检查、资料和密钥边界是什么、哪些工作能自动化、哪些必须确认。
@@ -115,6 +97,9 @@ Personal AIOS 的目标很简单：让 AI 从“临时聊天助手”变成“�
 | 渐进演化 | 模块广度优先、点到为止；新增能力必须证明减少的系统复杂度大于引入的复杂度，详见 [docs/evolution.md](docs/evolution.md)。 |
 | 自迭代 | Agent 在使用 AIOS 时发现失败模式、冗长路径或验证缺口，应主动提出或沉淀对 skill、文档、CLI、验证脚本和工作流的改进。 |
 | 可迁移而非平台锁定 | 默认路径清晰、可备份、可重装；Hermes 是默认中心，但不是唯一 Agent。 |
+
+<details>
+<summary>维护者技术参考</summary>
 
 ## 能力分层
 
@@ -178,11 +163,13 @@ aios lll list --json        # Agent-first: 枚举 LLL workdirs
 
 维护/调试入口：`aios skillpack doctor`、`aios skillpack sync --dry-run`、`aios assets doctor`。如果没有配置 PATH，可用 `~/aios/bin/aios status` 或 `~/aios/bin/lll --version`。
 
+</details>
+
 ## 文档索引
 
 | 文档 | 用途 |
 |---|---|
-| [docs/installation.md](docs/installation.md) | 安装流程、交互选项、非交互参数 |
+| [docs/installation.md](docs/installation.md) | 维护者安装流程、dry-run、交互选项与参数参考 |
 | [docs/mihomo-network.md](docs/mihomo-network.md) | Mihomo 配置、TUN 兼容性、订阅/节点输入 |
 | [docs/architecture.md](docs/architecture.md) | repo 边界、本地结构、source/runtime 模型、关键决策 |
 | [docs/upstream-reconciliation.md](docs/upstream-reconciliation.md) | 外部组件、adapter/overlay、patch queue 与 maintained fork 的上游协调协议 |

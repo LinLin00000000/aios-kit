@@ -84,16 +84,10 @@ update = propose / reconcile / merge / validate，而不是 reset
 
 ## 安装模式与开发模式
 
-给朋友或干净机器使用安装器：
+当前公开安装处于维护者预览，不向朋友或普通用户提供远程一行安装入口。Agent 或维护者应先 checkout 并审查仓库，再从 dry-run 开始：
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
-```
-
-已经 checkout 仓库时：
-
-```bash
-bash install.sh
+bash install.sh --non-interactive -y --dry-run
 ```
 
 作者开发时使用逐个 skill symlink，让 runtime 里的编辑能落到 Git 可见的 worktree：

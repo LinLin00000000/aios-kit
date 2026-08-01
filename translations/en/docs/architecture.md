@@ -90,16 +90,10 @@ External skills are installed through `npx skills`. For regular users, first-par
 
 ## Installation Mode and Development Mode
 
-Use the installer for friends or clean machines:
+Public installation is currently a maintainer preview, with no remote one-line entry point for friends or general users. An Agent or maintainer should first check out and review the repository, then begin with dry-run:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
-```
-
-If you have already checked out the repository:
-
-```bash
-bash install.sh
+bash install.sh --non-interactive -y --dry-run
 ```
 
 During author development, symlink skills one by one so edits in runtime land in a Git-visible worktree:

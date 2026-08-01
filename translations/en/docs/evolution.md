@@ -118,4 +118,18 @@ Not implemented for now: resident broker, proxy, MCP secret tools, provider plug
 
 AIOS may introduce project health inspections in the future, but by default it should not start from local cron or a resident Agent. The higher-priority direction is GitHub CI/CD or other cloud workflows: checking documentation drift, public audit, skillpack distribution, module health, and installation smoke tests.
 
-At the current stage, only the principles are recorded; no inspection command, cron, daemon, or workflow is implemented. Automation should be added only after the process is stable, check items are clear, and actionable recommendations can be produced.
+At the current stage, maintenance automation such as documentation translation and explicit release builds remains in place. Automatic Install smoke is paused and is not used as a release gate on every push or pull request. Automation should be added only after the process is stable, check items are clear, and actionable recommendations can be produced.
+
+## Public Installation Roadmap
+
+The current stage is a **maintainer preview**: installers, parameter documentation, and test code remain in the repository for development and isolated validation, but the README does not provide one-line installation commands or promise stable installation, upgrades, or cross-platform compatibility to general users.
+
+Before public installation guidance is reopened, at least the following should be true:
+
+1. The Linux core path can repeatedly complete dry-run, apply, status, and doctor in an isolated environment;
+2. The boundaries between macOS, Windows, and Linux-only capabilities are explicitly documented with fail-closed tests rather than treating false-green platform results as support;
+3. Documentation of system changes, secret boundaries, failure recovery, and uninstall/rollback matches actual installer behavior;
+4. Install smoke is consistently stable and reliably propagates failures from Bash, PowerShell, Python, and Go;
+5. Release versions, support scope, and maintenance responsibility have an explicit owner.
+
+Restoration should remain progressive: first allow maintainer-triggered validation, then run it as a change gate; only after the evidence is stable should the README restore a general-user installation entry point.

@@ -1,9 +1,6 @@
-name: Install smoke
+name: Install smoke (manual)
 
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -77,12 +74,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Go and Source CLI tests
+      - name: Go and Python tests
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m unittest discover -s modules/aiops-vault-template/tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: PowerShell parse
         shell: pwsh
         run: |

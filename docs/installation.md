@@ -1,6 +1,6 @@
 # 安装指南
 
-当前安装器按“能力分层”维护。核心特性面向全平台，当前优先支持 Ubuntu 与 Windows；附加特性面向 Linux/server，尤其是 Ubuntu/Debian 云服务器。macOS/Termux 与其他发行版建议先使用 `--dry-run`，或让已有 Agent 读源码和文档后辅助安装。
+当前安装器处于维护者预览阶段，按“能力分层”继续开发。以下内容是 Agent 和维护者的评估参考，不是面向普通用户的稳定安装承诺。任何平台都应先让 Agent 阅读当前仓库、识别能力边界，并在隔离环境中执行 `--dry-run`。
 
 ## 能力分层
 
@@ -10,86 +10,49 @@
 | 附加特性 | Mihomo/TUN、开发/运行环境 bootstrap、Hermes、OPS vault 模板、Ubuntu 软件源恢复、systemd/24x7 服务化运行 | Linux/server 推荐；Windows 原生安装不显示不支持项。如需这些能力，请使用 Linux 或 WSL。 |
 
 
-## 推荐入口
+## 当前入口：Agent 辅助评估
 
-### 一行交互式安装
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)"
-```
-
-默认行为：脚本先用原生 Bash 问一句是否启用现代 CLI 向导，默认 yes。只有选择 yes 后，才会下载或启动 `aios-install`。
-
-`aios-install` 是 Go/huh 写的现代 CLI 前端，提供上下键选择、空格复选和安装计划预览。它不复制真实安装逻辑，只把你的选择转换成稳定的：
-
-```bash
-install.sh --non-interactive ...
-```
-
-如果你想强制使用或跳过现代向导：
-
-```bash
-bash install.sh --wizard
-bash install.sh --no-wizard
-```
-
-### Agent 辅助安装
-
-如果你已经有 Codex、Claude Code、OpenClaw、Hermes 等终端 Agent，推荐让 Agent 先生成 dry-run 计划，再执行正式安装：
+把仓库交给你信任的终端 Agent，让它根据当前平台和仓库内容生成方案，而不是执行远程一行安装命令：
 
 ```text
-请帮我安装 aios-kit：https://github.com/LinLin00000000/aios-kit
-请先阅读 README.md、docs/installation.md、docs/security-and-privacy.md，并查看 install.sh --help。
-先生成并运行 dry-run 安装命令，说明会改哪些系统配置；我确认后再执行正式安装。
-安装后请运行 ~/aios/bin/aios status 和 ~/aios/bin/aios doctor。
-不要泄露或提交我的订阅 URL、token、密钥或私人配置。
+请评估并协助安装 aios-kit：https://github.com/LinLin00000000/aios-kit
+先阅读仓库中的 README、安装、安全、开发和演化文档，检查当前平台、安装脚本和参数帮助。
+先执行 dry-run，说明将修改的路径、系统配置、平台限制和回滚方式；得到我确认后再实际安装。
+不要读取、打印或提交 secret value、订阅 URL、token、密钥或私人配置。
 ```
 
-Agent/CI 的稳定入口不是交互式向导，而是：
+Agent 或维护者从已审查的本地 checkout 开始：
 
 ```bash
 bash install.sh --non-interactive -y --dry-run
+# 用户确认后才执行：
 bash install.sh --non-interactive -y
 ```
 
-还没有 clone repo 时：
+交互式向导和完整参数仍在开发中；Agent 应通过 `bash install.sh --help` 获取当前行为，不依赖旧文档中的固定命令组合。
 
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- \
-  --non-interactive -y \
-  --root ~/aios \
-  --proxy auto \
-  --add-to-path yes
-```
-
-## Windows PowerShell 原生核心安装
+## Windows PowerShell 原生核心安装（实验性）
 
 Windows 入口现在是原生 PowerShell 核心安装器：它会创建 `~/aios`，安装/更新 `aios-kit` 与 LLL 模块，生成 `aios.ps1`/`aios.cmd`，并在检测到 Git Bash/WSL 时提供 `lll.ps1`/`lll.cmd` 代理，初始化 work/config/vault/skills/state/logs/cache 等核心目录，并可把 `~/aios/bin` 加入用户 PATH。它会检查 Python 3，因为 `aios` 命令依赖 Python。
 
-```powershell
-iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 | iex
-```
-
 Windows 原生入口不会显示 Linux/server 不支持的附加能力，例如 systemd 24/7 服务、Mihomo TUN service、Ubuntu 源恢复、Docker/Caddy bootstrap、managed skillpack sync。需要完整 Linux/server 能力时，请在 WSL 或云服务器中运行 `install.sh`。
 
-更可审计的方式：
+请从已审查的本地 checkout 运行 dry-run：
 
 ```powershell
-$script = "$env:TEMP\aios-kit-install.ps1"
-iwr -UseBasicParsing https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.ps1 -OutFile $script
-powershell -ExecutionPolicy Bypass -File $script -DryRun -PrintPlan
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -DryRun -PrintPlan
 ```
 
 非交互核心安装示例：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File $script -NonInteractive -Yes -Root "$HOME\aios"
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -NonInteractive -Yes -Root "$HOME\aios"
 ```
 
 如只想打印 WSL/Git Bash 后端命令：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File $script -UseBashBackend -DryRun
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -UseBashBackend -DryRun
 ```
 
 ## 现代向导启动顺序
@@ -110,10 +73,10 @@ AIOS_INSTALL_RELEASE_BASE_URL=https://github.com/LinLin00000000/aios-kit/release
 
 ## GitHub 镜像
 
-当新机器不能直连 GitHub 时，可以使用：
+当测试环境不能直连 GitHub 时，已审查的本地安装器可显式传入你信任的镜像：
 
 ```bash
-bash -c "$(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/LinLin00000000/aios-kit/main/install.sh)" -- --github-mirror https://gh-proxy.com/
+bash install.sh --dry-run --github-mirror https://gh-proxy.com/
 ```
 
 `--github-mirror` 会给 GitHub/raw URL 添加前缀，包括 aios-kit、LLL、OPS template clone，Hermes/NVM installer，以及 Mihomo release/UI/geodata 中的 GitHub URL。

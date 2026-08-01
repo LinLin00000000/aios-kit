@@ -112,4 +112,18 @@ Secret 模块当前保持 L1.5：密钥登记、录入、consumer、replica、re
 
 AIOS 可以在未来引入项目健康巡查，但默认不从本地 cron 或常驻 Agent 开始。更优先的方向是 GitHub CI/CD 或其他云端工作流：检查文档漂移、public audit、skillpack 分发、模块健康和安装 smoke test。
 
-当前阶段只记录原则，不实现巡查命令、cron、daemon 或 workflow。自动化应在流程稳定、检查项明确且能给出可执行建议后再加入。
+当前保留文档翻译与显式 release 构建等维护自动化；自动 Install smoke 暂停，不作为每次 push / pull request 的发布门禁。自动化应在流程稳定、检查项明确且能给出可执行建议后再加入。
+
+## 公开安装路线图
+
+当前阶段是**维护者预览**：安装器、参数文档和测试代码继续留在仓库中供开发与隔离验证，但 README 不提供一键安装命令，也不对普通用户承诺稳定安装、升级或跨平台兼容性。
+
+重新开放公开安装引导前，应至少满足：
+
+1. Linux 核心路径在隔离环境中可重复完成 dry-run、apply、status 和 doctor；
+2. macOS、Windows 与 Linux-only 能力边界被明确记录并有 fail-closed 测试，不用平台假绿代替支持；
+3. 安装器的系统改动、secret 边界、失败恢复和卸载/回滚说明与真实行为一致；
+4. Install smoke 连续稳定，能够可靠传播 Bash、PowerShell、Python 和 Go 的失败；
+5. 发布版本、支持范围与维护责任有明确 owner。
+
+恢复顺序保持渐进：先允许维护者手动触发验证，再作为变更门禁运行；只有证据稳定后，README 才重新提供面向普通用户的安装入口。

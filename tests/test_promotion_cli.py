@@ -296,6 +296,7 @@ class PromotionApplyCliTests(unittest.TestCase):
             self.fail(f"command unexpectedly passed: {args}\nstdout={result.stdout}")
         return result
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "atomic promotion apply is Linux-only")
     def test_apply_is_dry_run_by_default_then_applies_and_validates(self) -> None:
         plan = json.loads(self.run_cli("promotion", "apply", str(self.change_path)).stdout)
         self.assertEqual(plan["schema"], "aios.asset-promotion-apply.v1")
@@ -323,6 +324,7 @@ class PromotionApplyCliTests(unittest.TestCase):
         self.assertTrue(any("source_hash" in error for error in report["errors"]))
         self.assertFalse(self.target_dir.exists())
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "atomic promotion apply is Linux-only")
     def test_apply_recovers_target_installed_before_change_set_finalize(self) -> None:
         first = json.loads(self.run_cli("promotion", "apply", str(self.change_path), "--apply").stdout)
         self.assertTrue(first["ok"])
@@ -337,6 +339,18 @@ class PromotionApplyCliTests(unittest.TestCase):
         self.assertTrue(recovered["ok"])
         self.assertEqual(recovered["status"], "applied_validated")
         self.assertTrue(json.loads(self.change_path.read_text(encoding="utf-8"))["result"]["source_files_unchanged"])
+
+    @unittest.skipIf(sys.platform.startswith("linux"), "non-Linux fail-closed contract")
+    def test_apply_fails_closed_when_atomic_install_is_unsupported(self) -> None:
+        plan = json.loads(self.run_cli("promotion", "apply", str(self.change_path)).stdout)
+        self.assertEqual(plan["status"], "planned")
+        report = json.loads(
+            self.run_cli("promotion", "apply", str(self.change_path), "--apply", ok=False).stdout
+        )
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["status"], "apply_failed")
+        self.assertTrue(any("supported only on Linux" in error for error in report["errors"]))
+        self.assertFalse(self.target_dir.exists())
 
     def test_apply_rejects_existing_unowned_target_without_overwrite(self) -> None:
         self.target_dir.mkdir(parents=True)
