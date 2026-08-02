@@ -153,6 +153,60 @@ class SmokeTests(unittest.TestCase):
                     self.assertEqual(non_exact.returncode, 1)
                     self.assertIn("services --json", non_exact.stderr)
 
+    def test_check_rejects_cross_service_selector_collisions(self):
+        scenarios = {
+            "name_vs_name": [
+                ("alpha", "Shared Name", []),
+                ("beta", "shared-name", []),
+            ],
+            "alias_vs_id": [
+                ("alpha", "Alpha Service", ["beta"]),
+                ("beta", "Beta Service", []),
+            ],
+            "empty_after_normalization": [
+                ("alpha", "Alpha Service", ["---"]),
+            ],
+        }
+        for scenario, records in scenarios.items():
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as td:
+                vault = Path(td) / "vault"
+                (vault / "scripts").mkdir(parents=True)
+                for path, content in {
+                    "README.md": "# Synthetic vault\n",
+                    "resources.md": "# Synthetic resources\n",
+                    "maintenance-log.schema.md": "# Synthetic schema\n",
+                    "maintenance-log.jsonl": "",
+                    "scripts/aiops.py": "# existence marker for check\n",
+                }.items():
+                    (vault / path).write_text(content, encoding="utf-8")
+                for service_id, name, aliases in records:
+                    directory = vault / "services" / service_id
+                    directory.mkdir(parents=True)
+                    (directory / "service.json").write_text(
+                        json.dumps(
+                            {
+                                "schema": "aios.ops.service.v1",
+                                "id": service_id,
+                                "name": name,
+                                "summary": "Fully synthetic collision fixture.",
+                                "aliases": aliases,
+                                "references": [],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                env = os.environ.copy()
+                env["AIOPS_ROOT"] = str(vault)
+                out = subprocess.run(
+                    [sys.executable, str(SCRIPT), "check"],
+                    env=env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+                self.assertIn("selector", (out.stdout + out.stderr).lower())
+
     def test_cli_log_query(self):
         env = os.environ.copy()
         env["AIOPS_ROOT"] = str(ROOT)

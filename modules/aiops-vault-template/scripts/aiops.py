@@ -144,12 +144,33 @@ def load_service_records(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
         item["_metadata_path"] = rel.as_posix()
         item["_details_path"] = (rel.parent / details).as_posix() if details else None
         records.append(item)
-    seen: dict[str, str] = {}
+    selector_owners: dict[str, tuple[str, str]] = {}
     for record in records:
-        key = normalize_identifier(record["id"])
-        if key in seen:
-            errors.append(f"duplicate service id after normalization: {record['id']} / {seen[key]}")
-        seen[key] = record["id"]
+        record_keys: set[str] = set()
+        selectors = [
+            ("id", record["id"]),
+            ("name", record["name"]),
+            *(("alias", alias) for alias in record.get("aliases", [])),
+        ]
+        for kind, value in selectors:
+            key = normalize_identifier(value)
+            if not key:
+                errors.append(
+                    f"{record['_metadata_path']}: {kind} selector must contain letters, numbers, or CJK characters"
+                )
+                continue
+            if key in record_keys:
+                continue
+            record_keys.add(key)
+            owner = selector_owners.get(key)
+            if owner is not None:
+                owner_id, owner_path = owner
+                errors.append(
+                    f"{record['_metadata_path']}: selector collision after normalization: "
+                    f"{value!r} conflicts with service {owner_id!r} in {owner_path}"
+                )
+            else:
+                selector_owners[key] = (record["id"], record["_metadata_path"])
     return records, errors
 
 
