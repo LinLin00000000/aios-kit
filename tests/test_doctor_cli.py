@@ -173,24 +173,42 @@ class DoctorRedactionTests(unittest.TestCase):
         self.assertGreaterEqual(redacted.count("***REDACTED***"), 3)
 
     def test_url_redaction_keeps_credential_coverage_after_scheme_character_boundaries(self) -> None:
-        boundaries = ("-", ".", "+", "9-")
-        schemes = ("ftp", "http", "https", "ssh", "git")
-        cases = [
-            (boundary, scheme, f"t070-url-boundary-{index}")
-            for index, (boundary, scheme) in enumerate(
-                ((boundary, scheme) for boundary in boundaries for scheme in schemes)
-            )
-        ]
-        raw = "\n".join(
-            f"log {boundary}{scheme}://safe-user:{marker}@host.invalid/path"
-            for boundary, scheme, marker in cases
-        )
+        lengths = (1, 2, 63, 64, 65, 66, 128, 512)
+        tails = ("a", "9", "+", ".", "-")
+        forms = ("userinfo", "query", "fragment", "all")
+        cases = []
+        for length in lengths:
+            for tail in tails[:1] if length == 1 else tails:
+                scheme = "a" * (length - 1) + tail
+                for form in forms:
+                    marker = f"t072-{length}-{ord(tail)}-{form}"
+                    userinfo = f"safe-user:{marker}@" if form in ("userinfo", "all") else ""
+                    query = f"?note={marker}" if form in ("query", "all") else ""
+                    fragment = f"#{marker}" if form in ("fragment", "all") else ""
+                    uri = f"{scheme}://{userinfo}host.invalid/path{query}{fragment}"
+                    retained = f"{scheme}://host.invalid/path"
+                    if query:
+                        retained += "?***REDACTED***"
+                    if fragment:
+                        retained += "#***REDACTED***"
+                    cases.append((marker, uri, retained))
+        for index, (prefix, scheme) in enumerate((
+            ("", "https"), ("-", "https"), (".", "https"), ("+", "https"),
+            ("9-", "https"), ("", "x-https"), ("", "custom.absorb+https"),
+        )):
+            marker = f"t072-prefix-{index}"
+            cases.append((
+                marker,
+                f"{prefix}{scheme}://safe-user:{marker}@host.invalid/path",
+                f"{prefix}{scheme}://host.invalid/path",
+            ))
+        raw = "\n".join(f"log {uri}" for _, uri, _ in cases)
 
         redacted = AIOS.redact_output(raw, [])
 
-        for boundary, scheme, marker in cases:
+        for marker, _, retained in cases:
             self.assertNotIn(marker, redacted)
-            self.assertIn(f"{boundary}{scheme}://host.invalid/path", redacted)
+            self.assertIn(retained, redacted)
 
     def test_assignment_key_requires_sensitive_suffix_before_operator(self) -> None:
         safe_keys = (

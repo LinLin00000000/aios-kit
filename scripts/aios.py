@@ -1772,7 +1772,9 @@ def secret_sync_github(args: argparse.Namespace) -> None:
     print("- secret_values_exposed: false")
 
 
-_DOCTOR_URL_RE = re.compile(r"(?i)\b[A-Z][A-Z0-9+.-]{0,63}://[^\s<>\"']+")
+_DOCTOR_URL_RE = re.compile(
+    r"(?i)(?<![A-Z0-9+.-])(?P<prefix>[0-9+.-]*)(?P<url>[A-Z][A-Z0-9+.-]*://[^\s<>\"']+)"
+)
 _AUTHORIZATION_BEARER_RE = re.compile(
     r"(?ix)(?<![A-Za-z0-9_])"
     r"(?P<key_quote>[\"']?)(?P<key>authorization)(?P=key_quote)"
@@ -1806,26 +1808,27 @@ _PROVIDER_SECRET_RES = (
 
 
 def _redact_credential_url(match: re.Match[str]) -> str:
-    raw = match.group(0)
+    prefix = match.group("prefix")
+    raw = match.group("url")
     try:
         parsed = urllib.parse.urlsplit(raw)
         if not parsed.hostname:
-            return "***REDACTED-URL***"
+            return prefix + "***REDACTED-URL***"
         if not (parsed.username or parsed.password or parsed.query or parsed.fragment):
-            return raw
+            return prefix + raw
         hostname = parsed.hostname
         if ":" in hostname and not hostname.startswith("["):
             hostname = f"[{hostname}]"
         try:
             port = parsed.port
         except ValueError:
-            return "***REDACTED-URL***"
+            return prefix + "***REDACTED-URL***"
         netloc = hostname + (f":{port}" if port is not None else "")
         query = "***REDACTED***" if parsed.query else ""
         fragment = "***REDACTED***" if parsed.fragment else ""
-        return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, query, fragment))
+        return prefix + urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, query, fragment))
     except ValueError:
-        return "***REDACTED-URL***"
+        return prefix + "***REDACTED-URL***"
 
 
 def redact_output(text: str, secret_values: list[str]) -> str:
