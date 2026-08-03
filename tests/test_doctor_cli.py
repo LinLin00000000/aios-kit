@@ -172,6 +172,36 @@ class DoctorRedactionTests(unittest.TestCase):
         self.assertIn("https://example.invalid/repo.git?***REDACTED***", redacted)
         self.assertGreaterEqual(redacted.count("***REDACTED***"), 3)
 
+    def test_assignment_key_requires_sensitive_suffix_before_operator(self) -> None:
+        safe_keys = (
+            "aios-secret-management", "secret_id", "token_budget", "password_policy",
+            "passwordless_mode", "credential_type", "authorization_scheme", "api_key_path",
+            "private_key_path", "tokenizer_type",
+        )
+        sensitive_keys = (
+            "api_key", "openai_api_key", "access-key", "privateKey", "AWS_SECRET_ACCESS_KEY",
+            "secret_key", "secret_value", "secret-material", "access_token", "refreshToken",
+            "auth-token", "bearer_token", "github_token", "token", "password", "passwd",
+            "passphrase", "client_secret", "clientSecret", "secret", "credential",
+            "credentials", "authorization",
+        )
+        markers = [f"synthetic-{index}-marker" for index in range(len(sensitive_keys))]
+        safe_lines = [f"{key}: /srv/{key}/public" for key in safe_keys]
+        raw = "\n".join(
+            safe_lines
+            + [f"{key}={marker}" for key, marker in zip(sensitive_keys, markers)]
+            + [f"token_budget: github_token={markers[-1]}"]
+        )
+
+        redacted = AIOS.redact_output(raw, [])
+
+        for line in safe_lines:
+            self.assertIn(line, redacted)
+        for key, marker in zip(sensitive_keys, markers):
+            self.assertIn(f"{key}=***REDACTED***", redacted)
+            self.assertNotIn(marker, redacted)
+        self.assertIn("token_budget: github_token=***REDACTED***", redacted)
+
     def test_assets_human_doctor_redacts_configured_and_observed_git_output(self) -> None:
         sensitive = "".join(("fixture", "-credential"))
         provider_value = "".join(("sk", "-", "B" * 24))

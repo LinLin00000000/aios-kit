@@ -1772,7 +1772,7 @@ def secret_sync_github(args: argparse.Namespace) -> None:
     print("- secret_values_exposed: false")
 
 
-_DOCTOR_URL_RE = re.compile(r"(?i)\b[A-Z][A-Z0-9+.-]*://[^\s<>\"']+")
+_DOCTOR_URL_RE = re.compile(r"(?i)(?<![A-Z0-9+.-])[A-Z][A-Z0-9+.-]*://[^\s<>\"']+")
 _AUTHORIZATION_BEARER_RE = re.compile(
     r"(?ix)(?<![A-Za-z0-9_])"
     r"(?P<key_quote>[\"']?)(?P<key>authorization)(?P=key_quote)"
@@ -1780,9 +1780,17 @@ _AUTHORIZATION_BEARER_RE = re.compile(
     r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|Bearer(?:[ \t]+[^\s,;}\]]+)+)"
 )
 _SENSITIVE_ASSIGNMENT_RE = re.compile(
-    r"(?i)(?<![A-Za-z0-9_])"
+    r"(?i)(?<![A-Za-z0-9_-])"
     r"(?P<key_quote>[\"']?)"
-    r"(?P<key>[A-Za-z0-9_-]*(?:api[_-]?key|token|password|passwd|secret|credential|authorization)[A-Za-z0-9_-]*)"
+    r"(?P<key>"
+    r"(?=[A-Za-z0-9_-]*(?:"
+    r"api[_-]?key|access[_-]?key|private[_-]?key|"
+    r"secret[_-]?(?:access[_-]?key|key|value|material)|"
+    r"(?:access|refresh|auth|bearer)[_-]?token|token|"
+    r"password|passwd|passphrase|client[_-]?secret|secret|credentials?|authorization"
+    r")(?P=key_quote)\s*[:=])"
+    r"[A-Za-z][A-Za-z0-9_-]*"
+    r")"
     r"(?P=key_quote)"
     r"(?P<spacing>\s*)(?P<operator>[:=])(?P<value_spacing>\s*)"
     r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)"
