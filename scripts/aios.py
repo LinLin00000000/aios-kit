@@ -7,10 +7,12 @@ It intentionally does not replace `npx skills`; it only groups and records opera
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as _dt
 import getpass
 import hashlib
 import html
+import io
 import json
 import os
 import re
@@ -1770,10 +1772,61 @@ def secret_sync_github(args: argparse.Namespace) -> None:
     print("- secret_values_exposed: false")
 
 
+_DOCTOR_URL_RE = re.compile(r"(?i)\b(?:https?|ssh|git)://[^\s<>\"']+")
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9_])"
+    r"(?P<key>[A-Za-z0-9_-]*(?:api[_-]?key|token|password|passwd|secret|credential|authorization))"
+    r"(?P<spacing>\s*)(?P<operator>[:=])(?P<value_spacing>\s*)"
+    r"(?P<value>\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+)
+_PROVIDER_SECRET_RES = (
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{16,}\b"),
+)
+
+
+def _redact_credential_url(match: re.Match[str]) -> str:
+    raw = match.group(0)
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        if not parsed.hostname:
+            return "***REDACTED-URL***"
+        if not (parsed.username or parsed.password or parsed.query or parsed.fragment):
+            return raw
+        hostname = parsed.hostname
+        if ":" in hostname and not hostname.startswith("["):
+            hostname = f"[{hostname}]"
+        try:
+            port = parsed.port
+        except ValueError:
+            return "***REDACTED-URL***"
+        netloc = hostname + (f":{port}" if port is not None else "")
+        query = "***REDACTED***" if parsed.query else ""
+        fragment = "***REDACTED***" if parsed.fragment else ""
+        return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, query, fragment))
+    except ValueError:
+        return "***REDACTED-URL***"
+
+
 def redact_output(text: str, secret_values: list[str]) -> str:
+    """Redact known values plus credential-shaped data from diagnostic output."""
     out = text
     for value in sorted((v for v in secret_values if v and len(v) >= 4), key=len, reverse=True):
         out = out.replace(value, "***REDACTED***")
+    out = _DOCTOR_URL_RE.sub(_redact_credential_url, out)
+    out = _SENSITIVE_ASSIGNMENT_RE.sub(
+        lambda match: (
+            f"{match.group('key')}{match.group('spacing')}{match.group('operator')}"
+            f"{match.group('value_spacing')}***REDACTED***"
+        ),
+        out,
+    )
+    for pattern in _PROVIDER_SECRET_RES:
+        out = pattern.sub("***REDACTED***", out)
     return out
 
 
@@ -2552,28 +2605,30 @@ def assets_manifest_path() -> Path | None:
 
 
 def assets_doctor(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if getattr(args, "home", None) else Path.home()
     manifest_path = assets_manifest_path()
-    print(f"assets manifest: {manifest_path}")
+    safe = lambda value: redact_output(str(value), [])
+    print(f"assets manifest: {safe(manifest_path)}")
     example_only = bool(manifest_path and manifest_path.name == "local-assets.example.json")
     assets = load_assets().get("assets", [])
     ok = True
     for a in assets:
-        path = expand(a.get("canonical_path"))
-        print(f"\n[{a.get('id')}] {a.get('kind')}\n  path: {path}")
+        path = expand(a.get("canonical_path"), home=home)
+        print(f"\n[{safe(a.get('id'))}] {safe(a.get('kind'))}\n  path: {safe(path)}")
         if not path or not path.exists():
             print("  status: missing" + (" (example only)" if example_only else ""))
             ok = ok and example_only
             continue
         if path.is_symlink():
-            print(f"  symlink -> {path.resolve()}")
+            print(f"  symlink -> {safe(path.resolve())}")
         remote = a.get("remote")
         if remote:
             result = subprocess.run(["git", "-C", str(path), "remote", "get-url", "origin"], text=True, capture_output=True)
             if result.returncode == 0:
                 got = result.stdout.strip()
-                print(f"  origin: {got}")
+                print(f"  origin: {safe(got)}")
                 if got != remote:
-                    print(f"  expected: {remote}")
+                    print(f"  expected: {safe(remote)}")
             else:
                 print("  git: not a repo or no origin")
                 ok = False
@@ -2581,11 +2636,11 @@ def assets_doctor(args: argparse.Namespace) -> None:
             if st.returncode == 0:
                 print("  git status:")
                 for line in st.stdout.rstrip().splitlines()[:20]:
-                    print(f"    {line}")
+                    print(f"    {safe(line)}")
         link = a.get("discovery_link")
         if link:
-            lp = expand(link)
-            print(f"  discovery_link: {lp} {'exists' if lp and lp.exists() else 'missing'}")
+            lp = expand(link, home=home)
+            print(f"  discovery_link: {safe(lp)} {'exists' if lp and lp.exists() else 'missing'}")
     raise SystemExit(0 if ok else 1)
 
 
@@ -3323,7 +3378,62 @@ def lll_open(args: argparse.Namespace) -> None:
         raise SystemExit(subprocess.run(["xdg-open", str(wd)]).returncode)
 
 
+def _capture_doctor_check(check_id: str, func: Any, args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    code = 0
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            func(args)
+        except SystemExit as exc:
+            if exc.code is None:
+                code = 0
+            elif isinstance(exc.code, int):
+                code = int(exc.code)
+            else:
+                code = 1
+                print(str(exc.code), file=sys.stderr)
+        except Exception as exc:
+            code = 1
+            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+    messages = [
+        redact_output(line, [])
+        for line in (stdout.getvalue().splitlines() + stderr.getvalue().splitlines())
+    ]
+    return {"id": check_id, "messages": messages, "ok": code == 0}, code
+
+
 def doctor(args: argparse.Namespace) -> None:
+    if getattr(args, "json", False):
+        specs = (
+            ("instance", instance_doctor, args),
+            (
+                "skillpack",
+                skillpack_doctor,
+                argparse.Namespace(home=args.home, target=args.target, state_dir=None),
+            ),
+            ("assets", assets_doctor, args),
+        )
+        captured = [_capture_doctor_check(check_id, func, check_args) for check_id, func, check_args in specs]
+        checks = [check for check, _ in captured]
+        problems = [
+            {
+                "check": check["id"],
+                "code": "doctor_failed",
+                "message": f"{check['id']} doctor reported problems",
+            }
+            for check in checks
+            if not check["ok"]
+        ]
+        payload = {
+            "checks": checks,
+            "ok": not problems,
+            "problems": problems,
+            "schema": "aios.doctor.v1",
+            "version": 1,
+        }
+        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+        raise SystemExit(max((code for _, code in captured), default=0))
     try:
         instance_doctor(args)
     except SystemExit as e:
@@ -3599,6 +3709,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = sub.add_parser("doctor", help="validate instance, skillpack, and assets")
     d.add_argument("--target", default="universal", choices=["universal", "hermes", "both"])
+    d.add_argument("--json", action="store_true", help="emit compact aios.doctor.v1 JSON")
     d.set_defaults(func=doctor)
 
     sp = sub.add_parser("skillpack", help="inspect/sync managed runtime skills")

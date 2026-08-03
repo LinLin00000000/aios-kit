@@ -58,7 +58,7 @@
 | 命令 | 作用 | 典型使用者 |
 |---|---|---|
 | `aios status` | 查看实例根目录、vault、work、skills、modules 等摘要 | 人类 / Agent |
-| `aios doctor` | 校验实例、skillpack 与本地资产配置 | Agent 优先 |
+| `aios doctor` / `aios doctor --json` | 校验实例、skillpack 与本地资产配置；JSON 模式输出 versioned `aios.doctor.v1` 机器契约 | Agent 优先 |
 | `aios update` | 更新模块、OPS 模板和托管 skills | Agent / 维护者 |
 | `aios project ...` | 管理最小项目/资源注册表与 alias | Agent / 维护者 |
 | `aios matter ...` | 重建/查询派生 Matter 索引，按生命周期与可重开状态检索，并生成精选交付物 View；详见 [Matter 生命周期](docs/matter-lifecycle.md) | Agent 优先 |
@@ -151,6 +151,7 @@ Agent 优先使用 JSON/doctor/status 探针；人类只在需要兜底排障时
 ```bash
 aios status                 # 查看实例摘要（human-readable）
 aios doctor                 # 校验安装与链接状态（human-readable）
+aios doctor --json          # compact aios.doctor.v1；ok 与 exit code 对齐，诊断内容集中脱敏
 aios update --dry-run       # 预览更新
 aios update                 # 更新模块、OPS 模板和托管 skills
 aios update skills          # 刷新托管 runtime skills
