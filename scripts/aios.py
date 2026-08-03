@@ -1772,12 +1772,20 @@ def secret_sync_github(args: argparse.Namespace) -> None:
     print("- secret_values_exposed: false")
 
 
-_DOCTOR_URL_RE = re.compile(r"(?i)\b(?:https?|ssh|git)://[^\s<>\"']+")
+_DOCTOR_URL_RE = re.compile(r"(?i)\b[A-Z][A-Z0-9+.-]*://[^\s<>\"']+")
+_AUTHORIZATION_BEARER_RE = re.compile(
+    r"(?ix)(?<![A-Za-z0-9_])"
+    r"(?P<key_quote>[\"']?)(?P<key>authorization)(?P=key_quote)"
+    r"(?P<spacing>\s*)(?P<operator>[:=])(?P<value_spacing>\s*)"
+    r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|Bearer(?:[ \t]+[^\s,;}\]]+)+)"
+)
 _SENSITIVE_ASSIGNMENT_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9_])"
-    r"(?P<key>[A-Za-z0-9_-]*(?:api[_-]?key|token|password|passwd|secret|credential|authorization))"
+    r"(?P<key_quote>[\"']?)"
+    r"(?P<key>[A-Za-z0-9_-]*(?:api[_-]?key|token|password|passwd|secret|credential|authorization)[A-Za-z0-9_-]*)"
+    r"(?P=key_quote)"
     r"(?P<spacing>\s*)(?P<operator>[:=])(?P<value_spacing>\s*)"
-    r"(?P<value>\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+    r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)"
 )
 _PROVIDER_SECRET_RES = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
@@ -1818,9 +1826,18 @@ def redact_output(text: str, secret_values: list[str]) -> str:
     for value in sorted((v for v in secret_values if v and len(v) >= 4), key=len, reverse=True):
         out = out.replace(value, "***REDACTED***")
     out = _DOCTOR_URL_RE.sub(_redact_credential_url, out)
+    out = _AUTHORIZATION_BEARER_RE.sub(
+        lambda match: (
+            f"{match.group('key_quote')}{match.group('key')}{match.group('key_quote')}"
+            f"{match.group('spacing')}{match.group('operator')}"
+            f"{match.group('value_spacing')}***REDACTED***"
+        ),
+        out,
+    )
     out = _SENSITIVE_ASSIGNMENT_RE.sub(
         lambda match: (
-            f"{match.group('key')}{match.group('spacing')}{match.group('operator')}"
+            f"{match.group('key_quote')}{match.group('key')}{match.group('key_quote')}"
+            f"{match.group('spacing')}{match.group('operator')}"
             f"{match.group('value_spacing')}***REDACTED***"
         ),
         out,
@@ -2604,6 +2621,41 @@ def assets_manifest_path() -> Path | None:
     return None
 
 
+def _doctor_git_env(home: Path) -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(
+        {
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": os.devnull,
+            "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    )
+    return env
+
+
+def _run_doctor_git(home: Path, path: Path, *git_args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            f"core.hooksPath={os.devnull}",
+            "-C",
+            str(path),
+            *git_args,
+        ],
+        text=True,
+        capture_output=True,
+        env=_doctor_git_env(home),
+    )
+
+
 def assets_doctor(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if getattr(args, "home", None) else Path.home()
     manifest_path = assets_manifest_path()
@@ -2623,16 +2675,17 @@ def assets_doctor(args: argparse.Namespace) -> None:
             print(f"  symlink -> {safe(path.resolve())}")
         remote = a.get("remote")
         if remote:
-            result = subprocess.run(["git", "-C", str(path), "remote", "get-url", "origin"], text=True, capture_output=True)
+            result = _run_doctor_git(home, path, "config", "--local", "--no-includes", "--get-all", "remote.origin.url")
             if result.returncode == 0:
-                got = result.stdout.strip()
+                got = result.stdout.splitlines()[0].strip()
                 print(f"  origin: {safe(got)}")
-                if got != remote:
+                if got != str(remote):
                     print(f"  expected: {safe(remote)}")
+                    ok = False
             else:
                 print("  git: not a repo or no origin")
                 ok = False
-            st = subprocess.run(["git", "-C", str(path), "status", "--short", "--branch"], text=True, capture_output=True)
+            st = _run_doctor_git(home, path, "status", "--short", "--branch")
             if st.returncode == 0:
                 print("  git status:")
                 for line in st.stdout.rstrip().splitlines()[:20]:
@@ -3403,18 +3456,24 @@ def _capture_doctor_check(check_id: str, func: Any, args: argparse.Namespace) ->
     return {"id": check_id, "messages": messages, "ok": code == 0}, code
 
 
+def _doctor_check_specs(args: argparse.Namespace) -> tuple[tuple[str, Any, argparse.Namespace], ...]:
+    return (
+        ("instance", instance_doctor, args),
+        (
+            "skillpack",
+            skillpack_doctor,
+            argparse.Namespace(home=args.home, target=args.target, state_dir=None),
+        ),
+        ("assets", assets_doctor, args),
+    )
+
+
 def doctor(args: argparse.Namespace) -> None:
+    captured = [
+        _capture_doctor_check(check_id, func, check_args)
+        for check_id, func, check_args in _doctor_check_specs(args)
+    ]
     if getattr(args, "json", False):
-        specs = (
-            ("instance", instance_doctor, args),
-            (
-                "skillpack",
-                skillpack_doctor,
-                argparse.Namespace(home=args.home, target=args.target, state_dir=None),
-            ),
-            ("assets", assets_doctor, args),
-        )
-        captured = [_capture_doctor_check(check_id, func, check_args) for check_id, func, check_args in specs]
         checks = [check for check, _ in captured]
         problems = [
             {
@@ -3434,21 +3493,12 @@ def doctor(args: argparse.Namespace) -> None:
         }
         print(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
         raise SystemExit(max((code for _, code in captured), default=0))
-    try:
-        instance_doctor(args)
-    except SystemExit as e:
-        code = int(e.code or 0)
-    print("== skillpack ==")
-    try:
-        skillpack_doctor(argparse.Namespace(home=args.home, target=args.target, state_dir=None))
-    except SystemExit as e:
-        code = max(code, int(e.code or 0))
-    print("== assets ==")
-    try:
-        assets_doctor(args)
-    except SystemExit as e:
-        code = max(code, int(e.code or 0))
-    raise SystemExit(code)
+    for index, (check, _) in enumerate(captured):
+        if index:
+            print(f"== {check['id']} ==")
+        for message in check["messages"]:
+            print(message)
+    raise SystemExit(max((code for _, code in captured), default=0))
 
 
 def build_parser() -> argparse.ArgumentParser:
