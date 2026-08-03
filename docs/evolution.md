@@ -76,7 +76,7 @@ AIOS 不要求整个系统只有一个文件，而要求**每一项事实只有�
 
 | 模块 / 能力 | 当前阶段 | 已有最小闭环 | 下一步候选增强 | 暂不做 |
 |---|---|---|---|---|
-| Project / Resource registry | L1 | `aios project ...`、alias、registry 文件 | 更稳定的 JSON/status/doctor 输出 | 完整项目管理系统 |
+| Project / Resource registry | L1 | `aios project ...`、alias、registry 文件、compact `aios status --json` | 按真实消费需求补窄域 doctor JSON | 完整项目管理系统 |
 | Data Sources | L1 | `aios source list/get/add/alias/validate`、显式 Source records + Project 投影、Managed Zone 目录边界 | 从真实设备接入中补 inventory/backup/sync adapter | 全盘摄取、数据库、通用文件管理器 |
 | Secret management | L1.5 | request → intake → metadata/consumer/replica → run/sync/audit；`doctor`/`validate` 提供低风险探针 | 更通用的 provider preset 文档/模板；仅在真实摩擦出现后考虑可选 proxy/lease | 常驻 broker、默认 proxy、MCP secret tools、plugin 系统 |
 | LLL integration | L1 | `aios lll ...` 发现、创建、状态代理 | 更清楚地表达 AIOS 只代理不吞并 LLL 状态机 | 在 `aios-kit` 中重写 LLL runner |
@@ -84,6 +84,7 @@ AIOS 不要求整个系统只有一个文件，而要求**每一项事实只有�
 | Skillpack | L1 | sync/adopt/doctor/dev-link | 更好的冲突解释和 reconcile 输出 | 接管整个 runtime skills 目录 |
 | Assets | L0/L1 | manifest、doctor、link | 只做发现和链接纪律 | 通用文件管理器 |
 | Agent governance | L1 | `aios-agent` skill、开发文档、自迭代规则 | 用本文件统一演化判断 | 新建一堆原则 skill |
+| Workflow cost signals | L0/L1 | `scripts/agent_cost_snapshot.py snapshot|delta`：按需只读、固定 ledger 去重、五信号 compact JSON | 仅在 schema 漂移或重复消费出现后补 source adapter | dashboard、DB、cron、daemon、自动模型/会话切换 |
 
 ## 增强决策门槛
 

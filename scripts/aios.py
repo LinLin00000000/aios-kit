@@ -2412,10 +2412,31 @@ def status(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     paths = instance_paths(home)
     projects = read_projects(home)
+    explicit_sources = read_sources(home)
     sources = compiled_sources(home)
     counts: dict[str, int] = {}
     for p in projects:
         counts[str(p.get("status", "active"))] = counts.get(str(p.get("status", "active")), 0) + 1
+    if args.json:
+        payload = {
+            "schema": "aios.status.v1",
+            "ok": True,
+            "paths": {
+                key: str(paths[key])
+                for key in ("root", "ops", "work", "skills", "agent_skills", "modules")
+            },
+            "projects": {
+                "total": len(projects),
+                "by_status": dict(sorted(counts.items())),
+            },
+            "sources": {
+                "total": len(sources),
+                "explicit": len(explicit_sources),
+                "project_projections": len(sources) - len(explicit_sources),
+            },
+        }
+        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+        return
     print(f"AIOS root: {paths['root']}")
     print(f"OPS vault: {paths['ops']}")
     print(f"Work root: {paths['work']}")
@@ -2423,7 +2444,7 @@ def status(args: argparse.Namespace) -> None:
     print(f"Agent runtime skills: {paths['agent_skills']}")
     print(f"Modules: {paths['modules']}")
     print(f"Projects: {len(projects)} {counts}")
-    explicit_source_count = len(read_sources(home))
+    explicit_source_count = len(explicit_sources)
     print(f"Sources: {len(sources)} ({explicit_source_count} explicit + {len(sources) - explicit_source_count} project projections)")
 
 
@@ -3334,6 +3355,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.set_defaults(func=init_instance)
 
     st = sub.add_parser("status", help="show AIOS instance summary")
+    st.add_argument("--json", action="store_true", help="emit compact aios.status.v1 JSON")
     st.set_defaults(func=status)
 
     upd = sub.add_parser("update", help="update AIOS modules, skills, and OPS template")
