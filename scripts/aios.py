@@ -1772,7 +1772,7 @@ def secret_sync_github(args: argparse.Namespace) -> None:
     print("- secret_values_exposed: false")
 
 
-_DOCTOR_URL_RE = re.compile(r"(?i)(?<![A-Z0-9+.-])[A-Z][A-Z0-9+.-]*://[^\s<>\"']+")
+_DOCTOR_URL_RE = re.compile(r"(?i)\b[A-Z][A-Z0-9+.-]{0,63}://[^\s<>\"']+")
 _AUTHORIZATION_BEARER_RE = re.compile(
     r"(?ix)(?<![A-Za-z0-9_])"
     r"(?P<key_quote>[\"']?)(?P<key>authorization)(?P=key_quote)"

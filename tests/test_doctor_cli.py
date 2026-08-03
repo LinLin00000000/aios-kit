@@ -172,6 +172,26 @@ class DoctorRedactionTests(unittest.TestCase):
         self.assertIn("https://example.invalid/repo.git?***REDACTED***", redacted)
         self.assertGreaterEqual(redacted.count("***REDACTED***"), 3)
 
+    def test_url_redaction_keeps_credential_coverage_after_scheme_character_boundaries(self) -> None:
+        boundaries = ("-", ".", "+", "9-")
+        schemes = ("ftp", "http", "https", "ssh", "git")
+        cases = [
+            (boundary, scheme, f"t070-url-boundary-{index}")
+            for index, (boundary, scheme) in enumerate(
+                ((boundary, scheme) for boundary in boundaries for scheme in schemes)
+            )
+        ]
+        raw = "\n".join(
+            f"log {boundary}{scheme}://safe-user:{marker}@host.invalid/path"
+            for boundary, scheme, marker in cases
+        )
+
+        redacted = AIOS.redact_output(raw, [])
+
+        for boundary, scheme, marker in cases:
+            self.assertNotIn(marker, redacted)
+            self.assertIn(f"{boundary}{scheme}://host.invalid/path", redacted)
+
     def test_assignment_key_requires_sensitive_suffix_before_operator(self) -> None:
         safe_keys = (
             "aios-secret-management", "secret_id", "token_budget", "password_policy",
