@@ -28,7 +28,8 @@ Polish increases persuasive force, so preserve epistemic boundaries:
 ## Format discipline
 
 - Honor the user's requested final surface: if they ask for HTML and PDF, do not deliver Markdown as the final artifact, though internal LLL state may remain Markdown/JSONL.
-- Treat HTML as the primary iterative review surface unless the user says otherwise. Users often need to reread, comment on, and aesthetically judge the HTML several times before a PDF snapshot is useful.
+- The HTML-first review pattern below is scoped to a user-approved polished HTML/PDF business package. It is not the default for local/internal LLL or Worksite reports; those remain Markdown canonical/default and use the current client's native local-file handoff (`workspace://` when supported by Hermes WebUI/Studio).
+- Treat HTML as the primary iterative review surface only inside that explicitly requested package. For ordinary local/internal work, do not generate HTML merely to improve presentation or because Workspace has rendering limitations.
 - Prefer a shared report kit: fixed CSS/templates plus structured content slots, not unrelated bespoke HTML/CSS per file.
 - Do **not** rebuild/export PDFs after every content edit by default. Export PDFs at milestones, final delivery, or on explicit user request; keep the PDF as a snapshot of the current approved HTML.
 - Before milestone/final delivery, export PDFs and visually inspect rendered pages. If vision tooling is unavailable, still verify HTML loads, CSS links resolve, console is clean, file sizes/paths exist, and record the visual-QA limitation.
