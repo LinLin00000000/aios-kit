@@ -66,6 +66,26 @@ update = propose / reconcile / merge / validate，而不是 reset
 
 未来 AIOS 更新工具应优先提供 `status`、`diff`、`doctor`、`propose`、`reconcile` 这类语义，而不是扩大破坏性的 `update --force`。
 
+### GitHub Source Acquisition Cache
+
+AIOS 可以在 `~/aios/cache/github/` 保留公开 GitHub 仓库的可重建获取缓存，减少不同调研 Worksite 对同一 Git objects/refs 的重复下载：
+
+```text
+~/aios/cache/github/
+├── repos/<owner>/<repo>.git/   # 每个 canonical owner/repo 一个共享 bare cache
+└── locks/<owner>/<repo>.lock   # 持久 lockfile；内核 advisory lock 只在共享写入期间持有
+```
+
+边界保持明确：
+
+- GitHub upstream 是外部源码真源；cache 的 authority 为 none，可以重建。
+- 当前 LLL Worksite 仍拥有 query、判断、receipt、pinned full SHA、cited paths 和必要证据。
+- Project/Source Registry 不为每个被调研的公共仓库新增长期条目；Managed Zone 不接收原始完整 clone。
+- 搜索/README evidence 不自动触发 clone；只有选定仓库需要完整源码时才调用 `scripts/github_source_cache.py`。
+- 共享 cache 不作为可写工作树；实验/阅读从 pinned SHA 派生 cache root 外的 task-local detached worktree。
+- cache 是 Linux/WSL 上的 bare partial clone；本地状态探针禁止 lazy fetch，只有显式 fetch/refresh 或 worktree hydrate 才可联网。首次 cache 仅在完整验证后 no-replace 原子发布。
+- cache 不默认进入备份，不自动 GC/prune，不迁移/删除旧 clone，也不处理 private/LFS/submodule/跨设备共享。
+
 外部组件、adapter/overlay、patch queue 与 maintained fork 的详细对象模型、风险门禁和最小文件契约见 [上游协调与开源二开维护协议](./upstream-reconciliation.md)。
 
 ## Source、runtime 与 state

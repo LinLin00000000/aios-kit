@@ -36,6 +36,34 @@ out/
 - `rate_limit_summary`: gh rate limit 摘要。
 - `proxy_used`: 实际使用的 proxy（不会包含 token）。
 
+### 可选 `source_acquisition`
+
+默认搜索 run 不包含完整 clone，因此旧 manifest 和 candidate schema 保持不变。只有少数选定仓库进入源码深读时，调用方可以在当前 Worksite 的 evidence/manifest 中增加可选记录；共享 cache 自身不拥有这份解释关系：
+
+```json
+{
+  "source_acquisition": [
+    {
+      "schema": "aios.github-source-cache-receipt.v1",
+      "repository": "owner/repo",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "retrieved_at": "2026-01-01T00:00:00+00:00",
+      "mode": "reused_commit",
+      "cache_path": "~/aios/cache/github/repos/owner/repo.git",
+      "worktree_path": "internal/sources/owner__repo",
+      "cited_paths": ["src/example.py"]
+    }
+  ]
+}
+```
+
+字段要求：
+
+- `repository` 使用 canonical `owner/repo`；`commit` 必须是 full SHA。
+- `worktree_path`、`cited_paths` 只记录当前 Worksite 需要的非秘密定位信息，字段均可选。
+- 不记录 credential URL、token、secret argv、README/源码全文或调研解释。
+- `source_acquisition` 缺失表示本次只使用搜索/README evidence，不是错误。
+
 ## candidate item
 
 `candidates.jsonl` 每行包含：

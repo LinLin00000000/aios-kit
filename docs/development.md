@@ -79,6 +79,26 @@ aios update ops
 
 只有当某个更新对象有独立生命周期、耗时、失败风险或用户明确意图时，才值得成为独立 subject。现在 `modules`、`skills`、`ops` 足够。
 
+## GitHub source cache helper 开发
+
+`scripts/github_source_cache.py` 是 `github-repo-search` 在“已选定仓库需要完整源码”时使用的窄 helper，不是新的顶层 `aios` 产品命令。它保持标准库 + 系统 Git、public GitHub-only、bare cache + task-local detached worktree，不接管搜索默认流程。
+
+开发和回归测试必须离线：使用 `/tmp` 下的临时 HOME、显式临时 `--cache-root` 和本地 bare remote fixture。测试把专用 fake-Git executable 放在 `PATH` 前端，由它只为 fixture 进程注入 canonical GitHub URL 到本地 bare remote 的精确 command-local rewrite；生产 helper 不含 test mode、任意 remote 或 rewrite escape hatch。测试不得写 live `~/aios/cache/github`，也不得依赖用户 secret 或真实 GitHub clone/fetch。
+
+生产 acquisition/worktree 命令清除 ambient `GIT_*`、隔离 user/system Git config 和用户 HOME 认证文件，并对 cache-local config 执行窄 allowlist，避免 credential、URL rewrite、include、hook 或 smudge/process filter 改变 public GitHub-only 语义；需要代理时使用进程级 `HTTPS_PROXY` / `HTTP_PROXY`。每次使用 cache 前还会拒绝 bare metadata tree 内的 symlink 或特殊文件，防止 objects、refs、worktree metadata 越出 cache 边界。partial clone 的本地对象探针必须设置 `GIT_NO_LAZY_FETCH=1`，并以 `git cat-file -t <SHA>` 验证输入本身就是 commit object。否则普通对象检查也可能暗中访问 promisor remote，或把 annotated tag object 错当成 full commit SHA。只有显式 fetch/refresh，以及创建 worktree 时按需 hydrate 缺失 blobs，才允许网络行为。
+
+共享变更使用持久 lockfile 上的内核 `flock`；lockfile 本身可以保留，锁由文件描述符释放。首次 partial cache 只在完整验证和 pinned request 成功后，通过 Linux/WSL 的 `renameat2(RENAME_NOREPLACE)` 原子发布，绝不覆盖意外出现的 final path。partial/worktree 失败清理先把匹配 device/inode 的 owned path 原子移到随机 sibling，再通过已持有的目录 fd 递归清空；marker-present worktree 还会验证 `.git` 与 `cache/worktrees/<id>` 的双向关系，并先隔离对应 Git metadata、再隔离 target。若路径在检查后被替换，helper 恢复已隔离 metadata、保留替换物，而不按其 pathname 递归删除。发布后若目标 inode 不再属于原 partial，helper 会清空正式 cache 路径并将外来内容保留在非正式 sibling 后 fail closed。
+
+Focused tests：
+
+```bash
+python3 -m py_compile scripts/github_source_cache.py
+python3 -m unittest tests.test_github_source_cache -v
+env -u AIOS_ROOT -u AIOS_HOME python3 -m unittest tests.test_source_cli -v
+```
+
+最终仍运行项目全量 `unittest discover`；fixture 必须覆盖 canonicalization、首次获取/复用、显式 fetch/refresh、失败清理、双进程并发、锁不误删、脱敏和 worktree/cache 边界。
+
 ## 全局命令安装
 
 安装器总会创建：

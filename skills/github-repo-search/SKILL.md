@@ -13,6 +13,8 @@ description: 帮助用户搜索、筛选和比较 GitHub 开源项目，输出�
 
 > 广度由脚本承担，深度由模型承担；证据由脚本缓存，判断由模型完成。
 
+搜索召回和 README evidence 仍是默认路径。只有 AI/用户已经选定少数仓库、确实需要完整源码阅读或复现时，才进入共享 GitHub source acquisition cache；不要因为候选进入 Top N 就自动 clone。
+
 ## 适用范围
 
 - 数据源：GitHub 公开仓库。
@@ -31,6 +33,14 @@ python3 <skill>/scripts/github_repo_search.py --help
 ```
 
 不要让多个 subagent 各自重复执行完整 GitHub 搜索和 README 深读。模型只应读取脚本生成的 `ai-brief.md`，必要时再深读少数缓存 README。
+
+选定仓库需要完整源码时，使用当前 `aios-kit` checkout/module 中的独立 helper：
+
+```bash
+python3 <aios-kit>/scripts/github_source_cache.py --help
+```
+
+该 helper 只复用 bare Git objects/refs，不拥有调研结论，也不替代本次 Worksite 的 evidence。
 
 更多细节见：
 
@@ -126,6 +136,32 @@ AI 负责：
 - 写“是什么 + 为什么推荐 + 限制/风险”；
 - 区分脚本证据、README 证据和模型推测。
 
+### 6. 仅按需获取选定仓库源码
+
+只有完整源码会实质改变判断、复现或实施时才执行。先从 GitHub API/`gh` 解析目标 ref 的 full commit SHA，再 ensure pinned commit；不要用 branch 名称充当最终引用身份：
+
+```bash
+repo="owner/repo"
+sha="$(gh api "repos/$repo/commits/main" --jq .sha)"
+cache_helper="<aios-kit>/scripts/github_source_cache.py"
+
+python3 "$cache_helper" ensure "$repo" \
+  --commit "$sha" \
+  --fetch-missing \
+  --json
+
+python3 "$cache_helper" worktree "$repo" \
+  --commit "$sha" \
+  --path "<current-worksite>/internal/sources/owner__repo" \
+  --json
+```
+
+- cache 已有 full SHA 时，`ensure` 只做本地复用；缺失 commit 只有显式 `--fetch-missing` 才补齐。
+- 需要上游当前 refs 时显式 `--refresh`；`status` 和普通复用不会把旧 cache 宣称为最新。
+- worktree 必须放在 cache root 外的 task-local 路径；共享 bare cache 不能作为可写工作树。
+- 将 helper receipt、full SHA 和实际引用的 repo-relative `cited_paths` 保存到当前 Worksite；不要把分析解释写进共享 cache。
+- MVP 只支持公开 GitHub；private repo、LFS、submodule、GC、跨设备共享和旧 clone 迁移不在本流程内。
+
 ## 交付格式
 
 最终报告包含：
@@ -173,3 +209,4 @@ Top N 表格字段：
 - 是否完成仓库归属类型分类？
 - 是否每个推荐都包含“是什么 + 为什么推荐 + 限制/风险”？
 - 是否将脚本分数仅作为预筛，不冒充最终判断？
+- 如深读完整源码，是否只获取了选定仓库，并在当前 Worksite 记录 full SHA、receipt 与 cited paths？
