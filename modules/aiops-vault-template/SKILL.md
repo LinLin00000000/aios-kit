@@ -7,7 +7,7 @@ license: MIT
 
 # AIOps Vault Companion Skill
 
-This skill is a procedure layer. It does not contain the user's current assets. Current facts live in the local AIOS OPS vault, normally `$AIOPS_ROOT` or `~/aios/vault/ops`.
+This skill is a procedure layer. It does not contain the user's current assets. Current facts live in the local AIOS OPS vault. Resolve that vault through an explicit absolute `$AIOPS_ROOT`; do not rely on ambient `~`/`Path.home()` inside delegated or isolated runners.
 
 ## Source-of-truth contract
 
@@ -43,18 +43,31 @@ When operating through an actuator project:
 
 ## Default read order
 
-1. Resolve the vault path: `$AIOPS_ROOT` if set, otherwise `~/aios/vault/ops`.
+1. Resolve an absolute vault path in the same terminal call that will use it. For the standard local layout, derive the OS account Home rather than trusting ambient `HOME`, `HERMES_REAL_HOME`, or an inherited `AIOPS_ROOT`:
+
+   ```bash
+   OS_HOME="$(getent passwd "$(id -u)" | cut -d: -f6)"
+   REAL_HOME="$OS_HOME"
+   AIOPS_ROOT="$REAL_HOME/aios/vault/ops"
+   test -f "$AIOPS_ROOT/scripts/aiops.py"
+   ```
+
+   If a verified nonstandard vault root is required, substitute its explicit
+   absolute path in the current command. Do not promote an inherited worker
+   variable into an explicit root. Do not globally force `HOME`; carry the
+   resolved root into each child command with an inline
+   `AIOPS_ROOT="$AIOPS_ROOT"` assignment.
 2. Read the local vault `README.md` first if the task may change files, services, exposure, credentials, or backups.
 3. For a service request, use progressive context loading:
-   - run `python3 "$AIOPS_ROOT/scripts/aiops.py" services --json`;
+   - run `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" services --json`;
    - use the current Agent/LLM to compare the user's intent with each service's `name` and short `summary`;
-   - once one service is selected, run `python3 "$AIOPS_ROOT/scripts/aiops.py" service "<exact-id>" --json` to load its details and references;
+   - once one service is selected, run `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" service "<exact-id>" --json` to load its details and references;
    - if several services remain plausible, ask one outcome-level choice or inspect only those candidates. Do not pass the whole natural-language sentence to a token-overlap matcher and call that semantic routing.
 4. Use the other command slices only when needed:
-   - `python3 "$AIOPS_ROOT/scripts/aiops.py" index`
-   - `python3 "$AIOPS_ROOT/scripts/aiops.py" resources --section "<section>"`
-   - `python3 "$AIOPS_ROOT/scripts/aiops.py" host "<name>"`
-   - `python3 "$AIOPS_ROOT/scripts/aiops.py" log --tail 20 --summary`
+   - `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" index`
+   - `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" resources --section "<section>"`
+   - `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" host "<name>"`
+   - `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" log --tail 20 --summary`
 5. Follow the selected service's references to current state, dynamic state, or filtered history. Read full `resources.md` or logs only when these slices are insufficient.
 6. Use session history only when live state and vault docs cannot answer the question.
 
@@ -81,8 +94,8 @@ When operating through an actuator project:
    - secret locations -> `secrets-location.md` without values;
    - service-local details -> service README/card.
 9. If a task crosses into secret intake, Secret Runtime/CLI workflows, AI API profiles, consumers/replicas, GitHub Secrets sync, or preventing agents from seeing secret values, load `aios-secret-management`; this skill only records ops/current-state and does not own secret runtime procedure.
-10. If the change improves reusable AIOps workflow/tooling rather than only private local facts, sync the generic part to the template repo at `~/projects/aios-kit/modules/aiops-vault-template`, run its tests/checks, then commit and push so downstream AIOS Kit consumers receive the improvement. Never copy private resources, logs, or secrets into the public template.
-11. Run `python3 "$AIOPS_ROOT/scripts/aiops.py" check` after vault changes.
+10. If the change improves reusable AIOps workflow/tooling rather than only private local facts, resolve `AIOS_KIT_ROOT="$OS_HOME/projects/aios-kit"` from the verified OS account Home in the same terminal call, sync the generic part to `$AIOS_KIT_ROOT/modules/aiops-vault-template`, run its tests/checks, then commit and push so downstream AIOS Kit consumers receive the improvement. Never use ambient `~` for this path, and never copy private resources, logs, or secrets into the public template.
+11. Run `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" check` after vault changes.
 12. Report changed files, commands, verification, skipped/blocked items, and follow-ups.
 
 ## Write-back rules
@@ -100,7 +113,7 @@ When operating through an actuator project:
 
 Before finalizing:
 
-- `python3 "$AIOPS_ROOT/scripts/aiops.py" check` passes or failures are explained.
+- `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" check` passes or failures are explained.
 - JSONL files parse.
 - No obvious secret values were added.
 - Secret metadata and secret-storage paths have sane permissions when they are in scope: `secrets-location.md` should not be world-readable or world-writable, secret directories should not be listable by unrelated users, and secret files should normally be `0600` or managed by a dedicated secret backend.
@@ -113,7 +126,7 @@ Before finalizing:
 If no AIOps vault exists and the user wants one, install the bundled AIOS OPS vault template or create the minimal layout under the AIOS instance root:
 
 ```text
-~/aios/vault/ops/
+$REAL_HOME/aios/vault/ops/
   README.md
   resources.md
   maintenance-log.jsonl
@@ -123,4 +136,4 @@ If no AIOps vault exists and the user wants one, install the bundled AIOS OPS va
   scripts/aiops.py
 ```
 
-Then run `python3 scripts/aiops.py check`.
+Then run `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" check`.
