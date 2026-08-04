@@ -27,8 +27,18 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from aios_promotion import apply_promotion as apply_asset_promotion
-from aios_promotion import validate_promotion as validate_asset_promotion
+# Support both the repository wrapper (`python scripts/aios.py`) and the
+# package-style entrypoint (`python -m scripts.aios`).
+if __package__:
+    from .aios_promotion import apply_promotion as apply_asset_promotion
+    from .aios_promotion import validate_promotion as validate_asset_promotion
+else:
+    # Python safe-path mode can omit the script directory for direct execution.
+    _SCRIPT_DIR = Path(__file__).resolve().parent
+    if str(_SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPT_DIR))
+    from aios_promotion import apply_promotion as apply_asset_promotion
+    from aios_promotion import validate_promotion as validate_asset_promotion
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLPACK_FILE = ROOT / "skillpack.yaml"
