@@ -1,4 +1,5 @@
 <!-- AUTO-GENERATED FILE. DO NOT EDIT. -->
+<!-- AIOS-TRANSLATION-METADATA {"schema":"aios.translation.v1","source_path":"README.md","status":"stale-legacy"} -->
 
 [简体中文](../../README.md) | **English**
 

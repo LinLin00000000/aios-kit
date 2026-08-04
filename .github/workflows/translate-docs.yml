@@ -180,6 +180,27 @@ jobs:
           TRANSLATE_API_MODE: ${{ secrets.TRANSLATE_API_MODE }}
         run: python3 scripts/translate_docs.py --write ${{ steps.plan.outputs.args }}
 
+      - name: Check generated translation freshness
+        if: steps.plan.outputs.mode != 'none'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' -t generated_targets < <(
+            {
+              git diff --name-only -z -- translations/en
+              git ls-files --others --exclude-standard -z -- translations/en
+            } | sort -zu
+          )
+          if [[ "${#generated_targets[@]}" == '0' ]]; then
+            echo 'No generated translation changes to check.'
+            exit 0
+          fi
+          check_args=()
+          for target in "${generated_targets[@]}"; do
+            check_args+=(--check "$target")
+          done
+          python3 scripts/translate_docs.py "${check_args[@]}"
+
       - name: Commit generated translations
         if: steps.plan.outputs.mode != 'none'
         run: |
