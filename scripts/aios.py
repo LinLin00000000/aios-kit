@@ -2999,6 +2999,121 @@ def matter_get(args: argparse.Namespace) -> None:
     print(json.dumps(record, ensure_ascii=False, indent=2))
 
 
+def _load_matter_material_functions() -> tuple[Any, Any, Any]:
+    """Load the optional Matter materials sibling only for its CLI commands."""
+    if __package__:
+        from .aios_matter_materials import attach_material, list_materials, verify_materials
+    else:
+        from aios_matter_materials import attach_material, list_materials, verify_materials
+    return attach_material, list_materials, verify_materials
+
+
+def strict_material_matter_resolver(home: Path, query: str) -> dict[str, Any] | None:
+    """Resolve current Worksite files without writing the derived Matter index."""
+    try:
+        record = resolve_matter_record(refresh_matter_index(home, write=False), query)
+    except SystemExit as exc:
+        raise ValueError(str(exc)) from exc
+    if not record or record.get("record_type") != "matter":
+        return record
+    raw = read_json_dict(Path(str(record.get("matter_path") or "")))
+    lifecycle = raw.get("lifecycle")
+    resolved = dict(record)
+    resolved["_material_raw_lifecycle_state"] = lifecycle.get("state") if isinstance(lifecycle, dict) else None
+    return resolved
+
+
+def strict_material_source_resolver(home: Path, query: str) -> dict[str, Any] | None:
+    """Resolve exactly one explicit Source Registry record, never a projection."""
+    try:
+        claims = source_identity_claims(home).get(query.strip().lower(), set())
+        records = read_sources(home)
+    except SystemExit as exc:
+        raise ValueError(str(exc)) from exc
+    if not claims:
+        return None
+    if len(claims) != 1:
+        raise ValueError("identity is claimed by: " + ", ".join(sorted(claims)))
+    canonical = next(iter(claims))
+    matches = [record for record in records if str(record.get("id", "")).lower() == canonical]
+    if len(matches) != 1:
+        raise ValueError(f"canonical Source id has {len(matches)} explicit records: {canonical}")
+    return {key: value for key, value in matches[0].items() if key != "_lineno"}
+
+
+def emit_matter_material_report(report: dict[str, Any], *, json_output: bool) -> None:
+    if json_output:
+        print(json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+    elif report.get("schema") == "aios.matter.material-list.v0" and report.get("ok"):
+        rows = report.get("materials", [])
+        if not rows:
+            print("no Matter materials")
+        for row in rows:
+            print(
+                f"- {row['material_id']} [{row['role']}/{row['custody']}/{row['sensitivity']}] "
+                f"source={row['source_state']} snapshot={row['snapshot_state']} "
+                f"{row['source']['source_id']}:{row['source']['relative_path']}"
+            )
+    elif report.get("schema") == "aios.matter.material-verify.v0" and report.get("results"):
+        for row in report["results"]:
+            print(
+                f"- {row['material_id']} [{row['verdict']}] "
+                f"source={row['source_state']} snapshot={row['snapshot_state']}"
+            )
+            print(row["message"])
+    elif report.get("ok"):
+        print(f"Matter material {report.get('status')}: {report.get('material_id', '')}".rstrip())
+    else:
+        print(f"Matter material {report.get('status', 'failed')}: {report.get('error', 'verification failed')}", file=sys.stderr)
+    if not report.get("ok"):
+        raise SystemExit(1)
+
+
+def matter_material_attach(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    attach_material, _, _ = _load_matter_material_functions()
+    report = attach_material(
+        home,
+        args.matter_id,
+        source_query=args.source,
+        owner_ref=args.owner_ref,
+        locator=args.locator,
+        role=args.role,
+        custody=args.custody,
+        sensitivity=args.sensitivity,
+        dry_run=args.dry_run,
+        resolve_matter=lambda query: strict_material_matter_resolver(home, query),
+        resolve_source=lambda query: strict_material_source_resolver(home, query),
+    )
+    emit_matter_material_report(report, json_output=args.json)
+
+
+def matter_material_list(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    _, list_materials, _ = _load_matter_material_functions()
+    report = list_materials(
+        home,
+        args.matter_id,
+        resolve_matter=lambda query: strict_material_matter_resolver(home, query),
+        resolve_source=lambda query: strict_material_source_resolver(home, query),
+    )
+    emit_matter_material_report(report, json_output=args.json)
+
+
+def matter_material_verify(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    _, _, verify_materials = _load_matter_material_functions()
+    report = verify_materials(
+        home,
+        args.matter_id,
+        material_id=args.material_id,
+        verify_all=args.verify_all,
+        resolve_matter=lambda query: strict_material_matter_resolver(home, query),
+        resolve_source=lambda query: strict_material_source_resolver(home, query),
+    )
+    emit_matter_material_report(report, json_output=args.json)
+
+
 def safe_view_id(record: dict[str, Any]) -> str:
     raw = str(record.get("id") or record.get("worksite_name") or "matter")
     return re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-") or "matter"
@@ -3710,6 +3825,29 @@ def build_parser() -> argparse.ArgumentParser:
     mg.add_argument("query")
     mg.add_argument("--json", action="store_true", help="accepted for namespace consistency; output is JSON by default")
     mg.set_defaults(func=matter_get)
+    mm = matter_sub.add_parser("material", help="attach, list, or verify bounded source-owned Matter materials")
+    mm_sub = mm.add_subparsers(dest="matter_material_cmd", required=True)
+    mma = mm_sub.add_parser("attach", help="attach one registered local UTF-8 text file without lifecycle side effects")
+    mma.add_argument("matter_id", help="formal active or paused Matter id/query")
+    mma.add_argument("--source", required=True, help="explicit registered Source id or unambiguous alias")
+    mma.add_argument("--owner-ref", required=True, help="stable owner identity within the Source")
+    mma.add_argument("--locator", required=True, help="Source-root-relative POSIX path")
+    mma.add_argument("--role", required=True, choices=["reference", "evidence", "decision_input", "deliverable"])
+    mma.add_argument("--custody", required=True, choices=["reference_only", "immutable_snapshot"])
+    mma.add_argument("--sensitivity", required=True, choices=["internal", "internal_restricted"])
+    mma.add_argument("--dry-run", action="store_true", help="perform all resolution, safety, and hash preflight without writing")
+    mma.add_argument("--json", action="store_true")
+    mma.set_defaults(func=matter_material_attach)
+    mml = mm_sub.add_parser("list", help="read only the per-Matter materials manifest")
+    mml.add_argument("matter_id", help="formal Matter id/query")
+    mml.add_argument("--json", action="store_true")
+    mml.set_defaults(func=matter_material_list)
+    mmv = mm_sub.add_parser("verify", help="fresh-read source/snapshot bytes without updating state")
+    mmv.add_argument("matter_id", help="formal Matter id/query")
+    mmv.add_argument("material_id", nargs="?", help="one material id; omit to verify every record")
+    mmv.add_argument("--all", action="store_true", dest="verify_all", help="explicitly verify every record")
+    mmv.add_argument("--json", action="store_true")
+    mmv.set_defaults(func=matter_material_verify)
     mv = matter_sub.add_parser("view", help="build the curated static Matter/deliverable view")
     mv_sub = mv.add_subparsers(dest="matter_view_cmd", required=True)
     mvb = mv_sub.add_parser("build")
