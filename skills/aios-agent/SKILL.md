@@ -111,9 +111,9 @@ When the user says something like “make this skill AIOS-managed” or “let A
 
 ## Evolution discipline
 
-When changing AIOS architecture, modules, skills, CLI surfaces, automation, or project governance, use the public repo document `docs/evolution.md` as the source of truth for progressive enhancement, breadth-first module maturity, complexity budget, and upgrade triggers.
+When changing AIOS architecture, modules, skills, CLI surfaces, automation, or project governance, use the public repo document `docs/evolution.md` as the source of truth for progressive enhancement, breadth-first module maturity, complexity budget, and upgrade triggers. Its **精简决策协议** is the operative guardrail: understand the real flow first, ask whether the thing needs to exist, reuse existing/native capability before adding structure, preserve load-bearing boundaries, price the mechanism's total lifecycle cost, and leave a focused verification.
 
-Do not create a new skill or heavy runtime just because a concept is useful. Prefer: document the current stage, define trigger conditions, patch existing docs/skills, and keep advanced mechanisms as roadmap candidates until real friction appears.
+Do not create a new skill or heavy runtime just because a concept is useful. Prefer: document the current stage, define trigger conditions, patch existing docs/skills, and keep advanced mechanisms as roadmap candidates until real friction appears. A plugin, hook, mode, always-on prompt, or automation that exists only to make a small local task "simpler" must justify its own context, state, upgrade, debugging, and removal cost; otherwise keep the principle as a thin rule or manual check. Fewer lines, files, or tokens are not by themselves lower total complexity.
 
 When a task exposes an error or workflow lesson, choose one owning layer before writing it down. Put personal preferences in profile/memory, private current-state facts in the OPS vault, project conventions in project-local docs, cross-skill development discipline in the skill-authoring/governance layer, domain procedures in the relevant domain skill, and one-off incident evidence in LLL/OPS logs or issues. Avoid copying the same rule into multiple AIOS skills unless each copy has a distinct operational role.
 
