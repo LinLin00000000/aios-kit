@@ -2473,6 +2473,989 @@ def source_validate(args: argparse.Namespace) -> None:
     raise SystemExit(0 if validate_sources(home) else 1)
 
 
+RESOURCE_REF_SCHEMA = "aios.resource-ref.v1"
+RESOURCE_RESOLUTION_SCHEMA = "aios.resource-resolution.v1"
+CAPABILITY_DISCOVERY_SCHEMA = "aios.capability-discovery.v1"
+CAPABILITY_RESOLUTION_SCHEMA = "aios.capability-resolution.v1"
+DECISION_INDEX_SCHEMA = "aios.decision-surface.index.v1"
+DECISION_PACKET_SCHEMA = "aios.decision-packet.v1"
+DECISION_ROUTE_ID = "aios.decision-surface.route.v1"
+DECISION_POLICY_ID = "decision-surface"
+DECISION_CHECK_SCHEMA = "aios.decision-shape-check.v1"
+DECISION_MAX_ROUTE_DEPTH = 2
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_CAPABILITY_MATURITY = {
+    "designed": 0,
+    "discovered": 1,
+    "configured": 2,
+    "verified": 3,
+    "available": 4,
+}
+
+
+def _stable_json_sha256(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _record_without_internal_fields(record: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in record.items() if not key.startswith("_")}
+
+
+def _resource_candidates(home: Path) -> list[dict[str, Any]]:
+    """Read existing Project and Source records without creating another registry."""
+    project_registry, _ = project_paths(home)
+    source_registry, _ = source_paths(home)
+    project_aliases = read_aliases(home)
+    source_aliases = read_source_aliases(home)
+    out: list[dict[str, Any]] = []
+
+    def append(
+        record: dict[str, Any],
+        *,
+        resource_kind: str,
+        registry_path: Path,
+        registry_owner: str,
+        file_aliases: dict[str, str],
+    ) -> None:
+        resource_id = str(record.get("id") or "")
+        aliases_for_record = [
+            alias
+            for alias, target in file_aliases.items()
+            if resource_id and str(target).casefold() == resource_id.casefold()
+        ]
+        out.append(
+            {
+                "record": record,
+                "resource_kind": resource_kind,
+                "registry_path": registry_path,
+                "registry_owner": registry_owner,
+                "file_aliases": aliases_for_record,
+            }
+        )
+
+    for project in read_projects(home):
+        append(
+            project,
+            resource_kind="project",
+            registry_path=project_registry,
+            registry_owner="project_registry",
+            file_aliases=project_aliases,
+        )
+    for source in read_sources(home):
+        append(
+            source,
+            resource_kind="source",
+            registry_path=source_registry,
+            registry_owner="source_registry",
+            file_aliases=source_aliases,
+        )
+    return out
+
+
+def _resource_match(candidate: dict[str, Any], query: str) -> str | None:
+    record = candidate["record"]
+    expected = query.strip().casefold()
+    if not expected:
+        return None
+    if str(record.get("id") or "").casefold() == expected:
+        return "id"
+    inline_aliases = record.get("aliases", []) or []
+    if not isinstance(inline_aliases, list):
+        inline_aliases = []
+    aliases = [str(alias).casefold() for alias in inline_aliases]
+    aliases.extend(str(alias).casefold() for alias in candidate["file_aliases"])
+    if expected in aliases:
+        return "alias"
+    if str(record.get("name") or "").casefold() == expected:
+        return "name"
+    return None
+
+
+def _resource_canonical_id(candidate: dict[str, Any]) -> str:
+    record = candidate["record"]
+    profile = str(record.get("profile") or "default")
+    return f"{candidate['resource_kind']}:{profile}:{record.get('id', '')}"
+
+
+def _resource_summary(candidate: dict[str, Any]) -> dict[str, Any]:
+    record = candidate["record"]
+    return {
+        "canonical_id": _resource_canonical_id(candidate),
+        "id": str(record.get("id") or ""),
+        "profile": str(record.get("profile") or "default"),
+        "resource_kind": candidate["resource_kind"],
+        "status": str(record.get("status") or "active"),
+    }
+
+
+def _resource_failure(
+    query: str,
+    failure_class: str,
+    *,
+    resource_kind: str | None = None,
+    profile: str | None = None,
+    candidates: list[dict[str, Any]] | None = None,
+    details: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema": RESOURCE_RESOLUTION_SCHEMA,
+        "verdict": "BLOCKED",
+        "failure_class": failure_class,
+        "query": {"value": query, "kind": resource_kind, "profile": profile},
+        "candidates": [_resource_summary(candidate) for candidate in (candidates or [])],
+        "details": details or [],
+    }
+
+
+def _resolved_path(home: Path, location: dict[str, Any] | None) -> str | None:
+    if not location or not location.get("path"):
+        return None
+    path = expand(str(location["path"]), home=home)
+    return str(path) if path is not None else None
+
+
+def _resource_ref_from_candidate(home: Path, candidate: dict[str, Any], matched_by: str) -> dict[str, Any]:
+    record = candidate["record"]
+    clean_record = _record_without_internal_fields(record)
+    locations = record.get("locations", []) or []
+    if not isinstance(locations, list):
+        locations = []
+    valid_locations = [location for location in locations if isinstance(location, dict)]
+    primary = next(
+        (location for location in valid_locations if location.get("kind") in {"local", "view"} and location.get("path")),
+        valid_locations[0] if valid_locations else None,
+    )
+    resource_id = str(record.get("id") or "")
+    owner_ref = str(record.get("owner_ref") or "")
+    if not owner_ref:
+        owner_ref = f"project:{resource_id}" if candidate["resource_kind"] == "project" else str(record.get("authority") or "source_registry")
+    registry_path: Path = candidate["registry_path"]
+    return {
+        "schema": RESOURCE_REF_SCHEMA,
+        "canonical_id": _resource_canonical_id(candidate),
+        "id": resource_id,
+        "name": str(record.get("name") or ""),
+        "resource_kind": candidate["resource_kind"],
+        "kind": str(record.get("kind") or candidate["resource_kind"]),
+        "profile": str(record.get("profile") or "default"),
+        "matched_by": matched_by,
+        "status": str(record.get("status") or "active"),
+        "owner_ref": owner_ref,
+        "version": str(record.get("version") or record.get("updated_at") or "unversioned"),
+        "record_sha256": _stable_json_sha256(clean_record),
+        "path": _resolved_path(home, primary),
+        "primary_location": primary,
+        "locations": valid_locations,
+        "source_ref": {
+            "owner": candidate["registry_owner"],
+            "path": str(registry_path),
+            "schema_version": f"aios.{candidate['resource_kind']}-registry.v1",
+            "sha256": _file_sha256(registry_path),
+            "line": record.get("_lineno"),
+        },
+    }
+
+
+def resolve_resource_ref(
+    home: Path,
+    query: str,
+    *,
+    resource_kind: str | None = None,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    try:
+        candidates = [
+            candidate
+            for candidate in _resource_candidates(home)
+            if resource_kind is None or candidate["resource_kind"] == resource_kind
+        ]
+    except SystemExit as error:
+        return _resource_failure(
+            query,
+            "INVALID_RESOURCE_SOURCE",
+            resource_kind=resource_kind,
+            profile=profile,
+            details=[str(error)],
+        )
+    matches: list[dict[str, Any]] = []
+    for candidate in candidates:
+        matched_by = _resource_match(candidate, query)
+        if matched_by:
+            candidate = dict(candidate)
+            candidate["matched_by"] = matched_by
+            matches.append(candidate)
+
+    if profile is not None:
+        selected = [
+            candidate
+            for candidate in matches
+            if str(candidate["record"].get("profile") or "default").casefold() == profile.casefold()
+        ]
+        if not selected and matches:
+            return _resource_failure(
+                query,
+                "CROSS_PROFILE_MISMATCH",
+                resource_kind=resource_kind,
+                profile=profile,
+                candidates=matches,
+                details=["exact matches exist only in another profile"],
+            )
+        matches = selected
+    elif len({str(candidate["record"].get("profile") or "default").casefold() for candidate in matches}) > 1:
+        return _resource_failure(
+            query,
+            "CROSS_PROFILE_AMBIGUOUS",
+            resource_kind=resource_kind,
+            candidates=matches,
+            details=["specify --profile; no default profile is selected silently"],
+        )
+
+    if not matches:
+        alias_maps: list[dict[str, str]] = []
+        if resource_kind in {None, "project"}:
+            alias_maps.append(read_aliases(home))
+        if resource_kind in {None, "source"}:
+            alias_maps.append(read_source_aliases(home))
+        if any(query.strip().casefold() in aliases for aliases in alias_maps):
+            return _resource_failure(
+                query,
+                "STALE_ALIAS",
+                resource_kind=resource_kind,
+                profile=profile,
+                details=["alias points to a missing resource record"],
+            )
+        return _resource_failure(query, "MISSING_RESOURCE", resource_kind=resource_kind, profile=profile)
+
+    canonical_ids = [_resource_canonical_id(candidate).casefold() for candidate in matches]
+    if len(canonical_ids) != len(set(canonical_ids)):
+        return _resource_failure(
+            query,
+            "DUPLICATE_RESOURCE_ID",
+            resource_kind=resource_kind,
+            profile=profile,
+            candidates=matches,
+        )
+    if len(matches) > 1:
+        return _resource_failure(
+            query,
+            "AMBIGUOUS_RESOURCE",
+            resource_kind=resource_kind,
+            profile=profile,
+            candidates=matches,
+        )
+
+    candidate = matches[0]
+    record = candidate["record"]
+    status = str(record.get("status") or "active").casefold()
+    if bool(record.get("stale")) or status == "archived":
+        return _resource_failure(
+            query,
+            "STALE_RESOURCE",
+            resource_kind=resource_kind,
+            profile=profile,
+            candidates=matches,
+        )
+    if status != "active":
+        return _resource_failure(
+            query,
+            "UNAVAILABLE_RESOURCE",
+            resource_kind=resource_kind,
+            profile=profile,
+            candidates=matches,
+        )
+    return {
+        "schema": RESOURCE_RESOLUTION_SCHEMA,
+        "verdict": "RESOLVED",
+        "failure_class": None,
+        "query": {"value": query, "kind": resource_kind, "profile": profile},
+        "resource_ref": _resource_ref_from_candidate(home, candidate, candidate["matched_by"]),
+    }
+
+
+def resource_resolve(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    receipt = resolve_resource_ref(home, args.query, resource_kind=args.kind, profile=args.profile)
+    print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+    if receipt["verdict"] != "RESOLVED":
+        raise SystemExit(2)
+
+
+def _capability_candidates(home: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    out: list[dict[str, Any]] = []
+    errors: list[str] = []
+    try:
+        owners = _resource_candidates(home)
+    except SystemExit as error:
+        return [], [f"resource source invalid: {error}"]
+    for owner in owners:
+        raw_capabilities = owner["record"].get("capabilities", []) or []
+        if not isinstance(raw_capabilities, list):
+            errors.append(f"{_resource_canonical_id(owner)}: capabilities must be a list")
+            continue
+        for index, capability in enumerate(raw_capabilities):
+            if not isinstance(capability, dict):
+                errors.append(f"{_resource_canonical_id(owner)}: capabilities[{index}] must be an object")
+                continue
+            out.append({"definition": capability, "owner": owner, "index": index})
+    return out, errors
+
+
+def _capability_profile(candidate: dict[str, Any]) -> str:
+    definition = candidate["definition"]
+    owner = candidate["owner"]["record"]
+    return str(definition.get("profile") or owner.get("profile") or "default")
+
+
+def _capability_canonical_id(candidate: dict[str, Any]) -> str:
+    definition = candidate["definition"]
+    return f"capability:{_capability_profile(candidate)}:{definition.get('id', '')}@{_resource_canonical_id(candidate['owner'])}"
+
+
+def _capability_match(candidate: dict[str, Any], query: str) -> str | None:
+    definition = candidate["definition"]
+    expected = query.strip().casefold()
+    if not expected:
+        return None
+    if str(definition.get("id") or "").casefold() == expected:
+        return "id"
+    aliases = definition.get("aliases", []) or []
+    if isinstance(aliases, list) and expected in [str(alias).casefold() for alias in aliases]:
+        return "alias"
+    if str(definition.get("name") or "").casefold() == expected:
+        return "name"
+    return None
+
+
+def _capability_summary(candidate: dict[str, Any]) -> dict[str, Any]:
+    definition = candidate["definition"]
+    adapter = definition.get("adapter") if isinstance(definition.get("adapter"), dict) else {}
+    bindings = definition.get("bindings") if isinstance(definition.get("bindings"), list) else []
+    return {
+        "canonical_id": _capability_canonical_id(candidate),
+        "id": str(definition.get("id") or ""),
+        "name": str(definition.get("name") or ""),
+        "profile": _capability_profile(candidate),
+        "status": str(definition.get("status") or "unknown"),
+        "health": str(definition.get("health") or "unknown"),
+        "maturity": str(definition.get("maturity") or "designed"),
+        "definition_owner": _resource_canonical_id(candidate["owner"]),
+        "definition_sha256": _stable_json_sha256(definition),
+        "adapter": {"id": str(adapter.get("id") or ""), "load_state": "deferred"},
+        "binding_ids": [str(binding.get("id") or "") for binding in bindings if isinstance(binding, dict)],
+    }
+
+
+def _capability_failure(
+    query: str | None,
+    failure_class: str,
+    *,
+    profile: str | None = None,
+    candidates: list[dict[str, Any]] | None = None,
+    details: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema": CAPABILITY_RESOLUTION_SCHEMA,
+        "verdict": "BLOCKED",
+        "failure_class": failure_class,
+        "query": {"value": query, "profile": profile},
+        "candidates": [_capability_summary(candidate) for candidate in (candidates or [])],
+        "details": details or [],
+    }
+
+
+def capability_discover(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    candidates, errors = _capability_candidates(home)
+    if errors:
+        receipt = {
+            "schema": CAPABILITY_DISCOVERY_SCHEMA,
+            "verdict": "BLOCKED",
+            "failure_class": "INVALID_CAPABILITY_METADATA",
+            "capabilities": [],
+            "details": errors,
+        }
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if args.profile:
+        candidates = [candidate for candidate in candidates if _capability_profile(candidate).casefold() == args.profile.casefold()]
+    if args.resource:
+        owner_receipt = resolve_resource_ref(home, args.resource, profile=args.profile)
+        if owner_receipt["verdict"] != "RESOLVED":
+            receipt = {
+                "schema": CAPABILITY_DISCOVERY_SCHEMA,
+                "verdict": "BLOCKED",
+                "failure_class": "OWNER_RESOURCE_" + str(owner_receipt["failure_class"]),
+                "capabilities": [],
+                "details": [],
+            }
+            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            raise SystemExit(2)
+        owner_id = owner_receipt["resource_ref"]["canonical_id"]
+        candidates = [candidate for candidate in candidates if _resource_canonical_id(candidate["owner"]) == owner_id]
+    receipt = {
+        "schema": CAPABILITY_DISCOVERY_SCHEMA,
+        "verdict": "DISCOVERED",
+        "failure_class": None,
+        "capabilities": sorted((_capability_summary(candidate) for candidate in candidates), key=lambda row: row["canonical_id"]),
+        "adapter_loading": "deferred_until_explicit_resolve_load_adapter",
+    }
+    print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _maturity_is_ready(value: Any) -> bool:
+    return _CAPABILITY_MATURITY.get(str(value or "designed").casefold(), -1) >= _CAPABILITY_MATURITY["verified"]
+
+
+def _binding_match(binding: dict[str, Any], query: str) -> str | None:
+    expected = query.strip().casefold()
+    if not expected:
+        return None
+    if str(binding.get("id") or "").casefold() == expected:
+        return "id"
+    aliases = binding.get("aliases", []) or []
+    if isinstance(aliases, list) and expected in [str(alias).casefold() for alias in aliases]:
+        return "alias"
+    if str(binding.get("name") or "").casefold() == expected:
+        return "name"
+    return None
+
+
+def capability_resolve(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    candidates, errors = _capability_candidates(home)
+    if errors:
+        receipt = _capability_failure(args.query, "INVALID_CAPABILITY_METADATA", profile=args.profile, details=errors)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+
+    matches: list[dict[str, Any]] = []
+    for candidate in candidates:
+        matched_by = _capability_match(candidate, args.query)
+        if matched_by:
+            candidate = dict(candidate)
+            candidate["matched_by"] = matched_by
+            matches.append(candidate)
+    if args.profile is not None:
+        selected = [candidate for candidate in matches if _capability_profile(candidate).casefold() == args.profile.casefold()]
+        if not selected and matches:
+            receipt = _capability_failure(args.query, "CROSS_PROFILE_CAPABILITY", profile=args.profile, candidates=matches)
+            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            raise SystemExit(2)
+        matches = selected
+    elif len({_capability_profile(candidate).casefold() for candidate in matches}) > 1:
+        receipt = _capability_failure(args.query, "CROSS_PROFILE_AMBIGUOUS", candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if not matches:
+        receipt = _capability_failure(args.query, "MISSING_CAPABILITY", profile=args.profile)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if len(matches) > 1:
+        receipt = _capability_failure(args.query, "AMBIGUOUS_CAPABILITY", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+
+    candidate = matches[0]
+    definition = candidate["definition"]
+    owner_record = candidate["owner"]["record"]
+    owner_status = str(owner_record.get("status") or "active").casefold()
+    if bool(owner_record.get("stale")) or owner_status == "archived":
+        receipt = _capability_failure(args.query, "STALE_CAPABILITY_OWNER", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if owner_status != "active":
+        receipt = _capability_failure(args.query, "UNAVAILABLE_CAPABILITY_OWNER", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if definition.get("enabled") is False or str(definition.get("status") or "").casefold() != "active":
+        receipt = _capability_failure(args.query, "DISABLED_CAPABILITY", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if str(definition.get("health") or "unknown").casefold() != "healthy":
+        receipt = _capability_failure(args.query, "UNHEALTHY_CAPABILITY", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if not _maturity_is_ready(definition.get("maturity")):
+        receipt = _capability_failure(args.query, "IMMATURE_CAPABILITY", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+
+    adapter = definition.get("adapter")
+    if not isinstance(adapter, dict) or not isinstance(adapter.get("id"), str) or not adapter.get("id"):
+        receipt = _capability_failure(args.query, "INVALID_ADAPTER_METADATA", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    bindings = definition.get("bindings", []) or []
+    if not isinstance(bindings, list) or not all(isinstance(binding, dict) for binding in bindings):
+        receipt = _capability_failure(args.query, "INVALID_BINDING_METADATA", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    binding_matches = list(bindings)
+    if args.binding:
+        binding_matches = [binding for binding in binding_matches if _binding_match(binding, args.binding)]
+    if args.profile:
+        profile_matches = [
+            binding
+            for binding in binding_matches
+            if str(binding.get("profile") or _capability_profile(candidate)).casefold() == args.profile.casefold()
+        ]
+        if not profile_matches and binding_matches:
+            receipt = _capability_failure(args.query, "CROSS_PROFILE_BINDING", profile=args.profile, candidates=matches)
+            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            raise SystemExit(2)
+        binding_matches = profile_matches
+    elif len({str(binding.get("profile") or _capability_profile(candidate)).casefold() for binding in binding_matches}) > 1:
+        receipt = _capability_failure(args.query, "CROSS_PROFILE_AMBIGUOUS_BINDING", candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if not binding_matches:
+        receipt = _capability_failure(args.query, "MISSING_BINDING", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if len(binding_matches) > 1:
+        receipt = _capability_failure(args.query, "AMBIGUOUS_BINDING", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    binding = binding_matches[0]
+    if binding.get("enabled") is False or str(binding.get("status") or "").casefold() != "active":
+        receipt = _capability_failure(args.query, "DISABLED_BINDING", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if str(binding.get("health") or "unknown").casefold() != "healthy":
+        receipt = _capability_failure(args.query, "UNHEALTHY_BINDING", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    if not _maturity_is_ready(binding.get("maturity")):
+        receipt = _capability_failure(args.query, "IMMATURE_BINDING", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+
+    binding_profile = str(binding.get("profile") or _capability_profile(candidate))
+    target_query = binding.get("resource_query")
+    if not isinstance(target_query, str) or not target_query:
+        receipt = _capability_failure(args.query, "MISSING_TARGET_REF", profile=args.profile, candidates=matches)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+    target = resolve_resource_ref(
+        home,
+        target_query,
+        resource_kind=str(binding.get("resource_kind")) if binding.get("resource_kind") else None,
+        profile=binding_profile,
+    )
+    if target["verdict"] != "RESOLVED":
+        target_failure = str(target["failure_class"])
+        failure_class = "MISSING_TARGET_RESOURCE" if target_failure == "MISSING_RESOURCE" else "TARGET_RESOURCE_" + target_failure
+        receipt = _capability_failure(args.query, failure_class, profile=args.profile, candidates=matches)
+        receipt["target_resolution"] = target
+        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        raise SystemExit(2)
+
+    adapter_receipt: dict[str, Any] = {"id": adapter["id"], "load_state": "deferred"}
+    if args.load_adapter:
+        adapter_query = adapter.get("resource_query")
+        if not isinstance(adapter_query, str) or not adapter_query:
+            receipt = _capability_failure(args.query, "MISSING_ADAPTER_REF", profile=args.profile, candidates=matches)
+            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            raise SystemExit(2)
+        adapter_profile = str(adapter.get("profile") or _capability_profile(candidate))
+        adapter_resolution = resolve_resource_ref(
+            home,
+            adapter_query,
+            resource_kind=str(adapter.get("resource_kind")) if adapter.get("resource_kind") else None,
+            profile=adapter_profile,
+        )
+        if adapter_resolution["verdict"] != "RESOLVED":
+            adapter_failure = str(adapter_resolution["failure_class"])
+            failure_class = "MISSING_ADAPTER_RESOURCE" if adapter_failure == "MISSING_RESOURCE" else "ADAPTER_RESOURCE_" + adapter_failure
+            receipt = _capability_failure(args.query, failure_class, profile=args.profile, candidates=matches)
+            receipt["adapter_resolution"] = adapter_resolution
+            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            raise SystemExit(2)
+        adapter_receipt = {
+            "id": adapter["id"],
+            "load_state": "ready",
+            "resource_ref": adapter_resolution["resource_ref"],
+            "provider_code_executed": False,
+        }
+
+    owner_ref = _resource_ref_from_candidate(home, candidate["owner"], "capability-owner")
+    receipt = {
+        "schema": CAPABILITY_RESOLUTION_SCHEMA,
+        "verdict": "RESOLVED",
+        "failure_class": None,
+        "query": {"value": args.query, "profile": args.profile},
+        "capability": {
+            "id": str(definition.get("id") or ""),
+            "name": str(definition.get("name") or ""),
+            "profile": _capability_profile(candidate),
+            "matched_by": candidate["matched_by"],
+            "status": str(definition.get("status")),
+            "health": str(definition.get("health")),
+            "maturity": str(definition.get("maturity")),
+            "definition_sha256": _stable_json_sha256(definition),
+            "owner_resource_ref": owner_ref,
+        },
+        "binding": {
+            "id": str(binding.get("id") or ""),
+            "profile": binding_profile,
+            "status": str(binding.get("status")),
+            "health": str(binding.get("health")),
+            "maturity": str(binding.get("maturity")),
+        },
+        "target_resource_ref": target["resource_ref"],
+        "adapter": adapter_receipt,
+        "authorization": {
+            "implemented": False,
+            "ref": definition.get("authorization_ref"),
+            "state": "NOT_EVALUATED",
+        },
+    }
+    print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _decision_failure(
+    args: argparse.Namespace,
+    failure_class: str,
+    *,
+    verdict: str = "FAIL_SHAPE",
+    details: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema": DECISION_CHECK_SCHEMA,
+        "verdict": verdict,
+        "failure_class": failure_class,
+        "route": {
+            "route_id": args.route_id,
+            "policy_id": args.policy_id,
+            "depth": args.route_depth,
+            "max_depth": DECISION_MAX_ROUTE_DEPTH,
+            "visited_ids": list(args.visited or []),
+        },
+        "details": details or [],
+    }
+
+
+def _decision_stop(
+    args: argparse.Namespace,
+    failure_class: str,
+    *,
+    verdict: str = "FAIL_SHAPE",
+    details: list[str] | None = None,
+) -> None:
+    print(json.dumps(_decision_failure(args, failure_class, verdict=verdict, details=details), ensure_ascii=False, indent=2, sort_keys=True))
+    raise SystemExit(2)
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("expected a JSON object")
+    return data
+
+
+def _decision_source_path(home: Path, index_path: Path, raw: str) -> Path:
+    if raw.startswith("~/"):
+        return home / raw[2:]
+    path = Path(raw)
+    return path if path.is_absolute() else index_path.parent / path
+
+
+def _decision_packet_shape(
+    packet: dict[str, Any],
+    policy_entry: dict[str, Any],
+    route_id: str,
+) -> tuple[str | None, list[str], dict[str, Any]]:
+    required_packet = {
+        "schema",
+        "packet_id",
+        "matter_ref",
+        "mission_sha256",
+        "policy_refs",
+        "questions",
+        "dependency_batches",
+        "created_by",
+    }
+    missing_packet = sorted(required_packet - set(packet))
+    if missing_packet:
+        return "MALFORMED_PACKET", ["missing packet fields: " + ", ".join(missing_packet)], {}
+    if packet.get("schema") != DECISION_PACKET_SCHEMA:
+        return "MALFORMED_PACKET", ["unsupported packet schema"], {}
+    for field in ("packet_id", "matter_ref", "created_by"):
+        if not isinstance(packet.get(field), str) or not packet.get(field):
+            return "MALFORMED_PACKET", [f"{field} must be a non-empty string"], {}
+    if not isinstance(packet.get("mission_sha256"), str) or not _SHA256_PATTERN.fullmatch(packet["mission_sha256"]):
+        return "MALFORMED_PACKET", ["mission_sha256 must be a lowercase SHA-256"], {}
+
+    policy_refs = packet.get("policy_refs")
+    if not isinstance(policy_refs, list) or not all(isinstance(ref, dict) for ref in policy_refs):
+        return "MALFORMED_PACKET", ["policy_refs must be an object list"], {}
+    exact_refs = [ref for ref in policy_refs if ref.get("id") == policy_entry.get("id")]
+    if len(exact_refs) != 1:
+        return "MALFORMED_PACKET", ["packet must contain exactly one exact policy ref"], {}
+    packet_ref = exact_refs[0]
+    if packet_ref.get("route_id") != route_id or packet_ref.get("source_sha256") != policy_entry.get("source_sha256"):
+        return "MALFORMED_PACKET", ["packet policy ref does not match the exact route/source hash"], {}
+
+    questions = packet.get("questions")
+    if not isinstance(questions, list) or not 3 <= len(questions) <= 5:
+        return "MALFORMED_PACKET", ["questions must contain 3 to 5 entries"], {}
+    required_question = {
+        "id",
+        "axis",
+        "plain_language_question",
+        "why_human_owned",
+        "depends_on",
+        "batch_id",
+        "options",
+        "recommendation",
+        "authorization_effect",
+    }
+    required_option = {
+        "id",
+        "label",
+        "description",
+        "advantages",
+        "costs",
+        "risks",
+        "reversibility",
+        "future_bias",
+        "viable",
+    }
+    question_by_id: dict[str, dict[str, Any]] = {}
+    option_ids: set[str] = set()
+    option_counts: dict[str, int] = {}
+    dependencies: dict[str, list[str]] = {}
+    for question in questions:
+        if not isinstance(question, dict):
+            return "MALFORMED_PACKET", ["every question must be an object"], {}
+        missing = sorted(required_question - set(question))
+        if missing:
+            return "MALFORMED_PACKET", ["question missing fields: " + ", ".join(missing)], {}
+        question_id = question.get("id")
+        if not isinstance(question_id, str) or not question_id or question_id in question_by_id:
+            return "MALFORMED_PACKET", ["question IDs must be non-empty and unique"], {}
+        for field in ("axis", "plain_language_question", "why_human_owned", "batch_id"):
+            if not isinstance(question.get(field), str) or not question.get(field):
+                return "MALFORMED_PACKET", [f"question {question_id}: {field} must be non-empty"], {}
+        depends_on = question.get("depends_on")
+        if not isinstance(depends_on, list) or not all(isinstance(item, str) and item for item in depends_on):
+            return "MALFORMED_PACKET", [f"question {question_id}: depends_on must be a string list"], {}
+        if len(depends_on) != len(set(depends_on)):
+            return "MALFORMED_PACKET", [f"question {question_id}: duplicate dependencies"], {}
+        options = question.get("options")
+        if not isinstance(options, list) or not 2 <= len(options) <= 4:
+            return "MALFORMED_PACKET", [f"question {question_id}: options must contain 2 to 4 entries"], {}
+        local_option_ids: set[str] = set()
+        for option in options:
+            if not isinstance(option, dict):
+                return "MALFORMED_PACKET", [f"question {question_id}: every option must be an object"], {}
+            missing = sorted(required_option - set(option))
+            if missing:
+                return "MALFORMED_PACKET", [f"question {question_id}: option missing fields: " + ", ".join(missing)], {}
+            option_id = option.get("id")
+            if not isinstance(option_id, str) or not option_id or option_id in option_ids:
+                return "MALFORMED_PACKET", ["option IDs must be non-empty and globally unique"], {}
+            for field in ("label", "description", "reversibility", "future_bias"):
+                if not isinstance(option.get(field), str) or not option.get(field):
+                    return "MALFORMED_PACKET", [f"option {option_id}: {field} must be non-empty"], {}
+            for field in ("advantages", "costs", "risks"):
+                if not isinstance(option.get(field), list):
+                    return "MALFORMED_PACKET", [f"option {option_id}: {field} must be a list"], {}
+            if not isinstance(option.get("viable"), bool):
+                return "MALFORMED_PACKET", [f"option {option_id}: viable must be boolean"], {}
+            if option.get("kind", "option") not in {"option", "hybrid"}:
+                return "MALFORMED_PACKET", [f"option {option_id}: kind must be option or hybrid"], {}
+            option_ids.add(option_id)
+            local_option_ids.add(option_id)
+        for option in options:
+            if option.get("kind", "option") == "hybrid":
+                combines = option.get("combines")
+                if not isinstance(combines, list) or not 2 <= len(combines) <= 3 or len(combines) != len(set(combines)):
+                    return "MALFORMED_PACKET", [f"hybrid {option.get('id')}: combines must contain 2 to 3 unique option IDs"], {}
+                if option.get("id") in combines or not set(combines).issubset(local_option_ids):
+                    return "MALFORMED_PACKET", [f"hybrid {option.get('id')}: combines must reference sibling options"], {}
+        recommendation = question.get("recommendation")
+        if not isinstance(recommendation, dict) or recommendation.get("option_id") not in local_option_ids or not isinstance(recommendation.get("assumptions"), list):
+            return "MALFORMED_PACKET", [f"question {question_id}: recommendation must reference one option and list assumptions"], {}
+        authorization_effect = question.get("authorization_effect")
+        if not isinstance(authorization_effect, (str, dict)) or not authorization_effect:
+            return "MALFORMED_PACKET", [f"question {question_id}: authorization_effect must be a non-empty string or object"], {}
+        question_by_id[question_id] = question
+        dependencies[question_id] = depends_on
+        option_counts[question_id] = len(options)
+
+    question_ids = set(question_by_id)
+    for question_id, refs in dependencies.items():
+        missing = sorted(set(refs) - question_ids)
+        if missing:
+            return "MISSING_DEPENDENCY", [f"question {question_id}: missing dependencies {', '.join(missing)}"], {}
+        if question_id in refs:
+            return "DEPENDENCY_CYCLE", [f"question {question_id}: self dependency"], {}
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def has_cycle(question_id: str) -> bool:
+        if question_id in visiting:
+            return True
+        if question_id in visited:
+            return False
+        visiting.add(question_id)
+        if any(has_cycle(dependency) for dependency in dependencies[question_id]):
+            return True
+        visiting.remove(question_id)
+        visited.add(question_id)
+        return False
+
+    if any(has_cycle(question_id) for question_id in question_by_id):
+        return "DEPENDENCY_CYCLE", ["question dependency graph contains a cycle"], {}
+
+    batches = packet.get("dependency_batches")
+    if not isinstance(batches, list) or not batches:
+        return "MALFORMED_PACKET", ["dependency_batches must be a non-empty list"], {}
+    batch_index: dict[str, int] = {}
+    question_batch_index: dict[str, int] = {}
+    listed_questions: list[str] = []
+    for index, batch in enumerate(batches):
+        if not isinstance(batch, dict) or not isinstance(batch.get("id"), str) or not batch.get("id"):
+            return "MALFORMED_PACKET", ["every dependency batch needs a non-empty id"], {}
+        batch_id = batch["id"]
+        if batch_id in batch_index:
+            return "MALFORMED_PACKET", ["dependency batch IDs must be unique"], {}
+        question_list = batch.get("question_ids")
+        if not isinstance(question_list, list) or not all(isinstance(item, str) for item in question_list):
+            return "MALFORMED_PACKET", [f"batch {batch_id}: question_ids must be a string list"], {}
+        if len(question_list) != len(set(question_list)):
+            return "MALFORMED_PACKET", [f"batch {batch_id}: duplicate question IDs"], {}
+        batch_index[batch_id] = index
+        for question_id in question_list:
+            if question_id in question_batch_index:
+                return "MALFORMED_PACKET", [f"question {question_id}: listed in multiple batches"], {}
+            question_batch_index[question_id] = index
+            listed_questions.append(question_id)
+    if set(listed_questions) != question_ids:
+        return "MALFORMED_PACKET", ["dependency batches must list every question exactly once"], {}
+    for question_id, question in question_by_id.items():
+        batch_id = question["batch_id"]
+        if batch_id not in batch_index or question_batch_index.get(question_id) != batch_index[batch_id]:
+            return "MALFORMED_PACKET", [f"question {question_id}: batch_id does not match dependency_batches"], {}
+        if any(question_batch_index[dependency] >= question_batch_index[question_id] for dependency in dependencies[question_id]):
+            return "MALFORMED_PACKET", [f"question {question_id}: dependency must be in an earlier batch"], {}
+
+    return None, [], {
+        "packet_id": packet["packet_id"],
+        "question_count": len(questions),
+        "option_counts": option_counts,
+        "dependency_batch_count": len(batches),
+    }
+
+
+def decision_check(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    if args.route_id != DECISION_ROUTE_ID:
+        _decision_stop(args, "MISSING_ROUTE_ID", verdict="BLOCKED_MISSING_REF", details=["route ID must be exact"])
+    if args.route_depth < 0 or args.route_depth > DECISION_MAX_ROUTE_DEPTH:
+        _decision_stop(args, "DEPTH_EXCEEDED")
+    visited_ids = list(args.visited or [])
+    if len(visited_ids) != len(set(visited_ids)) or args.policy_id in visited_ids:
+        _decision_stop(args, "CYCLE_DETECTED")
+
+    index_path = Path(args.policy_index).expanduser()
+    if not index_path.exists():
+        _decision_stop(args, "MISSING_POLICY_INDEX", verdict="BLOCKED_MISSING_REF")
+    try:
+        index = _read_json_object(index_path)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        _decision_stop(args, "MALFORMED_POLICY_INDEX", details=[str(error)])
+    if index.get("schema") != DECISION_INDEX_SCHEMA or not isinstance(index.get("entries"), list):
+        _decision_stop(args, "MALFORMED_POLICY_INDEX")
+    exact_entries = [entry for entry in index["entries"] if isinstance(entry, dict) and entry.get("id") == args.policy_id]
+    if not exact_entries:
+        _decision_stop(args, "MISSING_POLICY_REF", verdict="BLOCKED_MISSING_REF")
+    if len(exact_entries) > 1:
+        _decision_stop(args, "AMBIGUOUS_POLICY_REF")
+    entry = exact_entries[0]
+    required_entry = {
+        "id",
+        "kind",
+        "scope",
+        "mode",
+        "source_path",
+        "fragment",
+        "source_schema_version",
+        "source_sha256",
+        "status",
+        "load_when",
+    }
+    if required_entry - set(entry) or entry.get("id") != DECISION_POLICY_ID:
+        _decision_stop(args, "MALFORMED_POLICY_REF")
+    string_fields = ("kind", "scope", "mode", "source_path", "fragment", "source_schema_version", "status", "load_when")
+    if any(not isinstance(entry.get(field), str) or not entry.get(field) for field in string_fields):
+        _decision_stop(args, "MALFORMED_POLICY_REF")
+    if entry.get("status") != "active":
+        _decision_stop(args, "STALE_POLICY_REF", verdict="STALE_REF")
+    source_path = _decision_source_path(home, index_path, str(entry["source_path"]))
+    if not source_path.exists() or not source_path.is_file():
+        _decision_stop(args, "MISSING_POLICY_SOURCE", verdict="BLOCKED_MISSING_REF")
+    expected_sha = entry.get("source_sha256")
+    if not isinstance(expected_sha, str) or not _SHA256_PATTERN.fullmatch(expected_sha):
+        _decision_stop(args, "MALFORMED_POLICY_REF")
+    actual_sha = _file_sha256(source_path)
+    if actual_sha != expected_sha:
+        _decision_stop(args, "SOURCE_HASH_MISMATCH", verdict="STALE_REF")
+    fragment = entry.get("fragment")
+    if not isinstance(fragment, str) or not re.fullmatch(r"#[a-z0-9][a-z0-9._-]*", fragment):
+        _decision_stop(args, "MALFORMED_POLICY_REF")
+    try:
+        source_text = source_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        _decision_stop(args, "MALFORMED_POLICY_SOURCE", details=[str(error)])
+    anchor = re.escape(fragment[1:])
+    if not re.search(rf"<a\s+id=[\"']{anchor}[\"']\s*>\s*</a>", source_text):
+        _decision_stop(args, "MISSING_POLICY_FRAGMENT", verdict="BLOCKED_MISSING_REF")
+
+    packet_path = Path(args.packet).expanduser()
+    if not packet_path.exists():
+        _decision_stop(args, "MISSING_PACKET", verdict="BLOCKED_MISSING_REF")
+    try:
+        packet = _read_json_object(packet_path)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        _decision_stop(args, "MALFORMED_PACKET", details=[str(error)])
+    failure_class, details, summary = _decision_packet_shape(packet, entry, args.route_id)
+    if failure_class:
+        verdict = "BLOCKED_MISSING_REF" if failure_class == "MISSING_DEPENDENCY" else "FAIL_SHAPE"
+        _decision_stop(args, failure_class, verdict=verdict, details=details)
+
+    receipt = {
+        "schema": DECISION_CHECK_SCHEMA,
+        "verdict": "PASS_SHAPE",
+        "failure_class": None,
+        "route": {
+            "route_id": args.route_id,
+            "policy_id": args.policy_id,
+            "depth": args.route_depth,
+            "max_depth": DECISION_MAX_ROUTE_DEPTH,
+            "visited_ids": visited_ids + [args.policy_id],
+        },
+        "policy_ref": {
+            "id": entry["id"],
+            "source_path": str(source_path),
+            "fragment": entry["fragment"],
+            "source_schema_version": entry["source_schema_version"],
+            "source_sha256": actual_sha,
+        },
+        "packet": summary,
+        "semantic_decision_performed": False,
+        "authorization_evaluated": False,
+    }
+    print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+
+
 def instance_doctor(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     paths = instance_paths(home)
@@ -3740,6 +4723,42 @@ def build_parser() -> argparse.ArgumentParser:
     sec_native.add_argument("--ssh", action="store_true")
     sec_native.add_argument("--caddy", action="store_true")
     sec_native.set_defaults(func=secret_index_native)
+
+    resource = sub.add_parser("resource", help="resolve existing Project/Source records into provider-neutral ResourceRefs")
+    resource_sub = resource.add_subparsers(dest="resource_cmd", required=True)
+    resource_resolve_parser = resource_sub.add_parser("resolve", help="resolve one exact project/source ID, alias, or name")
+    resource_resolve_parser.add_argument("query")
+    resource_resolve_parser.add_argument("--kind", choices=["project", "source"])
+    resource_resolve_parser.add_argument("--profile")
+    resource_resolve_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
+    resource_resolve_parser.set_defaults(func=resource_resolve)
+
+    capability = sub.add_parser("capability", help="discover and route capability metadata embedded in existing resources")
+    capability_sub = capability.add_subparsers(dest="capability_cmd", required=True)
+    capability_discover_parser = capability_sub.add_parser("discover", help="list capability definitions without loading adapters")
+    capability_discover_parser.add_argument("--resource", help="restrict discovery to one exact resource")
+    capability_discover_parser.add_argument("--profile")
+    capability_discover_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
+    capability_discover_parser.set_defaults(func=capability_discover)
+    capability_resolve_parser = capability_sub.add_parser("resolve", help="resolve one capability and its explicit target binding")
+    capability_resolve_parser.add_argument("query")
+    capability_resolve_parser.add_argument("--binding", help="exact binding ID, alias, or name")
+    capability_resolve_parser.add_argument("--profile")
+    capability_resolve_parser.add_argument("--load-adapter", action="store_true", help="on demand: resolve adapter ResourceRef; never executes provider code")
+    capability_resolve_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
+    capability_resolve_parser.set_defaults(func=capability_resolve)
+
+    decision = sub.add_parser("decision", help="route and shape-check a provider-neutral Decision packet")
+    decision_sub = decision.add_subparsers(dest="decision_cmd", required=True)
+    decision_check_parser = decision_sub.add_parser("check", help="check exact policy ref, route guards, and packet shape only")
+    decision_check_parser.add_argument("--packet", required=True, help="local Decision packet JSON")
+    decision_check_parser.add_argument("--policy-index", required=True, help="local policy index JSON")
+    decision_check_parser.add_argument("--policy-id", default=DECISION_POLICY_ID)
+    decision_check_parser.add_argument("--route-id", default=DECISION_ROUTE_ID)
+    decision_check_parser.add_argument("--route-depth", type=int, default=1)
+    decision_check_parser.add_argument("--visited", action="append", default=[])
+    decision_check_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
+    decision_check_parser.set_defaults(func=decision_check)
 
     proj = sub.add_parser("project", help="manage the minimal AIOS project registry")
     psub = proj.add_subparsers(dest="project_cmd", required=True)

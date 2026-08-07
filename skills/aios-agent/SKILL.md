@@ -1,171 +1,68 @@
 ---
 name: aios-agent
-description: "Use when operating, evolving, updating, or governing AIOS itself: Agent-first workflows, aios-kit changes, skill/module adoption, local/private overlay boundaries, self-iteration, and upstream-instance reconciliation."
-version: 0.1.3
+description: "Use when operating, evolving, updating, or governing AIOS itself: route intent to the owning policy, ResourceRef, Capability, Matter/LLL, or actuator without duplicating their bodies."
+version: 0.2.0
 license: MIT
 ---
 
 # AIOS Agent
 
-This is the umbrella policy skill for AIOS work. It is intentionally thin: it teaches agents how to reason about AIOS, where facts belong, when to use lower-level skills/CLI, and when to improve the system itself. It must not store private instance facts, resource inventories, secret values, or machine-specific paths except portable examples.
-
-Core model:
+This is AIOS's thin Agent entry. It routes intent; it is not a second policy, resource, capability, workflow, or runtime owner.
 
 ```text
-Human Intent -> Agent Policy -> Machine Actuation -> State/Evidence
+Human intent -> exact owner/ref -> domain actuator -> receipt/evidence
 ```
 
-- **Human Intent**: the user expresses goals, constraints, authorization, and acceptance criteria in natural language.
-- **Agent Policy**: the agent uses skills, docs, registries, vault facts, and current context to decide what should happen.
-- **Machine Actuation**: CLI commands, scripts, MCP tools, APIs, and file operations perform deterministic actions. Prefer dry-run, doctor, validate, JSON/status outputs, and idempotent commands.
-- **State/Evidence**: long-lived facts and decisions are written to manifests, registries, vaults, install-state, logs, LLL workdirs, and evidence files.
+## Owner boundary
 
-Humans should not need to memorize low-level commands for normal AIOS operation. CLI/API surfaces exist primarily as stable actuators for agents and as fallback/debug tools for maintainers.
+| Claim | Owner |
+|---|---|
+| Portable product/evolution rules | `docs/evolution.md` and the relevant public source |
+| Current instance workflow behavior | the AIOS-managed local workflow policy |
+| Project/Source facts | existing Project/Source registries |
+| Capability definition/binding facts | the owning resource record and domain/provider owner |
+| Task state/recovery/evidence | Matter / LLL Worksite |
+| Deterministic action | CLI, script, API, or provider skill |
+| Secret value | Secret runtime/native secret owner; never this skill or a receipt |
 
-For conversational workflow routing, do not require magic phrases such as “use LLL.” Infer the smallest honest mode from intent: keep disposable chat as chat; resolve or create a Matter when the user is pursuing a durable outcome; use LLL automatically when the work needs a recoverable Worksite; and surface retention/promotion suggestions at natural checkpoints rather than interrupting every message. Human wording remains natural language, while Matter/LLL/Source commands are Agent-selected actuators.
+A skill, index, viewer, runtime copy, or receipt is a pointer/projection unless its owner contract explicitly says otherwise. It must not write back to the source it projects.
 
-Before the first substantive durable write, emit one compact progress receipt when the route will create or resume a Matter, create a durable asset, or add/change a Source or its content. State the Matter and its relation to existing work, the principal Sources/capabilities, and the expected write/change/reversibility boundary. This is an observable control surface, not per-action approval: continue low-risk work after the receipt, let the human interrupt or correct immediately, and do not show it for disposable chat, simple one-off outputs, or every small step inside an already-explicit Matter. Give a result receipt after the action as usual. Never expose secrets, hidden reasoning, or noisy tool logs in this receipt.
+## Route
 
-For continuation intent such as “继续刚才那个”, “接着上次的事”, or a paraphrase of an earlier durable outcome, resolve before creating. Prefer the current active Worksite when one is explicit; otherwise query the derived Matter view first with `aios matter list --reopenable --query <words> --json` or `aios matter get <query>`. The derived index may include active, paused, closed, archived, and inferred legacy Worksites, but Worksite files remain authoritative. Resume one unique active/paused reopenable match from compact `mission.md` + `internal/recovery.json`, ask one choice question for genuinely ambiguous matches, and create a new Matter only when no plausible durable Worksite exists. Session history is secondary context, not the authority for current task state.
+1. Apply precedence: current user instruction, then current Matter/mission, then exact local policy, then portable product default.
+2. Resolve a mentioned project, Source, service, device, vault, or other resource through `aios-resource-resolver` and `aios resource resolve ... --json` before acting.
+3. Resolve reusable action intent through `aios-capability-operations`; discover first, choose one explicit binding, and load an adapter ref only on demand.
+4. Keep disposable work in chat. Resolve/create a Matter and use LLL only when durable state, recovery, evidence, or a validation boundary is needed.
+5. Route mutation to the domain owner/actuator. A ResourceRef, capability receipt, policy index, or Decision packet never grants write authority.
+6. Return a structured result/receipt and leave current facts with their owner.
 
-At a Task or Matter checkpoint, compile lifecycle actions instead of deleting ad hoc. Use `aios lll closeout-plan <matter-or-worksite>` to enumerate candidate deliverables, archive evidence, and quarantine candidates. Candidate deliverables are not selected or authorized: they still require Agent value assessment and explicit user retention intent. By default, expose one canonical deliverable plus exact evidence pointers while the full Worksite remains the provenance owner. A completed Task does not close its parent Matter. Only a `closed` and non-reopenable Worksite may be moved with `aios lll quarantine ... --apply`; retain its restore token and use `aios lll restore <token> --apply` for undo. Build the human delivery projection with `aios matter view build`; this view may expose Mission plus explicitly selected root deliverables but must not expose `internal/` as the normal browsing surface.
+## Decision Surface pointer
 
-Retention requests require provenance. “提取刚才的精华” may use content actually present in the current conversation, or an explicit session/file/source reference supplied by the user. If the referenced conversation is not accessible—especially in a fresh session—do not reconstruct “what we discussed” from global memory, similar topics, or assumptions and do not claim that anything was saved. State the missing scope briefly and ask for the conversation/reference, or offer to review the current visible exchange only. When content is available, classify it into durable preference/fact, project/Matter asset, reusable procedure, archived evidence, or noise before writing to the owning truth source.
+For a genuine long-term human trade-off, use only:
 
-When a research task reaches a natural close, separate assessment from promotion. Score the canonical report from 0–100 across reuse/decision leverage, reproduction cost or uniqueness, standalone readability/actionability, evidence/provenance quality, and owner/maintenance fit; state confidence, freshness/shelf-life, the recommended asset type and owning location, and the main caveat. Ask at most once only when the score is at least 65 and a plausible owner exists. Below 65, keep it in the Worksite by default and do not manufacture a save prompt. A high score is advice, never authorization. Authorization precondition: an explicit user-triggered retention workflow. Prohibited before that precondition: asset creation, copying, linking, and promotion. On that later trigger, re-check provenance, owner, sensitivity/publicity, original-file impact, and reversibility; then give the durable-write progress receipt and execute a reviewed change set. After an applied copy-only Managed Zone promotion, run `aios promotion validate <change-set-or-receipt.json>`; use `aios promotion undo-check ...` only as a read-only deletion precondition, never as deletion permission. These commands do not authorize or execute promotion, move, overwrite, delete, or bulk curation. Do not repeat the offer unless the report materially changed.
+- policy ID: `decision-surface`;
+- route ID: `aios.decision-surface.route.v1`;
+- packet schema: `aios.decision-packet.v1`;
+- shape check: `aios decision check ... --json`.
 
-For other conversations that produce plausible long-term value but do not justify their own Matter, make at most one concrete retention offer at a natural close: name the proposed asset type and owning location instead of asking a vague “save this?”. Skip the offer for ordinary explanations, disposable brainstorming, easily recomputed output, explicit no-save intent, or content already written to a clear truth source. If the user already expressed save intent and ownership is safe and unambiguous, write it and give a receipt rather than asking again.
+Load the exact hash-bound local policy fragment through its index. Route depth, visited IDs, missing refs, cycles, and hash drift fail closed. The CLI checks packet/ref shape only; it does not choose an option, evaluate authorization, or call a model. Ordinary reversible details and tool-answerable facts stay with the Agent.
 
-Apply progressive disclosure to the human surface. For ordinary use, prefer the concepts “thing/work” and “material,” plus the actions save, organize, and delete. Treat Matter, Source, Registry, Managed Zone, Worksite, authority, provenance, and projection as internal or advanced vocabulary unless the user asks for technical detail or the distinction changes a real outcome. Interpret “save this” as durable findability with the original preserved and no overwrite/delete by default. If a reversible staging or link can absorb ambiguity, act and give a plain-language receipt. Ask at most one outcome-level question only when interpretations would change canonical ownership, sync direction, sensitive/public boundaries, overwrite/delete behavior, or large-batch scope. Receipts should say what was saved, whether the original changed, where/how it can be found, and whether it can be undone—without requiring protocol terminology.
+## Closeout retention pointer
 
-Routing precedence: explicit “do not save / chat only” overrides ordinary durability inference; runtime hard boundaries and mass/cross-location/destructive/sensitive-to-public rules override direct autonomy or “do not ask”; split compound requests by sub-action so safe read-only work may proceed, durable outputs share one Matter, and high-risk writes become a separate change-set decision. Do not create a Matter merely because an action has a result: one-turn translation, rewriting, explanation, short calculation, or format conversion stays in chat unless it needs a durable file, continuing state, recovery, or acceptance boundary.
+Worksite outputs are candidate deliverables. An Agent value assessment and explicit user retention intent are separate: until both are present, artifacts are not selected or authorized for durable asset creation or promotion. Retain at most one canonical deliverable plus exact evidence pointers; the full Worksite remains the provenance owner. A high score is advice, never authorization. Prohibited before that precondition: asset creation, copying, linking, and promotion.
 
-## Source-of-truth boundaries
+The owning local policy/Worksite defines the complete closeout protocol; this skill keeps only the routing boundary above.
 
-| Layer | Belongs here | Does not belong here |
-|---|---|---|
-| Public base (`aios-kit`) | Portable installers, thin CLI, public skills, schemas, templates, docs, examples | Real private resources, personal overlay names, secret values, live operations facts |
-| User instance (`$AIOS_ROOT`, usually `~/aios`) | Config, modules, workdirs, state, logs, cache | Public distribution source that should be upstreamed |
-| Live OPS vault | Current/private resources, project registry, maintenance logs, private instance decisions | Generic public product documentation |
-| Runtime skills | Skills loaded by a specific agent profile | Assumed canonical source unless explicitly adopted into Git |
+## Hard boundaries
 
-If a user-specific fact matters, record it in the instance vault/state or a local-only profile layer. If a reusable workflow matters, upstream it as a public skill/doc/CLI improvement after removing private facts.
-
-## Private actuator projects
-
-An AIOS instance may keep private automation repositories or command bundles such as Ansible playbooks, Terraform stacks, shell scripts, or deployment artifacts. Treat these as **actuator adapters** governed by AIOS/AIOps, not as the canonical AIOS brain.
-
-Good boundary:
-
-```text
-Human intent -> Agent policy -> OPS vault resource truth -> private actuator repo -> verification/write-back
-```
-
-Rules:
-
-- Register private actuator projects in the local OPS vault/project registry so agents can discover them.
-- Keep public reusable logic in `aios-kit`; keep private inventory, overlays, generated artifacts, and deploy-only binaries in private repos or vault/state.
-- Prefer project-local `README.md`/`AGENTS.md` for role-specific runbooks, file ownership, and secret-adjacent handling.
-- Do not move a private automation repo into public AIOS Kit just because AIOS uses it. First separate public reusable capability from private instance projection.
-- Humans should be able to express host/network/service intent in natural language; agents choose whether to call Ansible, SSH, AIOS CLI, Tailscale/remote tools, or another actuator.
-- When an actuator action changes real infrastructure, verify from the consumer side and write durable facts/history back to the OPS vault.
-
-## Skill and module evolution
-
-Do not create a new skill for every command or one-off workflow. Split by stable domain boundary.
-
-Prefer an umbrella skill when:
-
-- the work is cross-cutting across AIOS architecture, update policy, local/private boundaries, and agent operation;
-- the workflow is still evolving;
-- splitting would duplicate principles across many small skills;
-- the main value is policy and routing.
-
-Prefer a narrow companion skill when:
-
-- the workflow is frequent, high-risk, or has its own validation model;
-- the domain has distinct safety boundaries, such as secrets or service operations;
-- the skill can stay useful without importing the whole AIOS operating model;
-- loading it should not pollute unrelated AIOS tasks.
-
-Examples:
-
-- `aios-agent`: umbrella policy and routing.
-- `aios-resource-resolver`: resource lookup and permission workflow.
-- `aios-secret-management`: secret registry/runtime workflows with strict safety rules.
-- `aiops-vault` and `aiops-service-operations`: OPS vault and service operations workflows.
-
-## Adopting a local skill into AIOS
-
-When the user says something like “make this skill AIOS-managed” or “let AIOS host this skill,” do not expect the user to remember CLI syntax. The agent should:
-
-1. Locate candidate runtime skill directories.
-2. Decide whether it is public first-party, module-bound, independent module, local/private overlay, or not suitable for adoption.
-3. Refuse or ask before publishing anything containing private infrastructure facts, secret handles, personal resource topology, or machine-specific assumptions.
-4. Use the `aios skillpack adopt` actuator only after a dry run and boundary check.
-5. Prefer `skills/<skill>` for portable AIOS-level skills. Use `modules/<module>/skills/<skill>` only when the skill is meaningless without that module.
-6. Verify with skillpack doctor, public audit, diff checks, and a clean/fresh environment smoke when distribution behavior changed.
-7. Remove or document same-name runtime overlays that would shadow the adopted source.
-
-`adopt` is an actuator, not the human-facing UX. The human-facing instruction is natural language; the agent chooses commands.
-
-## Evolution discipline
-
-When changing AIOS architecture, modules, skills, CLI surfaces, automation, or project governance, use the public repo document `docs/evolution.md` as the source of truth for progressive enhancement, breadth-first module maturity, complexity budget, and upgrade triggers. Its **精简决策协议** is the operative guardrail: understand the real flow first, ask whether the thing needs to exist, reuse existing/native capability before adding structure, preserve load-bearing boundaries, price the mechanism's total lifecycle cost, and leave a focused verification.
-
-Do not create a new skill or heavy runtime just because a concept is useful. Prefer: document the current stage, define trigger conditions, patch existing docs/skills, and keep advanced mechanisms as roadmap candidates until real friction appears. A plugin, hook, mode, always-on prompt, or automation that exists only to make a small local task "simpler" must justify its own context, state, upgrade, debugging, and removal cost; otherwise keep the principle as a thin rule or manual check. Fewer lines, files, or tokens are not by themselves lower total complexity.
-
-When a task exposes an error or workflow lesson, choose one owning layer before writing it down. Put personal preferences in profile/memory, private current-state facts in the OPS vault, project conventions in project-local docs, cross-skill development discipline in the skill-authoring/governance layer, domain procedures in the relevant domain skill, and one-off incident evidence in LLL/OPS logs or issues. Avoid copying the same rule into multiple AIOS skills unless each copy has a distinct operational role.
-
-## Self-iteration duty
-
-AIOS must improve through use. During any AIOS-related task, actively watch for:
-
-- repeated manual steps that should become CLI/API actuators;
-- unclear or stale skill instructions;
-- commands that are too verbose for agents or unsafe for users;
-- missing `doctor`, `status`, `validate`, `--dry-run`, or `--json` outputs;
-- public/private boundary mistakes;
-- update conflicts between upstream base and local instance evolution;
-- validation gaps, brittle paths, duplicated state, or hidden assumptions.
-
-For a nontrivial Matter closeout, prefer one independent, read-only workflow reviewer after the canonical output/validation surface is frozen. Review routing, decomposition, Source/capability use, recovery, validation, interaction friction, and unnecessary ceremony; do not redo the domain deliverable. Write a compact, traceable workflow-review result or improvement candidate. The reviewer must not edit shared truth directly, and its completion must not recursively trigger another full review. For trivial Matters or when the extra review cost would exceed the likely benefit, record a lightweight inline self-maintenance decision instead.
-
-When such a pattern appears, do one of the following before closing the task:
-
-1. Patch the relevant skill/doc/tool immediately when the fix is safe and clearly within scope.
-2. Propose a concise improvement to the user when the fix changes workflow, CLI surface, architecture, or compatibility.
-3. Record the issue in an LLL error/trace report or OPS maintenance log when it should not be fixed immediately.
-
-Do not treat self-iteration as ceremony. Improve only real failure modes, repeated friction, risky ambiguity, or verified simplification opportunities.
-
-## Upstream-instance reconciliation
-
-AIOS installations are not static copies of `aios-kit`. Over time, a user instance may accumulate local habits, edited skills, private overlays, changed modules, and agent-created workflows. Therefore updates must be reconciliation, not blind overwrite.
-
-Model:
-
-```text
-aios-kit upstream = seed + reusable improvements
-user instance = living local organism
-update = propose/reconcile/merge/validate, not reset
-```
-
-Update policy:
-
-1. Classify each object as upstream-managed, user-owned, local overlay, generated/cache, or external/app-owned.
-2. For upstream-managed copies, use install-state hashes and refuse to overwrite local edits without explicit force or merge.
-3. For local overlays and vault facts, never publish or overwrite from upstream defaults.
-4. For user-edited skills, prefer a three-way mental model: upstream base, installed previous base, local evolved copy.
-5. Present conflicts as proposals with evidence and safe choices, not as silent changes.
-6. After merge/update, run doctor/validate and record evidence.
-
-Future tools should make this explicit with commands such as status/diff/doctor/propose/reconcile rather than broad destructive update commands.
+- Public `aios-kit` contains portable routes and schemas, not private instance facts, organization IDs, endpoints, credentials, or Secret values.
+- `$AIOS_ROOT` contains the user's instance and registries; runtime skills are projections, not automatically canonical source.
+- Do not create a second registry, daemon, broker, marketplace, approval engine, authorization engine, or hidden workflow state machine for routing.
+- Before an AIOS architecture or CLI expansion, follow `docs/evolution.md`; reuse the existing owner and leave one focused verification.
 
 ## Related skills
 
-- Use `lins-living-loop` for durable, auditable, multi-step AIOS work and self-maintenance records.
-- Use `aios-resource-resolver` before acting on projects, services, devices, vaults, or ambiguous resources.
-- Use `aios-secret-management` for secret/credential workflows.
-- Use `aiops-vault` for live OPS vault maintenance and private instance facts.
-- Use `hermes-agent` only for Hermes Agent/Web UI/profile/tool configuration itself.
+- `aios-resource-resolver` — exact ResourceRef lookup and owner pointer.
+- `aios-capability-operations` — capability/binding discovery and lazy adapter-ref route.
+- `lins-living-loop` — durable Matter/Worksite execution and recovery.
+- `aios-secret-management` — metadata and controlled runtime secret use.
