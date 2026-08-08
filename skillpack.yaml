@@ -64,21 +64,6 @@ external:
     skill: web-design-guidelines
     enabled: true
     reason: Web design guidelines for modern frontend work.
-  - id: grilling
-    source: mattpocock/skills
-    skill: grilling
-    enabled: true
-    reason: Reusable relentless interview loop for stress-testing plans and designs.
-  - id: grill-me
-    source: mattpocock/skills
-    skill: grill-me
-    enabled: true
-    reason: User-facing entrypoint for sharpening a plan or design through a grilling session.
-  - id: grill-with-docs
-    source: mattpocock/skills
-    skill: grill-with-docs
-    enabled: true
-    reason: Grilling workflow that also captures glossary and ADR-style design documentation.
   - id: domain-modeling
     source: mattpocock/skills
     skill: domain-modeling
