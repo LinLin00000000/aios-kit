@@ -68,7 +68,7 @@ external:
     source: mattpocock/skills
     skill: domain-modeling
     enabled: true
-    reason: Domain vocabulary and ADR support required by grill-with-docs.
+    reason: Domain vocabulary and ADR support.
 
 first_party:
   - id: aios-agent
