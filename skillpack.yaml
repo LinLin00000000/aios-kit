@@ -152,3 +152,21 @@ first_party:
     default_mode: copy
     targets: universal
     reason: "Portable first-party HTML report protocol and multi-output public delivery workflow with reusable Chromium card export/audit scripts."
+
+  - id: decision-principles
+    path: skills/decision-principles
+    source: LinLin00000000/aios-kit
+    skill: decision-principles
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: "User-authorized B1 decision-principles source/projection transaction"
+
+  - id: skill-governance
+    path: skills/skill-governance
+    source: LinLin00000000/aios-kit
+    skill: skill-governance
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: "Narrow first-party owner for Skill lifecycle, canonical-source/projection integrity, provenance, and rollback governance."

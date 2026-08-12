@@ -231,27 +231,16 @@ class O70RouteTests(unittest.TestCase):
         _, missing = self.run_cli("capability", "resolve", "missing", "--json", ok=False)
         self.assertEqual(missing["failure_class"], "MISSING_CAPABILITY")
 
-    def write_decision_fixture(self) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
+    def write_decision_fixture(self, question_count: int = 3) -> tuple[Path, Path, dict[str, Any]]:
         fixture = self.home / "decision-fixture"
         fixture.mkdir(parents=True, exist_ok=True)
         policy = fixture / "policy.md"
-        policy.write_text("# Policy\n\n<a id=\"policy-decision-surface\"></a>\n", encoding="utf-8")
+        policy.write_text(
+            "---\nschema: workflow.local-policy.v1\n---\n\n"
+            "# Policy\n\n<a id=\"policy-decision-surface\"></a>\n",
+            encoding="utf-8",
+        )
         policy_sha = hashlib.sha256(policy.read_bytes()).hexdigest()
-        entry = {
-            "id": "decision-surface",
-            "kind": "local_policy",
-            "scope": "instance",
-            "mode": "on_demand",
-            "source_path": str(policy),
-            "fragment": "#policy-decision-surface",
-            "source_schema_version": "workflow.local-policy.v1",
-            "source_sha256": policy_sha,
-            "status": "active",
-            "load_when": "true human trade-off",
-        }
-        index_data = {"schema": "aios.decision-surface.index.v1", "entries": [entry]}
-        index = fixture / "index.json"
-        index.write_text(json.dumps(index_data, indent=2) + "\n", encoding="utf-8")
 
         def option(question_id: str, suffix: str) -> dict[str, Any]:
             return {
@@ -267,7 +256,7 @@ class O70RouteTests(unittest.TestCase):
             }
 
         questions = []
-        for number in range(1, 4):
+        for number in range(1, question_count + 1):
             qid = f"q{number}"
             options = [option(qid, "a"), option(qid, "b")]
             if number == 3:
@@ -300,18 +289,21 @@ class O70RouteTests(unittest.TestCase):
                 }
             ],
             "questions": questions,
-            "dependency_batches": [{"id": "batch-1", "question_ids": ["q1", "q2", "q3"]}],
+            "dependency_batches": [
+                {"id": "batch-1", "question_ids": [f"q{i}" for i in range(1, question_count + 1)]}
+            ],
             "created_by": "fixture-producer",
         }
         packet = fixture / "packet.json"
         packet.write_text(json.dumps(packet_data, indent=2) + "\n", encoding="utf-8")
-        return packet, index, packet_data, index_data
+        return packet, policy, packet_data
 
-    def decision_check(self, packet: Path, index: Path, *extra: str, ok: bool = True) -> dict[str, Any]:
+    def decision_check(self, packet: Path, policy: Path, *extra: str, ok: bool = True) -> dict[str, Any]:
         _, receipt = self.run_cli(
             "decision", "check",
             "--packet", str(packet),
-            "--policy-index", str(index),
+            "--policy-source", str(policy),
+            "--policy-fragment", "#policy-decision-surface",
             "--policy-id", "decision-surface",
             "--route-id", "aios.decision-surface.route.v1",
             "--route-depth", "1",
@@ -322,63 +314,71 @@ class O70RouteTests(unittest.TestCase):
         )
         return receipt
 
-    def test_decision_packet_shape_passes_with_exact_route_and_hybrid(self) -> None:
-        packet, index, _, _ = self.write_decision_fixture()
-        receipt = self.decision_check(packet, index)
-        self.assertEqual(receipt["verdict"], "PASS_SHAPE")
-        self.assertIsNone(receipt["failure_class"])
-        self.assertEqual(receipt["route"]["visited_ids"], ["agent-workflow-cost-control", "decision-surface"])
-        self.assertEqual(receipt["packet"]["question_count"], 3)
-        self.assertEqual(receipt["packet"]["option_counts"], {"q1": 2, "q2": 2, "q3": 3})
+    def test_decision_packet_shape_passes_for_one_two_and_five_questions(self) -> None:
+        for count in (1, 2, 5):
+            with self.subTest(count=count):
+                packet, policy, _ = self.write_decision_fixture(count)
+                receipt = self.decision_check(packet, policy)
+                self.assertEqual(receipt["verdict"], "PASS_SHAPE")
+                self.assertIsNone(receipt["failure_class"])
+                self.assertEqual(receipt["route"]["visited_ids"], ["agent-workflow-cost-control", "decision-surface"])
+                self.assertEqual(receipt["packet"]["question_count"], count)
 
-    def test_decision_route_depth_visited_cycle_and_hash_fail_closed(self) -> None:
-        packet, index, _, index_data = self.write_decision_fixture()
-        deep = self.decision_check(packet, index, "--route-depth", "3", ok=False)
+    def test_decision_zero_and_six_questions_fail_closed(self) -> None:
+        for count in (0, 6):
+            with self.subTest(count=count):
+                packet, policy, _ = self.write_decision_fixture(count)
+                receipt = self.decision_check(packet, policy, ok=False)
+                self.assertEqual(receipt["verdict"], "FAIL_SHAPE")
+                self.assertEqual(receipt["failure_class"], "MALFORMED_PACKET")
+
+    def test_decision_route_depth_cycle_stale_and_missing_source_fail_closed(self) -> None:
+        packet, policy, _ = self.write_decision_fixture()
+        deep = self.decision_check(packet, policy, "--route-depth", "3", ok=False)
         self.assertEqual(deep["failure_class"], "DEPTH_EXCEEDED")
-        cycle = self.decision_check(packet, index, "--visited", "decision-surface", ok=False)
+        cycle = self.decision_check(packet, policy, "--visited", "decision-surface", ok=False)
         self.assertEqual(cycle["failure_class"], "CYCLE_DETECTED")
 
-        index_data["entries"][0]["source_sha256"] = "0" * 64
-        index.write_text(json.dumps(index_data, indent=2) + "\n", encoding="utf-8")
-        stale = self.decision_check(packet, index, ok=False)
+        policy.write_text(policy.read_text(encoding="utf-8") + "drift\n", encoding="utf-8")
+        stale = self.decision_check(packet, policy, ok=False)
         self.assertEqual(stale["verdict"], "STALE_REF")
         self.assertEqual(stale["failure_class"], "SOURCE_HASH_MISMATCH")
 
-    def test_decision_missing_ref_dependency_cycle_and_bad_packet_shape_fail_closed(self) -> None:
-        packet, index, packet_data, index_data = self.write_decision_fixture()
-        index_data["entries"][0]["id"] = "other-policy"
-        index.write_text(json.dumps(index_data, indent=2) + "\n", encoding="utf-8")
-        missing = self.decision_check(packet, index, ok=False)
+        packet, policy, _ = self.write_decision_fixture()
+        policy.unlink()
+        missing = self.decision_check(packet, policy, ok=False)
         self.assertEqual(missing["verdict"], "BLOCKED_MISSING_REF")
-        self.assertEqual(missing["failure_class"], "MISSING_POLICY_REF")
+        self.assertEqual(missing["failure_class"], "MISSING_POLICY_SOURCE")
 
-        packet, index, packet_data, index_data = self.write_decision_fixture()
-        policy = index.parent / "policy.md"
-        policy.write_text("# Wrong fragment\n", encoding="utf-8")
-        no_fragment_sha = hashlib.sha256(policy.read_bytes()).hexdigest()
-        index_data["entries"][0]["source_sha256"] = no_fragment_sha
-        index.write_text(json.dumps(index_data, indent=2) + "\n", encoding="utf-8")
-        packet_data["policy_refs"][0]["source_sha256"] = no_fragment_sha
+    def test_decision_missing_ref_fragment_dependency_and_cycle_fail_closed(self) -> None:
+        packet, policy, packet_data = self.write_decision_fixture()
+        packet_data["policy_refs"][0]["id"] = "other-policy"
         packet.write_text(json.dumps(packet_data, indent=2) + "\n", encoding="utf-8")
-        missing_fragment = self.decision_check(packet, index, ok=False)
+        missing_ref = self.decision_check(packet, policy, ok=False)
+        self.assertEqual(missing_ref["verdict"], "BLOCKED_MISSING_REF")
+        self.assertEqual(missing_ref["failure_class"], "MISSING_POLICY_REF")
+
+        packet, policy, packet_data = self.write_decision_fixture()
+        policy.write_text("---\nschema: workflow.local-policy.v1\n---\n# Wrong fragment\n", encoding="utf-8")
+        packet_data["policy_refs"][0]["source_sha256"] = hashlib.sha256(policy.read_bytes()).hexdigest()
+        packet.write_text(json.dumps(packet_data, indent=2) + "\n", encoding="utf-8")
+        missing_fragment = self.decision_check(packet, policy, ok=False)
         self.assertEqual(missing_fragment["verdict"], "BLOCKED_MISSING_REF")
         self.assertEqual(missing_fragment["failure_class"], "MISSING_POLICY_FRAGMENT")
 
-        packet, index, packet_data, _ = self.write_decision_fixture()
+        packet, policy, packet_data = self.write_decision_fixture(2)
         packet_data["questions"][0]["depends_on"] = ["q2"]
         packet_data["questions"][1]["depends_on"] = ["q1"]
         packet.write_text(json.dumps(packet_data, indent=2) + "\n", encoding="utf-8")
-        dep_cycle = self.decision_check(packet, index, ok=False)
+        dep_cycle = self.decision_check(packet, policy, ok=False)
         self.assertEqual(dep_cycle["failure_class"], "DEPENDENCY_CYCLE")
 
-        packet, index, packet_data, _ = self.write_decision_fixture()
-        packet_data["questions"] = packet_data["questions"][:2]
-        packet_data["dependency_batches"][0]["question_ids"] = ["q1", "q2"]
+        packet, policy, packet_data = self.write_decision_fixture(1)
+        packet_data["questions"][0]["depends_on"] = ["missing"]
         packet.write_text(json.dumps(packet_data, indent=2) + "\n", encoding="utf-8")
-        malformed = self.decision_check(packet, index, ok=False)
-        self.assertEqual(malformed["verdict"], "FAIL_SHAPE")
-        self.assertEqual(malformed["failure_class"], "MALFORMED_PACKET")
-
+        missing_dependency = self.decision_check(packet, policy, ok=False)
+        self.assertEqual(missing_dependency["verdict"], "BLOCKED_MISSING_REF")
+        self.assertEqual(missing_dependency["failure_class"], "MISSING_DEPENDENCY")
 
 if __name__ == "__main__":
     unittest.main()

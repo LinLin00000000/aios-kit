@@ -45,7 +45,7 @@ For a genuine long-term human trade-off, use only:
 - packet schema: `aios.decision-packet.v1`;
 - shape check: `aios decision check ... --json`.
 
-Load the exact hash-bound local policy fragment through its index. Route depth, visited IDs, missing refs, cycles, and hash drift fail closed. The CLI checks packet/ref shape only; it does not choose an option, evaluate authorization, or call a model. Ordinary reversible details and tool-answerable facts stay with the Agent.
+Load the exact fragment directly from `$AIOS_ROOT/workflow/local-policy.md` and bind the packet to that policy source SHA-256; use `policy_id=decision-surface` and fragment `#policy-decision-surface` without an index or second locator. Route depth, visited IDs, missing refs/source/fragment, cycles, and hash drift fail closed. The CLI checks packet/ref shape only; it does not choose an option, evaluate authorization, or call a model. Ordinary reversible details and tool-answerable facts stay with the Agent.
 
 ## Closeout retention pointer
 

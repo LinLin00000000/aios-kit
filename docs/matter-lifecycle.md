@@ -52,6 +52,53 @@ Agent 收到“继续工作流这个事务”时，应优先检索 `active` / `p
 
 `matter list/get` 每次从 Worksite 文件现场编译当前结果，但不写 `index.json`；它们可以安全用于只读 reviewer。只有显式 `aios matter index` 持久化派生索引，`matter view build` 在生成 View 时也会刷新索引。
 
+## Current Worksite rollover
+
+`aios matter rollover <exact-matter-id>` 是窄范围的 Current Worksite 事务执行器，只接受正式 Matter 的精确 ID。默认是零写入 dry-run；真实写入必须同时提供 `--apply` 和 durable `--authorization-ref`。计划必须冻结并传入：
+
+- 完整 expected-current 对象（ID、绝对路径、role；owner/binding/recovery 字段由协议补齐）；
+- `internal/matter.json` SHA-256；
+- `internal/matter.events.jsonl` SHA-256 和非空行数；
+- 目标 Worksite ID、绝对路径和 role；
+- idempotency key 与绑定完整 pass-1 candidate 的 `sha256:<digest>` fence token。
+
+```bash
+aios matter rollover <exact-matter-id> \
+  --expected-current-id <id> \
+  --expected-current-path /absolute/current/worksite \
+  --expected-current-role latest_completed_baseline \
+  --expected-matter-sha256 <sha256> \
+  --expected-events-sha256 <sha256> \
+  --expected-event-line-count <n> \
+  --to-worksite /absolute/target/worksite \
+  --to-worksite-id <mission-id> \
+  --to-role current_canonical \
+  --idempotency-key <stable-key> \
+  --fence-token sha256:<candidate-digest> \
+  --json
+```
+
+目标 `mission.md` 的 `mission_id` / `parent_matter_id` / `parent_worksite` 和 `internal/recovery.json` 必须可验证，lifecycle status 必须一致且只能为 `active` 或 `completed`。正式 current Worksite 绑定统一使用生命周期中性的 `current_canonical`；Worksite 后续 closeout 不触发第二次 role-only rollover。另一正式 Matter 已认领目标时 fail closed。正式 Matter owner discovery 只遍历每个声明 root 的实体直接子目录，跳过顶层 symlink，并要求 child realpath 保持在 root realpath 内。
+
+`--authorization-ref` 不是任意标签：apply 与 rollback apply 都要求它指向存在、可读的 durable JSON，schema 必须为 `aios.phase_b.authorization.v1`；`scope.worksite` 必须等于本次 full-chain current Worksite，`scope.parent_worksite` / `scope.parent_matter` 必须分别匹配目标 Mission 的父 Worksite / exact Matter，并且 `authorized` 必须包含 exact B6 rollover operation。引用不存在返回 `AUTHORIZATION_REF_NOT_FOUND`，scope/operation 不匹配返回 `AUTHORIZATION_SCOPE_MISMATCH`；两者都在 lock、receipt 和 canonical write 之前 fail closed。
+
+apply 在 `~/aios/state/matters/locks/` 获取 Matter-scoped non-blocking `fcntl` lock，并在锁内重做 target fence 与 expected-current/CAS。Matter 与 event stream 每次原子替换都在**紧邻 replace 之前**再次核对 exact expected-current hash；检查/使用窗口内出现并发事实时返回 `CANONICAL_CAS_MISMATCH`，不覆盖该事实。receipt 位于 `~/aios/state/matters/change-sets/`，状态依次为 `prepared` → `canonical_committed` → `projections_committed`。receipt digest 覆盖 replay 会读取的 state、冻结 candidate/canonical guards、authorization binding 和 rollback digest；任何 tamper 都必须先返回 `RECEIPT_INTEGRITY_MISMATCH`，不能走成功短路。
+
+同 key、同计划重试会从 receipt 恢复 snapshot/event split commit 或只重建 projection；同 key 或同 target receipt slot 的不同计划返回 `IDEMPOTENCY_CONFLICT`。canonical 已成功但 index/View 失败时状态为 `projection_pending`，不会自动逆转 canonical Matter，必须使用同 key 重试。该 post-commit retry 在锁下直接加载并验证原 receipt binding/digest，核对当前 canonical Matter/event receipt guards 和目标 identity/status，然后按 receipt 冻结的 target snapshot 重建派生 projection；它不从已变化的 target recovery bytes 重新生成 candidate，因此无关 recovery churn 不会错误返回 `FENCE_TOKEN_MISMATCH`。
+
+compiler 先收集正式 owner claims，再编译记录：正式 Matter 指向另一个 Worksite 时，目标不会同时生成 `inferred_worksite` duplicate。View 先完整写入 sibling staging tree；已有 View 通过 Linux `renameat2(RENAME_EXCHANGE)` 一次交换新旧完整 generation，避免“先删旧 View”窗口。
+
+guarded rollback 只接受默认 change-set 目录中的精确 receipt 路径和 `--expected-receipt-id`；默认仍为 dry-run，apply 仍要求 authorization ref：
+
+```bash
+aios matter rollover <exact-matter-id> \
+  --rollback ~/aios/state/matters/change-sets/<receipt>.json \
+  --expected-receipt-id <receipt-id> \
+  --apply --authorization-ref <durable-ref> --json
+```
+
+只有 Matter postimage hash 与 event stream hash、行数、尾 event ID 全部仍匹配 receipt guard 才会 rollback；否则 `ROLLBACK_GUARD_MISMATCH`，不会覆盖后来的事实。成功 rollback 更新 current pointer 并追加 `worksite.migration_compensated` 事件，而不是删除 rollover 事件。
+
 ## 精简交付物视图
 
 Matter 可以声明精选文件：

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
 import datetime as _dt
+import fcntl
 import getpass
 import hashlib
 import html
@@ -262,10 +264,30 @@ def load_state(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def file_sha256(path: Path) -> str:
+    """Hash an install-state preimage for selected-entry CAS checks."""
+    if not path.exists():
+        return hashlib.sha256(b"").hexdigest()
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def save_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = _dt.datetime.now(_dt.UTC).isoformat()
-    path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    payload = json.dumps(state, indent=2, ensure_ascii=False) + "\n"
+    target_mode = (path.stat().st_mode & 0o777) if path.exists() else 0o664
+    fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp = Path(raw_tmp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(tmp, target_mode)
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def run(cmd: list[str], *, apply: bool, attempts: int = 3) -> int:
@@ -676,8 +698,57 @@ def skillpack_sync(args: argparse.Namespace) -> None:
     state = load_state(sp)
     old_entries = state.get("managed", [])
     old_by_key = {(e.get("target"), e.get("skill")): e for e in old_entries}
+    only_names = [str(name).strip() for name in (getattr(args, "only", None) or []) if str(name).strip()]
+    eligible_items = [
+        item for item in enabled_items(manifest)
+        if not getattr(args, "first_party_only", False) or item["kind"] == "first_party"
+    ]
+    if only_names:
+        eligible_by_name = {
+            str(item.get("skill") or item.get("id")): item for item in eligible_items
+        }
+        unknown = [name for name in only_names if name not in eligible_by_name]
+        if unknown:
+            raise SystemExit(f"unknown --only skill: {', '.join(unknown)}")
+        selected_items = [eligible_by_name[name] for name in dict.fromkeys(only_names)]
+    else:
+        selected_items = eligible_items
+
+    # Resolve the selected target keys before any projection write.  This lets
+    # --only preserve every unselected install-state row byte-for-byte and
+    # gives the actuator a precise write set for its dry-run receipt.
+    selected_keys: set[tuple[str, str]] = set()
+    selected_targets: dict[int, list[tuple[str, Path]]] = {}
+    for index, item in enumerate(selected_items):
+        explicit_targets = item.get("targets") or item.get("target")
+        item_targets_raw = explicit_targets or (manifest.get("defaults") or {}).get("agent") or args.target
+        if args.target != "default" and not explicit_targets:
+            item_targets_raw = args.target
+        targets = [item_targets_raw] if isinstance(item_targets_raw, str) else list(item_targets_raw)
+        expanded: list[tuple[str, Path]] = []
+        for target in targets:
+            for target_name, dst_root in target_dirs(target, home).items():
+                expanded.append((target_name, dst_root))
+                selected_keys.add((target_name, str(item.get("skill") or item.get("id"))))
+        selected_targets[index] = expanded
+
+    preimage_sha = file_sha256(sp)
+    expected_state_sha = getattr(args, "expected_state_sha256", None)
+    print(f"STATE PREIMAGE SHA256 {preimage_sha}")
+    if expected_state_sha and expected_state_sha != preimage_sha:
+        raise SystemExit(
+            f"install-state CAS mismatch: current={preimage_sha} expected={expected_state_sha}"
+        )
+    if apply and only_names and not expected_state_sha:
+        raise SystemExit("selected-entry apply requires --expected-state-sha256")
+
     new_entries: list[dict[str, Any]] = []
-    if getattr(args, "first_party_only", False):
+    if only_names:
+        # Selected-entry mode is deliberately conservative: keep every row
+        # outside the exact selected (target, skill) key set, including
+        # external rows and first-party rows not named by --only.
+        new_entries.extend(e for e in old_entries if (e.get("target"), e.get("skill")) not in selected_keys)
+    elif getattr(args, "first_party_only", False):
         # dev-link updates local/first-party entries but preserves external entries
         # installed by a previous full sync. Otherwise dev-link would make the
         # state forget externally managed skills and report them as stale.
@@ -688,20 +759,14 @@ def skillpack_sync(args: argparse.Namespace) -> None:
         if e.get("target") and e.get("skill")
     }
 
-    for item in enabled_items(manifest):
-        if getattr(args, "first_party_only", False) and item["kind"] != "first_party":
-            continue
-        explicit_targets = item.get("targets") or item.get("target")
-        item_targets_raw = explicit_targets or (manifest.get("defaults") or {}).get("agent") or args.target
-        # A CLI target override is for generic/default entries. Explicit per-item targets
-        # (for example Hermes-local skills under a categorized Hermes skill path) are kept.
-        if args.target != "default" and not explicit_targets:
-            item_targets_raw = args.target
-        targets = [item_targets_raw] if isinstance(item_targets_raw, str) else list(item_targets_raw)
-        expanded_targets: dict[str, Path] = {}
-        for t in targets:
-            expanded_targets.update(target_dirs(t, home) if t == "both" else target_dirs(t, home))
-        for target, dst_root in expanded_targets.items():
+    # Recheck immediately before the first live projection write.  Dry-runs
+    # never perform this write path, while applies fail closed on a concurrent
+    # install-state writer rather than overwriting its receipt.
+    if apply and file_sha256(sp) != preimage_sha:
+        raise SystemExit("install-state CAS mismatch before projection write")
+
+    for index, item in enumerate(selected_items):
+        for target, dst_root in selected_targets[index]:
             skill_name = item.get("skill") or item.get("id")
             current_skills.add((target, skill_name))
             mode = args.mode or item.get("default_mode") or mode_default
@@ -724,6 +789,48 @@ def skillpack_sync(args: argparse.Namespace) -> None:
             else:
                 install_first_party(item, target, dst_root, mode, apply, home, new_entries, old_entry=old_entry, force=force)
 
+    if only_names:
+        generated_by_key = {
+            (entry.get("target"), entry.get("skill")): entry
+            for entry in new_entries
+            if (entry.get("target"), entry.get("skill")) in selected_keys
+        }
+        # Put selected replacements back at their previous positions and append
+        # only genuinely new rows.  Unselected rows retain their original value
+        # and relative order instead of being regenerated or moved.
+        ordered_entries: list[dict[str, Any]] = []
+        emitted: set[tuple[str, str]] = set()
+        for old_entry in old_entries:
+            key = (old_entry.get("target"), old_entry.get("skill"))
+            if key in selected_keys:
+                replacement = generated_by_key.get(key)
+                if replacement is not None:
+                    ordered_entries.append(replacement)
+                    emitted.add(key)
+            else:
+                ordered_entries.append(old_entry)
+        for key in selected_keys:
+            if key not in emitted and key in generated_by_key:
+                ordered_entries.append(generated_by_key[key])
+        new_entries = ordered_entries
+        old_by_key = {(e.get("target"), e.get("skill")): e for e in old_entries}
+        new_by_key = {(e.get("target"), e.get("skill")): e for e in new_entries}
+        for key in sorted(selected_keys):
+            before = old_by_key.get(key)
+            after = new_by_key.get(key)
+            operation = (
+                "create" if before is None else
+                "delete" if after is None else
+                "noop" if before == after else
+                "update"
+            )
+            print("STATE ROW DELTA " + json.dumps({
+                "key": {"target": key[0], "skill": key[1]},
+                "operation": operation,
+                "before": before,
+                "after": after,
+            }, ensure_ascii=False, sort_keys=True))
+
     old_entries = state.get("managed", [])
     stale = [e for e in old_entries if (e.get("target"), e.get("skill")) not in current_skills]
     if stale:
@@ -743,6 +850,8 @@ def skillpack_sync(args: argparse.Namespace) -> None:
         print("Use --prune --apply to remove stale managed skills.")
 
     if apply:
+        if only_names and file_sha256(sp) != preimage_sha:
+            raise SystemExit("install-state CAS mismatch before state commit; projection may require rollback")
         state["managed"] = new_entries
         save_state(sp, state)
         print(f"state written: {sp}")
@@ -2477,7 +2586,6 @@ RESOURCE_REF_SCHEMA = "aios.resource-ref.v1"
 RESOURCE_RESOLUTION_SCHEMA = "aios.resource-resolution.v1"
 CAPABILITY_DISCOVERY_SCHEMA = "aios.capability-discovery.v1"
 CAPABILITY_RESOLUTION_SCHEMA = "aios.capability-resolution.v1"
-DECISION_INDEX_SCHEMA = "aios.decision-surface.index.v1"
 DECISION_PACKET_SCHEMA = "aios.decision-packet.v1"
 DECISION_ROUTE_ID = "aios.decision-surface.route.v1"
 DECISION_POLICY_ID = "decision-surface"
@@ -3158,11 +3266,19 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     return data
 
 
-def _decision_source_path(home: Path, index_path: Path, raw: str) -> Path:
+def _decision_source_path(home: Path, raw: str | None) -> Path:
+    """Resolve the one direct Local Policy source; never consult an index."""
+    if not raw:
+        return aios_root(home) / "workflow" / "local-policy.md"
     if raw.startswith("~/"):
         return home / raw[2:]
-    path = Path(raw)
-    return path if path.is_absolute() else index_path.parent / path
+    path = Path(raw).expanduser()
+    return path if path.is_absolute() else Path.cwd() / path
+
+
+def _decision_policy_schema(source_text: str) -> str | None:
+    match = re.search(r"(?m)^schema:\s*([^\s]+)\s*$", source_text)
+    return match.group(1) if match else None
 
 
 def _decision_packet_shape(
@@ -3202,8 +3318,8 @@ def _decision_packet_shape(
         return "MALFORMED_PACKET", ["packet policy ref does not match the exact route/source hash"], {}
 
     questions = packet.get("questions")
-    if not isinstance(questions, list) or not 3 <= len(questions) <= 5:
-        return "MALFORMED_PACKET", ["questions must contain 3 to 5 entries"], {}
+    if not isinstance(questions, list) or not 1 <= len(questions) <= 5:
+        return "MALFORMED_PACKET", ["questions must contain 1 to 5 entries"], {}
     required_question = {
         "id",
         "axis",
@@ -3364,60 +3480,8 @@ def decision_check(args: argparse.Namespace) -> None:
     visited_ids = list(args.visited or [])
     if len(visited_ids) != len(set(visited_ids)) or args.policy_id in visited_ids:
         _decision_stop(args, "CYCLE_DETECTED")
-
-    index_path = Path(args.policy_index).expanduser()
-    if not index_path.exists():
-        _decision_stop(args, "MISSING_POLICY_INDEX", verdict="BLOCKED_MISSING_REF")
-    try:
-        index = _read_json_object(index_path)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        _decision_stop(args, "MALFORMED_POLICY_INDEX", details=[str(error)])
-    if index.get("schema") != DECISION_INDEX_SCHEMA or not isinstance(index.get("entries"), list):
-        _decision_stop(args, "MALFORMED_POLICY_INDEX")
-    exact_entries = [entry for entry in index["entries"] if isinstance(entry, dict) and entry.get("id") == args.policy_id]
-    if not exact_entries:
+    if args.policy_id != DECISION_POLICY_ID:
         _decision_stop(args, "MISSING_POLICY_REF", verdict="BLOCKED_MISSING_REF")
-    if len(exact_entries) > 1:
-        _decision_stop(args, "AMBIGUOUS_POLICY_REF")
-    entry = exact_entries[0]
-    required_entry = {
-        "id",
-        "kind",
-        "scope",
-        "mode",
-        "source_path",
-        "fragment",
-        "source_schema_version",
-        "source_sha256",
-        "status",
-        "load_when",
-    }
-    if required_entry - set(entry) or entry.get("id") != DECISION_POLICY_ID:
-        _decision_stop(args, "MALFORMED_POLICY_REF")
-    string_fields = ("kind", "scope", "mode", "source_path", "fragment", "source_schema_version", "status", "load_when")
-    if any(not isinstance(entry.get(field), str) or not entry.get(field) for field in string_fields):
-        _decision_stop(args, "MALFORMED_POLICY_REF")
-    if entry.get("status") != "active":
-        _decision_stop(args, "STALE_POLICY_REF", verdict="STALE_REF")
-    source_path = _decision_source_path(home, index_path, str(entry["source_path"]))
-    if not source_path.exists() or not source_path.is_file():
-        _decision_stop(args, "MISSING_POLICY_SOURCE", verdict="BLOCKED_MISSING_REF")
-    expected_sha = entry.get("source_sha256")
-    if not isinstance(expected_sha, str) or not _SHA256_PATTERN.fullmatch(expected_sha):
-        _decision_stop(args, "MALFORMED_POLICY_REF")
-    actual_sha = _file_sha256(source_path)
-    if actual_sha != expected_sha:
-        _decision_stop(args, "SOURCE_HASH_MISMATCH", verdict="STALE_REF")
-    fragment = entry.get("fragment")
-    if not isinstance(fragment, str) or not re.fullmatch(r"#[a-z0-9][a-z0-9._-]*", fragment):
-        _decision_stop(args, "MALFORMED_POLICY_REF")
-    try:
-        source_text = source_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        _decision_stop(args, "MALFORMED_POLICY_SOURCE", details=[str(error)])
-    anchor = re.escape(fragment[1:])
-    if not re.search(rf"<a\s+id=[\"']{anchor}[\"']\s*>\s*</a>", source_text):
-        _decision_stop(args, "MISSING_POLICY_FRAGMENT", verdict="BLOCKED_MISSING_REF")
 
     packet_path = Path(args.packet).expanduser()
     if not packet_path.exists():
@@ -3426,6 +3490,49 @@ def decision_check(args: argparse.Namespace) -> None:
         packet = _read_json_object(packet_path)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         _decision_stop(args, "MALFORMED_PACKET", details=[str(error)])
+    policy_refs = packet.get("policy_refs")
+    if not isinstance(policy_refs, list) or not all(isinstance(ref, dict) for ref in policy_refs):
+        _decision_stop(args, "MALFORMED_PACKET", details=["policy_refs must be an object list"])
+    exact_refs = [ref for ref in policy_refs if ref.get("id") == args.policy_id]
+    if not exact_refs:
+        _decision_stop(args, "MISSING_POLICY_REF", verdict="BLOCKED_MISSING_REF")
+    if len(exact_refs) > 1:
+        _decision_stop(args, "AMBIGUOUS_POLICY_REF")
+    packet_ref = exact_refs[0]
+    if packet_ref.get("route_id") != args.route_id:
+        _decision_stop(args, "MISSING_ROUTE_ID", verdict="BLOCKED_MISSING_REF")
+    expected_sha = packet_ref.get("source_sha256")
+    if not isinstance(expected_sha, str) or not _SHA256_PATTERN.fullmatch(expected_sha):
+        _decision_stop(args, "MALFORMED_PACKET", details=["policy source hash must be a lowercase SHA-256"])
+
+    source_path = _decision_source_path(home, args.policy_source)
+    if not source_path.exists() or not source_path.is_file():
+        _decision_stop(args, "MISSING_POLICY_SOURCE", verdict="BLOCKED_MISSING_REF")
+    try:
+        source_bytes = source_path.read_bytes()
+        source_text = source_bytes.decode("utf-8")
+    except (OSError, UnicodeError) as error:
+        _decision_stop(args, "MALFORMED_POLICY_SOURCE", details=[str(error)])
+    actual_sha = hashlib.sha256(source_bytes).hexdigest()
+    if actual_sha != expected_sha:
+        _decision_stop(args, "SOURCE_HASH_MISMATCH", verdict="STALE_REF")
+    source_schema_version = _decision_policy_schema(source_text)
+    if source_schema_version != "workflow.local-policy.v1":
+        _decision_stop(args, "MALFORMED_POLICY_SOURCE", details=["unsupported or missing Local Policy schema"])
+    fragment = args.policy_fragment
+    if not isinstance(fragment, str) or not re.fullmatch(r"#[a-z0-9][a-z0-9._-]*", fragment):
+        _decision_stop(args, "MALFORMED_POLICY_REF")
+    anchor = re.escape(fragment[1:])
+    if not re.search(rf"<a\s+id=[\"']{anchor}[\"']\s*>\s*</a>", source_text):
+        _decision_stop(args, "MISSING_POLICY_FRAGMENT", verdict="BLOCKED_MISSING_REF")
+
+    entry = {
+        "id": args.policy_id,
+        "source_path": str(source_path),
+        "fragment": fragment,
+        "source_schema_version": source_schema_version,
+        "source_sha256": actual_sha,
+    }
     failure_class, details, summary = _decision_packet_shape(packet, entry, args.route_id)
     if failure_class:
         verdict = "BLOCKED_MISSING_REF" if failure_class == "MISSING_DEPENDENCY" else "FAIL_SHAPE"
@@ -3442,19 +3549,12 @@ def decision_check(args: argparse.Namespace) -> None:
             "max_depth": DECISION_MAX_ROUTE_DEPTH,
             "visited_ids": visited_ids + [args.policy_id],
         },
-        "policy_ref": {
-            "id": entry["id"],
-            "source_path": str(source_path),
-            "fragment": entry["fragment"],
-            "source_schema_version": entry["source_schema_version"],
-            "source_sha256": actual_sha,
-        },
+        "policy_ref": entry,
         "packet": summary,
         "semantic_decision_performed": False,
         "authorization_evaluated": False,
     }
     print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-
 
 def instance_doctor(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
@@ -3718,22 +3818,77 @@ MATTER_OPEN_STATES = {"active", "paused"}
 MATTER_CLOSED_STATES = {"closed", "archived"}
 DELIVERY_EXTENSIONS = {".md", ".html", ".pdf", ".docx", ".pptx", ".xlsx", ".txt", ".zip"}
 CACHE_DIR_NAMES = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules"}
+MATTER_ROLLOVER_AUTHORIZED_OPERATION = (
+    "B6 one exact Matter current Worksite rollover through a CAS/idempotent/receipt-backed actuator"
+)
 
 
 def atomic_json(path: Path, value: Any) -> None:
+    atomic_bytes(path, json_bytes(value))
+
+
+def json_bytes(value: Any) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def fsync_directory(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def atomic_bytes(
+    path: Path,
+    data: bytes,
+    *,
+    mode: int | None = None,
+    expected_current_sha256: str | None = None,
+) -> None:
+    """Publish one file durably without exposing a partial write."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    inherited_mode = (path.stat().st_mode & 0o777) if path.exists() else None
     fd, raw = tempfile.mkstemp(prefix=path.name + ".tmp-", dir=str(path.parent))
     tmp = Path(raw)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(value, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        os.fchmod(fd, mode if mode is not None else inherited_mode if inherited_mode is not None else 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
             f.flush()
             os.fsync(f.fileno())
+        if expected_current_sha256 is not None:
+            try:
+                observed = sha256_file(path)
+            except OSError as exc:
+                matter_rollover_failure(
+                    "CANONICAL_CAS_MISMATCH",
+                    "canonical file became unreadable immediately before atomic replace",
+                    path=str(path),
+                    expected_sha256=expected_current_sha256,
+                    error=str(exc),
+                )
+            if observed != expected_current_sha256:
+                matter_rollover_failure(
+                    "CANONICAL_CAS_MISMATCH",
+                    "canonical file changed immediately before atomic replace",
+                    path=str(path),
+                    expected_sha256=expected_current_sha256,
+                    observed_sha256=observed,
+                )
         os.replace(tmp, path)
+        fsync_directory(path.parent)
     finally:
         if tmp.exists():
             tmp.unlink()
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return sha256_bytes(path.read_bytes())
 
 
 def read_json_dict(path: Path) -> dict[str, Any]:
@@ -3757,7 +3912,7 @@ def mission_fields(path: Path) -> dict[str, str]:
     heading = re.search(r"^#\s+(.+?)\s*$", text, re.M)
     if heading:
         out["title"] = heading.group(1).strip()
-    for key in ["status", "kind", "project_id", "asset_policy", "retention", "updated_at", "created_at"]:
+    for key in ["mission_id", "parent_matter_id", "parent_worksite", "status", "phase", "kind", "project_id", "asset_policy", "retention", "updated_at", "created_at"]:
         match = re.search(rf"^{re.escape(key)}:\s*([^\n#]+)", text, re.M)
         if match:
             out[key] = match.group(1).strip()
@@ -3852,14 +4007,18 @@ def infer_delivery_paths(workdir: Path, matter: dict[str, Any]) -> list[str]:
 def compile_matter_record(workdir: Path, *, location_kind: str, home: Path) -> dict[str, Any]:
     matter_path = workdir / "internal" / "matter.json"
     matter = read_json_dict(matter_path)
-    mission = mission_fields(workdir / "mission.md")
+    owner_workdir = workdir.resolve()
+    formal_worksite = matter.get("worksite") if isinstance(matter.get("worksite"), dict) else {}
+    current_raw = formal_worksite.get("path") if formal_worksite else None
+    current_workdir = Path(str(current_raw)).expanduser().resolve() if current_raw else owner_workdir
+    mission = mission_fields(current_workdir / "mission.md")
     lifecycle_raw = matter.get("lifecycle")
     lifecycle: dict[str, Any] = lifecycle_raw if isinstance(lifecycle_raw, dict) else {}
     raw_status = str(matter.get("status") or mission.get("status") or "unknown")
     state, reopenable, attention = normalize_matter_lifecycle(raw_status, lifecycle, location_kind)
     matter_id = str(matter.get("id") or f"worksite:{workdir.name}")
     title = str(matter.get("title") or mission.get("title") or workdir.name)
-    updated = str(matter.get("updated_at") or mission.get("updated_at") or _dt.datetime.fromtimestamp(workdir.stat().st_mtime).astimezone().isoformat(timespec="seconds"))
+    updated = str(matter.get("updated_at") or mission.get("updated_at") or _dt.datetime.fromtimestamp(owner_workdir.stat().st_mtime).astimezone().isoformat(timespec="seconds"))
     aliases_raw = matter.get("aliases")
     aliases: list[Any] = aliases_raw if isinstance(aliases_raw, list) else []
     return {
@@ -3873,20 +4032,21 @@ def compile_matter_record(workdir: Path, *, location_kind: str, home: Path) -> d
         "reopenable": reopenable,
         "priority": matter.get("priority"),
         "current_focus": matter.get("current_focus"),
-        "worksite_name": workdir.name,
-        "worksite_path": str(workdir.resolve()),
-        "display_path": display_path(workdir, home),
+        "worksite_name": current_workdir.name,
+        "worksite_path": str(current_workdir),
+        "owner_worksite_path": str(owner_workdir) if matter else None,
+        "display_path": display_path(current_workdir, home),
         "location_kind": location_kind,
         "mission_path": str(matter.get("mission_path") or "mission.md"),
-        "delivery_paths": infer_delivery_paths(workdir, matter),
+        "delivery_paths": infer_delivery_paths(current_workdir, matter),
         "matter_path": str(matter_path.resolve()) if matter_path.exists() else None,
         "updated_at": updated,
     }
 
 
 def compile_matter_index(home: Path) -> dict[str, Any]:
-    records: list[dict[str, Any]] = []
-    seen_paths: set[str] = set()
+    candidates: list[tuple[str, Path]] = []
+    seen_owner_paths: set[str] = set()
     for location_kind, root in matter_roots(home):
         if not root.exists():
             continue
@@ -3897,10 +4057,36 @@ def compile_matter_index(home: Path) -> dict[str, Any]:
             if not probable and not (child / "internal" / "matter.json").exists():
                 continue
             resolved = str(child.resolve())
-            if resolved in seen_paths:
+            if resolved in seen_owner_paths:
                 continue
-            seen_paths.add(resolved)
-            records.append(compile_matter_record(child, location_kind=location_kind, home=home))
+            seen_owner_paths.add(resolved)
+            candidates.append((location_kind, child))
+
+    # Pass 1: formal Matter capsules own their current Worksite claim even when
+    # the physical owner capsule remains in an older Worksite.
+    records: list[dict[str, Any]] = []
+    formal_claims: dict[str, str] = {}
+    formal_owners: set[str] = set()
+    for location_kind, child in candidates:
+        if not (child / "internal" / "matter.json").is_file():
+            continue
+        record = compile_matter_record(child, location_kind=location_kind, home=home)
+        owner_path = str(child.resolve())
+        claim = str(Path(record["worksite_path"]).resolve())
+        prior = formal_claims.get(claim)
+        if prior is not None and prior != record["id"]:
+            raise SystemExit(f"duplicate formal Matter Worksite claim: {claim} ({prior}, {record['id']})")
+        formal_claims[claim] = str(record["id"])
+        formal_owners.add(owner_path)
+        records.append(record)
+
+    # Pass 2: infer only unowned Worksites. A formal current pointer suppresses
+    # the otherwise duplicated inferred target record.
+    for location_kind, child in candidates:
+        resolved = str(child.resolve())
+        if resolved in formal_owners or resolved in formal_claims:
+            continue
+        records.append(compile_matter_record(child, location_kind=location_kind, home=home))
     records.sort(key=lambda x: (x.get("updated_at") or "", x["id"]), reverse=True)
     return {
         "schema": "aios.matter.index.v1",
@@ -3980,6 +4166,1027 @@ def matter_get(args: argparse.Namespace) -> None:
     if not record:
         raise SystemExit(f"Matter not found: {args.query}")
     print(json.dumps(record, ensure_ascii=False, indent=2))
+
+
+class MatterRolloverFailure(Exception):
+    def __init__(self, code: str, message: str, **details: Any) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.details = details
+
+
+def matter_rollover_failure(code: str, message: str, **details: Any) -> None:
+    raise MatterRolloverFailure(code, message, **details)
+
+
+def matter_rollover_state_root(home: Path) -> Path:
+    return instance_paths(home)["state"] / "matters"
+
+
+def matter_rollover_lock_path(home: Path, matter_id: str) -> Path:
+    return matter_rollover_state_root(home) / "locks" / f"{safe_view_component(matter_id)}.lock"
+
+
+def safe_view_component(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-") or "item"
+
+
+def matter_rollover_receipt_path(home: Path, matter_id: str, target_id: str) -> Path:
+    name = f"matter-rollover__{safe_view_component(matter_id)}__{safe_view_component(target_id)}.json"
+    return matter_rollover_state_root(home) / "change-sets" / name
+
+
+@contextlib.contextmanager
+def matter_rollover_lock(home: Path, matter_id: str) -> Any:
+    path = matter_rollover_lock_path(home, matter_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            matter_rollover_failure("LOCK_BUSY", "Matter rollover lock is busy", lock_path=str(path))
+        yield path
+    finally:
+        os.close(fd)
+
+
+def formal_matter_sources(home: Path) -> list[tuple[Path, dict[str, Any]]]:
+    found: list[tuple[Path, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for _kind, root in matter_roots(home):
+        if not root.exists():
+            continue
+        try:
+            resolved_root = root.resolve(strict=True)
+        except OSError:
+            continue
+        for child in root.iterdir():
+            if child.is_symlink() or not child.is_dir():
+                continue
+            try:
+                resolved_child = child.resolve(strict=True)
+                resolved_child.relative_to(resolved_root)
+            except (OSError, ValueError):
+                continue
+            path = resolved_child / "internal" / "matter.json"
+            if not path.is_file():
+                continue
+            resolved = str(path.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            value = read_json_dict(path)
+            if value:
+                found.append((path.resolve(), value))
+    return found
+
+
+def exact_formal_matter(home: Path, matter_id: str) -> tuple[Path, dict[str, Any]]:
+    matches = [(path, value) for path, value in formal_matter_sources(home) if value.get("id") == matter_id]
+    if not matches:
+        matter_rollover_failure("MATTER_NOT_FOUND", "exact formal Matter ID was not found", matter_id=matter_id)
+    if len(matches) != 1:
+        matter_rollover_failure(
+            "MATTER_AMBIGUOUS",
+            "exact formal Matter ID has multiple owner records",
+            matter_id=matter_id,
+            paths=[str(path) for path, _value in matches],
+        )
+    return matches[0]
+
+
+def read_event_stream(path: Path) -> tuple[bytes, list[dict[str, Any]]]:
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        matter_rollover_failure("EXPECTED_CURRENT_MISMATCH", "Matter event stream is missing or unreadable", path=str(path), error=str(exc))
+    events: list[dict[str, Any]] = []
+    try:
+        for line in data.splitlines():
+            if line.strip():
+                event = json.loads(line)
+                if not isinstance(event, dict):
+                    raise ValueError("event row is not an object")
+                events.append(event)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        matter_rollover_failure("EXPECTED_CURRENT_MISMATCH", "Matter event stream is invalid JSONL", path=str(path), error=str(exc))
+    return data, events
+
+
+def required_rollover_args(args: argparse.Namespace) -> None:
+    required = [
+        "expected_current_id",
+        "expected_current_path",
+        "expected_current_role",
+        "expected_matter_sha256",
+        "expected_events_sha256",
+        "expected_event_line_count",
+        "to_worksite",
+        "to_worksite_id",
+        "to_role",
+        "idempotency_key",
+        "fence_token",
+    ]
+    missing = ["--" + name.replace("_", "-") for name in required if getattr(args, name, None) in {None, ""}]
+    if missing:
+        matter_rollover_failure("INVALID_PLAN", "rollover plan is missing required arguments", missing=missing)
+
+
+def expected_worksite_object(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "id": args.expected_current_id,
+        "path": str(Path(args.expected_current_path).expanduser().resolve()),
+        "role": args.expected_current_role,
+        "recovery_path": "internal/recovery.json",
+        "binding": "owned",
+        "owner_matter_id": args.matter_id,
+    }
+
+
+def target_worksite_object(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "id": args.to_worksite_id,
+        "path": str(Path(args.to_worksite).expanduser().resolve()),
+        "role": args.to_role,
+        "recovery_path": "internal/recovery.json",
+        "binding": "owned",
+        "owner_matter_id": args.matter_id,
+    }
+
+
+def _authorization_scope_path(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        return None
+    try:
+        return str(path.resolve(strict=True))
+    except OSError:
+        return None
+
+
+def validate_rollover_authorization(
+    args: argparse.Namespace,
+    *,
+    target: Path,
+    target_mission: dict[str, str],
+) -> dict[str, Any]:
+    """Validate the durable exact-operation grant before creating the lock or a receipt."""
+    if not args.authorization_ref:
+        matter_rollover_failure("OWNER_AUTHORIZATION_MISSING", "--apply requires --authorization-ref")
+    reference = Path(args.authorization_ref).expanduser()
+    if not reference.exists():
+        matter_rollover_failure(
+            "AUTHORIZATION_REF_NOT_FOUND",
+            "durable authorization JSON does not exist",
+            authorization_ref=str(reference),
+        )
+    if not reference.is_file():
+        matter_rollover_failure(
+            "AUTHORIZATION_REF_UNREADABLE",
+            "durable authorization reference is not a readable regular file",
+            authorization_ref=str(reference),
+        )
+    try:
+        raw = reference.read_bytes()
+    except OSError as exc:
+        matter_rollover_failure(
+            "AUTHORIZATION_REF_UNREADABLE",
+            "durable authorization JSON is unreadable",
+            authorization_ref=str(reference),
+            error=str(exc),
+        )
+    try:
+        authorization = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        matter_rollover_failure(
+            "AUTHORIZATION_INVALID",
+            "durable authorization is not valid JSON",
+            authorization_ref=str(reference),
+            error=str(exc),
+        )
+    if not isinstance(authorization, dict) or authorization.get("schema") != "aios.phase_b.authorization.v1":
+        matter_rollover_failure(
+            "AUTHORIZATION_INVALID",
+            "durable authorization schema must be aios.phase_b.authorization.v1",
+            authorization_ref=str(reference),
+        )
+    scope = authorization.get("scope") if isinstance(authorization.get("scope"), dict) else {}
+    authorized = authorization.get("authorized") if isinstance(authorization.get("authorized"), list) else []
+    parent_worksite = _authorization_scope_path(target_mission.get("parent_worksite"))
+    expected = {
+        "worksite": str(target.resolve()),
+        "parent_worksite": parent_worksite,
+        "parent_matter": target_mission.get("parent_matter_id"),
+    }
+    observed = {
+        "worksite": _authorization_scope_path(scope.get("worksite")),
+        "parent_worksite": _authorization_scope_path(scope.get("parent_worksite")),
+        "parent_matter": scope.get("parent_matter"),
+    }
+    if (
+        parent_worksite is None
+        or target_mission.get("parent_matter_id") != args.matter_id
+        or observed != expected
+        or MATTER_ROLLOVER_AUTHORIZED_OPERATION not in authorized
+    ):
+        matter_rollover_failure(
+            "AUTHORIZATION_SCOPE_MISMATCH",
+            "durable authorization does not grant this exact B6 Matter rollover scope",
+            authorization_ref=str(reference.resolve()),
+        )
+    return {
+        "path": str(reference.resolve()),
+        "sha256": sha256_bytes(raw),
+        "authorization_id": authorization.get("authorization_id"),
+    }
+
+
+def validate_sha256_arg(value: str, option: str) -> None:
+    if not re.fullmatch(r"[0-9a-f]{64}", value):
+        matter_rollover_failure("INVALID_PLAN", f"{option} must be a lowercase SHA-256 digest")
+
+
+def build_rollover_candidate(args: argparse.Namespace, home: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    required_rollover_args(args)
+    validate_sha256_arg(args.expected_matter_sha256, "--expected-matter-sha256")
+    validate_sha256_arg(args.expected_events_sha256, "--expected-events-sha256")
+    if not Path(args.expected_current_path).expanduser().is_absolute() or not Path(args.to_worksite).expanduser().is_absolute():
+        matter_rollover_failure("INVALID_PLAN", "current and target Worksite paths must be absolute")
+
+    matter_path, matter = exact_formal_matter(home, args.matter_id)
+    events_path = matter_path.with_name("matter.events.jsonl")
+    matter_data = matter_path.read_bytes()
+    events_data, events = read_event_stream(events_path)
+    target = Path(args.to_worksite).expanduser().resolve()
+    if not target.is_dir():
+        matter_rollover_failure("TARGET_NOT_FOUND", "target Worksite directory was not found", target=str(target))
+    mission_path = target / "mission.md"
+    recovery_path = target / "internal" / "recovery.json"
+    if not mission_path.is_file():
+        matter_rollover_failure("TARGET_NOT_FOUND", "target mission.md was not found", target=str(target))
+    mission = mission_fields(mission_path)
+    recovery = read_json_dict(recovery_path)
+    if mission.get("mission_id") != args.to_worksite_id or mission.get("parent_matter_id") != args.matter_id:
+        matter_rollover_failure(
+            "TARGET_IDENTITY_MISMATCH",
+            "target mission identity does not match the exact rollover plan",
+            observed_mission_id=mission.get("mission_id"),
+            observed_parent_matter_id=mission.get("parent_matter_id"),
+        )
+    if not recovery or not str(recovery.get("schema") or "").startswith("lll.recovery.") or not recovery.get("status"):
+        matter_rollover_failure("TARGET_RECOVERY_INVALID", "target recovery is missing or invalid", recovery_path=str(recovery_path))
+    mission_status = str(mission.get("status") or "").lower()
+    target_status = str(recovery.get("status") or mission.get("status") or "").lower()
+    if mission_status and mission_status != target_status:
+        matter_rollover_failure(
+            "TARGET_RECOVERY_INVALID",
+            "target mission and recovery lifecycle statuses disagree",
+            mission_status=mission_status,
+            recovery_status=target_status,
+        )
+    if target_status not in {"active", "completed"}:
+        matter_rollover_failure(
+            "TARGET_RECOVERY_INVALID",
+            "target Worksite lifecycle status must be active or completed",
+            target_status=target_status,
+        )
+    if args.to_role != "current_canonical":
+        matter_rollover_failure(
+            "TARGET_IDENTITY_MISMATCH",
+            "the formal current Worksite binding requires lifecycle-neutral role current_canonical",
+        )
+    if (target / "internal" / "matter.json").exists():
+        matter_rollover_failure("TARGET_ALREADY_CLAIMED", "target Worksite contains a formal Matter owner", target=str(target))
+    for other_path, other in formal_matter_sources(home):
+        other_worksite = other.get("worksite") if isinstance(other.get("worksite"), dict) else {}
+        claimed = other_worksite.get("path")
+        if claimed and Path(str(claimed)).expanduser().resolve() == target and other.get("id") != args.matter_id:
+            matter_rollover_failure(
+                "TARGET_ALREADY_CLAIMED",
+                "another formal Matter claims the target Worksite",
+                claiming_matter_id=other.get("id"),
+                matter_path=str(other_path),
+            )
+
+    before = expected_worksite_object(args)
+    after = target_worksite_object(args)
+    candidate = {
+        "schema": "aios.matter.rollover.candidate.v1",
+        "matter_id": args.matter_id,
+        "matter_path": str(matter_path),
+        "expected_matter_sha256": args.expected_matter_sha256,
+        "expected_event_sha256": args.expected_events_sha256,
+        "expected_event_sequence": args.expected_event_line_count,
+        "from_worksite": before,
+        "to_worksite": after,
+        "target_mission_sha256": sha256_file(mission_path),
+        "target_recovery_sha256": sha256_file(recovery_path),
+        "target_mission_status": str(mission.get("status") or ""),
+        "target_recovery_status": str(recovery.get("status") or ""),
+        "target_parent_matter_id": args.matter_id,
+        "idempotency_key": args.idempotency_key,
+    }
+    plan_digest = sha256_bytes(json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    supplied_fence = args.fence_token.removeprefix("sha256:")
+    if supplied_fence != plan_digest:
+        matter_rollover_failure("FENCE_TOKEN_MISMATCH", "fence token does not bind the exact rollover candidate", expected=f"sha256:{plan_digest}")
+    context = {
+        "matter_path": matter_path,
+        "events_path": events_path,
+        "matter": matter,
+        "matter_data": matter_data,
+        "events": events,
+        "events_data": events_data,
+        "target": target,
+        "mission": mission,
+        "recovery": recovery,
+        "plan_digest": plan_digest,
+    }
+    return candidate, context
+
+
+def assert_expected_rollover_preimage(args: argparse.Namespace, context: dict[str, Any]) -> None:
+    observed = {
+        "matter_sha256": sha256_bytes(context["matter_data"]),
+        "worksite": context["matter"].get("worksite"),
+        "events_sha256": sha256_bytes(context["events_data"]),
+        "event_line_count": len(context["events"]),
+    }
+    expected = {
+        "matter_sha256": args.expected_matter_sha256,
+        "worksite": expected_worksite_object(args),
+        "events_sha256": args.expected_events_sha256,
+        "event_line_count": args.expected_event_line_count,
+    }
+    if observed != expected:
+        matter_rollover_failure("EXPECTED_CURRENT_MISMATCH", "Matter snapshot or event CAS did not match", expected=expected, observed=observed)
+
+
+def find_rollover_receipt(home: Path, candidate: dict[str, Any], plan_digest: str) -> tuple[Path, dict[str, Any]] | None:
+    root = matter_rollover_state_root(home) / "change-sets"
+    expected_path = matter_rollover_receipt_path(home, candidate["matter_id"], candidate["to_worksite"]["id"])
+    if not root.exists():
+        return None
+    for path in root.glob(f"matter-rollover__{safe_view_component(candidate['matter_id'])}__*.json"):
+        value = read_json_dict(path)
+        same_slot = path.resolve() == expected_path.resolve()
+        same_key = value.get("idempotency_key") == candidate["idempotency_key"]
+        if not same_slot and not same_key:
+            continue
+        assert_rollover_receipt_integrity(value)
+        if value.get("plan_digest") != plan_digest:
+            matter_rollover_failure(
+                "IDEMPOTENCY_CONFLICT",
+                "receipt slot or idempotency key is already bound to a different plan",
+                receipt_path=str(path),
+            )
+        return path, value
+    return None
+
+
+def find_rollover_receipt_for_request(home: Path, args: argparse.Namespace) -> tuple[Path, dict[str, Any]] | None:
+    """Resolve an existing exact slot/key without rebuilding a post-commit candidate."""
+    root = matter_rollover_state_root(home) / "change-sets"
+    expected_path = matter_rollover_receipt_path(home, args.matter_id, args.to_worksite_id)
+    if not root.exists():
+        return None
+    requested_candidate = {
+        "matter_id": args.matter_id,
+        "expected_matter_sha256": args.expected_matter_sha256,
+        "expected_event_sha256": args.expected_events_sha256,
+        "expected_event_sequence": args.expected_event_line_count,
+        "from_worksite": expected_worksite_object(args),
+        "to_worksite": target_worksite_object(args),
+        "idempotency_key": args.idempotency_key,
+    }
+    for path in root.glob(f"matter-rollover__{safe_view_component(args.matter_id)}__*.json"):
+        receipt = read_json_dict(path)
+        same_slot = path.resolve() == expected_path.resolve()
+        same_key = receipt.get("idempotency_key") == args.idempotency_key
+        if not same_slot and not same_key:
+            continue
+        assert_rollover_receipt_integrity(receipt)
+        frozen = receipt.get("candidate") if isinstance(receipt.get("candidate"), dict) else {}
+        frozen_subset = {key: frozen.get(key) for key in requested_candidate}
+        if (
+            frozen_subset != requested_candidate
+            or receipt.get("plan_digest") != args.fence_token.removeprefix("sha256:")
+            or receipt.get("fence_token") != args.fence_token
+        ):
+            matter_rollover_failure(
+                "IDEMPOTENCY_CONFLICT",
+                "receipt slot or idempotency key is already bound to a different plan",
+                receipt_path=str(path),
+            )
+        return path, receipt
+    return None
+
+
+def assert_rollover_receipt_target_current(receipt: dict[str, Any]) -> None:
+    target = Path(str(receipt.get("target", {}).get("path") or "")).expanduser().resolve()
+    mission = mission_fields(target / "mission.md")
+    recovery = read_json_dict(target / "internal" / "recovery.json")
+    mission_status = str(mission.get("status") or "").lower()
+    recovery_status = str(recovery.get("status") or "").lower()
+    if (
+        not target.is_dir()
+        or mission.get("mission_id") != receipt.get("target", {}).get("mission_id")
+        or mission.get("parent_matter_id") != receipt.get("matter_id")
+        or not str(recovery.get("schema") or "").startswith("lll.recovery.")
+        or mission_status != recovery_status
+        or recovery_status not in {"active", "completed"}
+    ):
+        matter_rollover_failure(
+            "TARGET_IDENTITY_MISMATCH",
+            "receipt target identity or lifecycle is no longer valid",
+            target=str(target),
+        )
+
+
+def assert_rollover_receipt_canonical_guards(receipt: dict[str, Any]) -> None:
+    matter_path = Path(receipt["matter"]["path"])
+    events_path = Path(receipt["events"]["path"])
+    events_data, events = read_event_stream(events_path)
+    observed = {
+        "matter_sha256": sha256_file(matter_path),
+        "events_sha256": sha256_bytes(events_data),
+        "event_line_count": len(events),
+        "event_id": events[-1].get("event_id") if events else None,
+    }
+    expected = receipt["rollback_guards"]
+    if observed != expected:
+        matter_rollover_failure(
+            "CANONICAL_GUARD_MISMATCH",
+            "canonical Matter/event facts no longer match the receipt postimage",
+            expected=expected,
+            observed=observed,
+        )
+
+
+def write_rollover_receipt(path: Path, receipt: dict[str, Any], *, state: str | None = None) -> None:
+    if state is not None:
+        receipt["state"] = state
+    receipt["updated_at"] = _dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    receipt["receipt_digest"] = rollover_receipt_immutable_digest(receipt)
+    atomic_json(path, receipt)
+
+
+def rollover_receipt_immutable_digest(receipt: dict[str, Any]) -> str:
+    keys = [
+        "schema",
+        "receipt_id",
+        "transaction_id",
+        "event_id",
+        "idempotency_key",
+        "authorization_ref",
+        "authorization",
+        "owner_ref",
+        "matter_id",
+        "plan_digest",
+        "fence_token",
+        "candidate",
+        "matter",
+        "events",
+        "target",
+        "rollback_guards",
+        "state",
+        "rollback_digest",
+    ]
+    payload = {key: receipt.get(key) for key in keys}
+    return sha256_bytes(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def assert_rollover_receipt_integrity(receipt: dict[str, Any]) -> None:
+    if receipt.get("receipt_digest") != rollover_receipt_immutable_digest(receipt):
+        matter_rollover_failure("RECEIPT_INTEGRITY_MISMATCH", "durable rollover receipt immutable fields changed")
+    rollback = receipt.get("rollback")
+    rollback_digest = receipt.get("rollback_digest")
+    if isinstance(rollback, dict) != isinstance(rollback_digest, str):
+        matter_rollover_failure("RECEIPT_INTEGRITY_MISMATCH", "durable rollback receipt binding is incomplete")
+    if isinstance(rollback, dict):
+        digest = sha256_bytes(json.dumps(rollback, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        if rollback_digest != digest:
+            matter_rollover_failure("RECEIPT_INTEGRITY_MISMATCH", "durable rollback receipt fields changed")
+
+
+def maybe_rollover_test_fault(point: str) -> None:
+    if os.environ.get("AIOS_TEST_MATTER_ROLLOVER_CRASH_AFTER") == point:
+        raise RuntimeError(f"injected Matter rollover crash after {point}")
+
+
+def maybe_rollover_concurrent_update(point: str, path: Path) -> None:
+    if os.environ.get("AIOS_TEST_MATTER_ROLLOVER_CONCURRENT_UPDATE_BEFORE") != point:
+        return
+    if point == "matter":
+        current = read_json_dict(path)
+        current["test_concurrent_update"] = True
+        atomic_json(path, current)
+        return
+    line = json.dumps(
+        {
+            "schema": "aios.workflow.event.v0",
+            "event_id": "evt_test_concurrent_update",
+            "type": "test.concurrent_update",
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
+    old = path.read_bytes()
+    atomic_bytes(path, old + (b"" if not old or old.endswith(b"\n") else b"\n") + line)
+
+
+def new_rollover_receipt(args: argparse.Namespace, candidate: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    now = _dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    key_digest = sha256_bytes(args.idempotency_key.encode("utf-8"))
+    suffix = key_digest[:24]
+    post_matter = dict(context["matter"])
+    post_matter["worksite"] = candidate["to_worksite"]
+    post_matter["updated_at"] = now
+    post_matter_data = json_bytes(post_matter)
+    event_id = f"evt_matter_rollover_{suffix}"
+    event = {
+        "schema": "aios.workflow.event.v0",
+        "event_id": event_id,
+        "ts": now,
+        "type": "worksite.migrated",
+        "actor": {"kind": "cli", "id": "aios matter rollover"},
+        "subject": {"kind": "matter", "id": args.matter_id},
+        "summary": "Atomically changed the formal Matter current Worksite pointer.",
+        "payload": {
+            "from_worksite": candidate["from_worksite"],
+            "to_worksite": candidate["to_worksite"],
+            "continues_in": candidate["to_worksite"]["path"],
+            "receipt_id": f"rcpt_matter_rollover_{suffix}",
+            "matter_pre_sha256": args.expected_matter_sha256,
+            "matter_post_sha256": sha256_bytes(post_matter_data),
+            "recovery_path": candidate["to_worksite"]["recovery_path"],
+        },
+        "evidence": [{"kind": "file", "path": str(context["matter_path"])}],
+        "supersedes": [],
+        "idempotency_key": args.idempotency_key,
+        "extensions": {},
+    }
+    event_line = json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+    events_post_data = context["events_data"] + (b"" if not context["events_data"] or context["events_data"].endswith(b"\n") else b"\n") + event_line
+    owner = context["matter"].get("owner") if isinstance(context["matter"].get("owner"), dict) else {}
+    receipt = {
+        "schema": "aios.matter.rollover.receipt.v1",
+        "receipt_id": f"rcpt_matter_rollover_{suffix}",
+        "transaction_id": f"tx_matter_rollover_{suffix}",
+        "event_id": event_id,
+        "idempotency_key": args.idempotency_key,
+        "authorization_ref": context["authorization"]["path"],
+        "authorization": context["authorization"],
+        "owner_ref": owner,
+        "matter_id": args.matter_id,
+        "plan_digest": context["plan_digest"],
+        "fence_token": f"sha256:{context['plan_digest']}",
+        "state": "prepared",
+        "replayed": False,
+        "created_at": now,
+        "updated_at": now,
+        "completed_steps": ["receipt_prepared"],
+        "failure": None,
+        "candidate": candidate,
+        "matter": {
+            "path": str(context["matter_path"]),
+            "pre_sha256": args.expected_matter_sha256,
+            "post_sha256": sha256_bytes(post_matter_data),
+            "before": context["matter"],
+            "after": post_matter,
+        },
+        "events": {
+            "path": str(context["events_path"]),
+            "pre_sha256": args.expected_events_sha256,
+            "pre_line_count": args.expected_event_line_count,
+            "post_sha256": sha256_bytes(events_post_data),
+            "post_line_count": args.expected_event_line_count + 1,
+            "event": event,
+        },
+        "target": {
+            "path": candidate["to_worksite"]["path"],
+            "mission_id": candidate["to_worksite"]["id"],
+            "parent_matter_id": args.matter_id,
+            "mission_sha256": candidate["target_mission_sha256"],
+            "recovery_sha256": candidate["target_recovery_sha256"],
+            "mission_status": candidate["target_mission_status"],
+            "recovery_status": candidate["target_recovery_status"],
+        },
+        "rollback_guards": {
+            "matter_sha256": sha256_bytes(post_matter_data),
+            "events_sha256": sha256_bytes(events_post_data),
+            "event_line_count": args.expected_event_line_count + 1,
+            "event_id": event_id,
+        },
+        "projection": {},
+    }
+    receipt["receipt_digest"] = rollover_receipt_immutable_digest(receipt)
+    return receipt
+
+
+def commit_rollover_canonical(receipt_path: Path, receipt: dict[str, Any]) -> None:
+    matter_path = Path(receipt["matter"]["path"])
+    events_path = Path(receipt["events"]["path"])
+    matter_hash = sha256_file(matter_path)
+    events_hash = sha256_file(events_path)
+    allowed_matter = {receipt["matter"]["pre_sha256"], receipt["matter"]["post_sha256"]}
+    allowed_events = {receipt["events"]["pre_sha256"], receipt["events"]["post_sha256"]}
+    if matter_hash not in allowed_matter or events_hash not in allowed_events:
+        receipt["failure"] = {"code": "CANONICAL_COMMIT_INCOMPLETE", "matter_sha256": matter_hash, "events_sha256": events_hash}
+        write_rollover_receipt(receipt_path, receipt)
+        matter_rollover_failure("CANONICAL_COMMIT_INCOMPLETE", "canonical files do not match recoverable pre/post images")
+    if matter_hash == receipt["matter"]["pre_sha256"]:
+        maybe_rollover_concurrent_update("matter", matter_path)
+        atomic_bytes(
+            matter_path,
+            json_bytes(receipt["matter"]["after"]),
+            expected_current_sha256=receipt["matter"]["pre_sha256"],
+        )
+        maybe_rollover_test_fault("matter_committed")
+    if events_hash == receipt["events"]["pre_sha256"]:
+        maybe_rollover_concurrent_update("events", events_path)
+        event_line = json.dumps(receipt["events"]["event"], ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+        old = events_path.read_bytes()
+        new = old + (b"" if not old or old.endswith(b"\n") else b"\n") + event_line
+        atomic_bytes(
+            events_path,
+            new,
+            expected_current_sha256=receipt["events"]["pre_sha256"],
+        )
+        maybe_rollover_test_fault("event_committed")
+    if sha256_file(matter_path) != receipt["matter"]["post_sha256"] or sha256_file(events_path) != receipt["events"]["post_sha256"]:
+        matter_rollover_failure("CANONICAL_COMMIT_INCOMPLETE", "canonical postimage readback failed")
+    receipt["failure"] = None
+    if "canonical_committed" not in receipt["completed_steps"]:
+        receipt["completed_steps"].append("canonical_committed")
+    write_rollover_receipt(receipt_path, receipt, state="canonical_committed")
+
+
+def publish_rollover_projections(home: Path, receipt_path: Path, receipt: dict[str, Any]) -> dict[str, Any]:
+    index_path = matter_index_path(home)
+    view_root = instance_paths(home)["view"] / "matters"
+    index_pre = sha256_file(index_path) if index_path.is_file() else None
+    view_pre = sha256_file(view_root / "index.html") if (view_root / "index.html").is_file() else None
+    try:
+        index = compile_matter_index(home)
+        rollback_mode = isinstance(receipt.get("rollback"), dict)
+        target_path = str(Path(receipt["target"]["path"]).resolve())
+        expected_formal_path = (
+            str(Path(receipt["candidate"]["from_worksite"]["path"]).resolve()) if rollback_mode else target_path
+        )
+        formal = [row for row in index["records"] if row.get("id") == receipt["matter_id"] and row.get("record_type") == "matter"]
+        inferred = [row for row in index["records"] if row.get("record_type") == "inferred_worksite" and row.get("worksite_path") == target_path]
+        if len(formal) != 1 or formal[0].get("worksite_path") != expected_formal_path or (inferred and not rollback_mode):
+            raise RuntimeError("two-pass compiler did not produce one formal claim and zero inferred duplicates")
+        atomic_json(index_path, index)
+        maybe_rollover_test_fault("index_committed")
+        if os.environ.get("AIOS_TEST_MATTER_ROLLOVER_FAIL_PROJECTION"):
+            raise RuntimeError("injected projection failure")
+        view = render_matter_view(home, index)
+        page = view_root / safe_view_component(receipt["matter_id"]) / "index.html"
+        duplicate_page = view_root / safe_view_component("worksite:" + receipt["target"]["mission_id"]) / "index.html"
+        if (
+            sha256_file(index_path) != sha256_bytes(json_bytes(index))
+            or not page.is_file()
+            or (duplicate_page.exists() and not rollback_mode)
+        ):
+            raise RuntimeError("stored index or Matter View readback failed")
+        receipt["projection"] = {
+            "index_path": str(index_path),
+            "index_pre_sha256": index_pre,
+            "index_post_sha256": sha256_file(index_path),
+            "view_path": str(view_root),
+            "view_pre_index_sha256": view_pre,
+            "view_post_index_sha256": sha256_file(view_root / "index.html"),
+            "formal_page": str(page),
+            "inferred_duplicate_count": len(inferred),
+            "rendered": view["rendered"],
+        }
+        receipt["failure"] = None
+        if "projections_committed" not in receipt["completed_steps"]:
+            receipt["completed_steps"].append("projections_committed")
+        write_rollover_receipt(receipt_path, receipt, state="projections_committed")
+        return view
+    except (Exception, SystemExit) as exc:
+        receipt["failure"] = {"code": "PROJECTION_REBUILD_PENDING", "message": str(exc)}
+        write_rollover_receipt(receipt_path, receipt, state="projection_pending")
+        matter_rollover_failure(
+            "PROJECTION_REBUILD_PENDING",
+            "canonical Matter is committed but derived projections require same-key retry",
+            receipt_path=str(receipt_path),
+            error=str(exc),
+        )
+
+
+def apply_rollover(args: argparse.Namespace, home: Path, candidate: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    context["authorization"] = validate_rollover_authorization(
+        args,
+        target=context["target"],
+        target_mission=context["mission"],
+    )
+    with matter_rollover_lock(home, args.matter_id) as lock_path:
+        locked_candidate, locked_context = build_rollover_candidate(args, home)
+        if locked_context["plan_digest"] != context["plan_digest"]:
+            matter_rollover_failure("EXPECTED_CURRENT_MISMATCH", "rollover candidate changed before lock acquisition")
+        locked_context["authorization"] = context["authorization"]
+        existing = find_rollover_receipt(home, locked_candidate, locked_context["plan_digest"])
+        if existing is None:
+            assert_expected_rollover_preimage(args, locked_context)
+            receipt_path = matter_rollover_receipt_path(home, args.matter_id, args.to_worksite_id)
+            receipt = new_rollover_receipt(args, locked_candidate, locked_context)
+            write_rollover_receipt(receipt_path, receipt)
+            maybe_rollover_test_fault("receipt_prepared")
+        else:
+            receipt_path, receipt = existing
+            receipt["replayed"] = True
+            if receipt.get("state") == "rolled_back":
+                write_rollover_receipt(receipt_path, receipt)
+                return {"ok": True, "state": "rolled_back", "replayed": True, "receipt_path": str(receipt_path)}
+            if receipt.get("state") == "projections_committed":
+                write_rollover_receipt(receipt_path, receipt)
+                return {
+                    "schema": "aios.matter.rollover.result.v1",
+                    "ok": True,
+                    "mode": "apply",
+                    "state": "projections_committed",
+                    "replayed": True,
+                    "matter_id": args.matter_id,
+                    "receipt_id": receipt["receipt_id"],
+                    "receipt_path": str(receipt_path),
+                    "lock_path": str(lock_path),
+                    "plan_digest": context["plan_digest"],
+                }
+        commit_rollover_canonical(receipt_path, receipt)
+        publish_rollover_projections(home, receipt_path, receipt)
+        return {
+            "schema": "aios.matter.rollover.result.v1",
+            "ok": True,
+            "mode": "apply",
+            "state": receipt["state"],
+            "replayed": bool(receipt.get("replayed")),
+            "matter_id": args.matter_id,
+            "receipt_id": receipt["receipt_id"],
+            "receipt_path": str(receipt_path),
+            "lock_path": str(lock_path),
+            "plan_digest": context["plan_digest"],
+        }
+
+
+def resume_rollover_after_canonical(
+    args: argparse.Namespace,
+    home: Path,
+    initial: tuple[Path, dict[str, Any]],
+) -> dict[str, Any]:
+    initial_path, initial_receipt = initial
+    target = Path(initial_receipt["target"]["path"]).expanduser().resolve()
+    validate_rollover_authorization(
+        args,
+        target=target,
+        target_mission=mission_fields(target / "mission.md"),
+    )
+    with matter_rollover_lock(home, args.matter_id) as lock_path:
+        existing = find_rollover_receipt_for_request(home, args)
+        if existing is None or existing[0].resolve() != initial_path.resolve():
+            matter_rollover_failure("IDEMPOTENCY_CONFLICT", "rollover receipt disappeared or changed before lock acquisition")
+        receipt_path, receipt = existing
+        assert_rollover_receipt_integrity(receipt)
+        assert_rollover_receipt_target_current(receipt)
+        assert_rollover_receipt_canonical_guards(receipt)
+        receipt["replayed"] = True
+        if receipt.get("state") == "projections_committed":
+            write_rollover_receipt(receipt_path, receipt)
+        elif receipt.get("state") in {"canonical_committed", "projection_pending"}:
+            publish_rollover_projections(home, receipt_path, receipt)
+        else:
+            matter_rollover_failure(
+                "CANONICAL_GUARD_MISMATCH",
+                "receipt is not in a post-canonical projection-retry state",
+                state=receipt.get("state"),
+            )
+        return {
+            "schema": "aios.matter.rollover.result.v1",
+            "ok": True,
+            "mode": "apply",
+            "state": receipt["state"],
+            "replayed": True,
+            "matter_id": args.matter_id,
+            "receipt_id": receipt["receipt_id"],
+            "receipt_path": str(receipt_path),
+            "lock_path": str(lock_path),
+            "plan_digest": receipt["plan_digest"],
+        }
+
+
+def prepare_rollback_receipt(receipt: dict[str, Any]) -> None:
+    now = _dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    current_matter = read_json_dict(Path(receipt["matter"]["path"]))
+    rollback_matter = dict(current_matter)
+    rollback_matter["worksite"] = receipt["candidate"]["from_worksite"]
+    rollback_matter["updated_at"] = now
+    suffix = receipt["receipt_id"].removeprefix("rcpt_matter_rollover_")
+    event_id = f"evt_matter_rollover_compensated_{suffix}"
+    event = {
+        "schema": "aios.workflow.event.v0",
+        "event_id": event_id,
+        "ts": now,
+        "type": "worksite.migration_compensated",
+        "actor": {"kind": "cli", "id": "aios matter rollover"},
+        "subject": {"kind": "matter", "id": receipt["matter_id"]},
+        "summary": "Compensated a Matter Worksite rollover after guarded postimage verification.",
+        "payload": {
+            "compensates_event_id": receipt["event_id"],
+            "from_worksite": receipt["candidate"]["to_worksite"],
+            "to_worksite": receipt["candidate"]["from_worksite"],
+            "receipt_id": receipt["receipt_id"],
+        },
+        "evidence": [{"kind": "file", "path": receipt["matter"]["path"]}],
+        "supersedes": [],
+        "idempotency_key": "rollback:" + receipt["idempotency_key"],
+        "extensions": {},
+    }
+    event_line = json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+    current_events = Path(receipt["events"]["path"]).read_bytes()
+    post_events = current_events + (b"" if not current_events or current_events.endswith(b"\n") else b"\n") + event_line
+    receipt["rollback"] = {
+        "prepared_at": now,
+        "matter_before_sha256": receipt["matter"]["post_sha256"],
+        "matter_after": rollback_matter,
+        "matter_after_sha256": sha256_bytes(json_bytes(rollback_matter)),
+        "events_before_sha256": receipt["events"]["post_sha256"],
+        "events_before_line_count": receipt["events"]["post_line_count"],
+        "events_after_sha256": sha256_bytes(post_events),
+        "events_after_line_count": receipt["events"]["post_line_count"] + 1,
+        "event": event,
+        "event_id": event_id,
+        "previous_state": receipt.get("state"),
+    }
+    receipt["rollback_digest"] = sha256_bytes(
+        json.dumps(receipt["rollback"], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+
+
+def assert_rollback_guards(receipt: dict[str, Any]) -> None:
+    matter_path = Path(receipt["matter"]["path"])
+    events_path = Path(receipt["events"]["path"])
+    events_data, events = read_event_stream(events_path)
+    observed = {
+        "matter_sha256": sha256_file(matter_path),
+        "events_sha256": sha256_bytes(events_data),
+        "event_line_count": len(events),
+        "event_id": events[-1].get("event_id") if events else None,
+    }
+    if observed != receipt["rollback_guards"]:
+        matter_rollover_failure("ROLLBACK_GUARD_MISMATCH", "Matter postimage or event tail changed after rollover", expected=receipt["rollback_guards"], observed=observed)
+
+
+def commit_rollback_canonical(receipt_path: Path, receipt: dict[str, Any]) -> None:
+    rollback = receipt["rollback"]
+    matter_path = Path(receipt["matter"]["path"])
+    events_path = Path(receipt["events"]["path"])
+    matter_hash = sha256_file(matter_path)
+    events_hash = sha256_file(events_path)
+    if matter_hash not in {rollback["matter_before_sha256"], rollback["matter_after_sha256"]} or events_hash not in {rollback["events_before_sha256"], rollback["events_after_sha256"]}:
+        matter_rollover_failure("ROLLBACK_GUARD_MISMATCH", "rollback recovery images no longer match")
+    if matter_hash == rollback["matter_before_sha256"]:
+        atomic_bytes(
+            matter_path,
+            json_bytes(rollback["matter_after"]),
+            expected_current_sha256=rollback["matter_before_sha256"],
+        )
+    if events_hash == rollback["events_before_sha256"]:
+        old = events_path.read_bytes()
+        line = json.dumps(rollback["event"], ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+        atomic_bytes(
+            events_path,
+            old + (b"" if not old or old.endswith(b"\n") else b"\n") + line,
+            expected_current_sha256=rollback["events_before_sha256"],
+        )
+    if sha256_file(matter_path) != rollback["matter_after_sha256"] or sha256_file(events_path) != rollback["events_after_sha256"]:
+        matter_rollover_failure("CANONICAL_COMMIT_INCOMPLETE", "rollback canonical readback failed")
+    write_rollover_receipt(receipt_path, receipt, state="rollback_canonical_committed")
+
+
+def assert_rollback_receipt_binding(home: Path, matter_id: str, receipt: dict[str, Any]) -> None:
+    assert_rollover_receipt_integrity(receipt)
+    matter_path, _matter = exact_formal_matter(home, matter_id)
+    receipt_matter_path = Path(str(receipt.get("matter", {}).get("path") or "")).expanduser().resolve()
+    receipt_events_path = Path(str(receipt.get("events", {}).get("path") or "")).expanduser().resolve()
+    candidate = receipt.get("candidate") if isinstance(receipt.get("candidate"), dict) else {}
+    candidate_digest = sha256_bytes(json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    if (
+        receipt_matter_path != matter_path
+        or receipt_events_path != matter_path.with_name("matter.events.jsonl")
+        or candidate.get("matter_path") != str(matter_path)
+        or candidate_digest != receipt.get("plan_digest")
+        or receipt.get("fence_token") != f"sha256:{candidate_digest}"
+    ):
+        matter_rollover_failure("INVALID_PLAN", "rollback receipt paths or frozen candidate binding are invalid")
+
+
+def matter_rollover_rollback(args: argparse.Namespace, home: Path) -> dict[str, Any]:
+    if not args.expected_receipt_id:
+        matter_rollover_failure("INVALID_PLAN", "rollback requires --expected-receipt-id")
+    root = (matter_rollover_state_root(home) / "change-sets").resolve()
+    receipt_path = Path(args.rollback).expanduser().resolve()
+    if receipt_path.parent != root:
+        matter_rollover_failure("INVALID_PLAN", "rollback receipt must be an exact default Matter change-set path")
+    receipt = read_json_dict(receipt_path)
+    if receipt.get("schema") != "aios.matter.rollover.receipt.v1" or receipt.get("matter_id") != args.matter_id or receipt.get("receipt_id") != args.expected_receipt_id:
+        matter_rollover_failure("INVALID_PLAN", "rollback receipt identity does not match")
+    assert_rollover_receipt_integrity(receipt)
+    if args.apply:
+        if not args.authorization_ref:
+            matter_rollover_failure("OWNER_AUTHORIZATION_MISSING", "rollback --apply requires --authorization-ref")
+        target = Path(str(receipt.get("target", {}).get("path") or "")).expanduser().resolve()
+        validate_rollover_authorization(
+            args,
+            target=target,
+            target_mission=mission_fields(target / "mission.md"),
+        )
+    if receipt.get("state") == "rolled_back":
+        assert_rollback_receipt_binding(home, args.matter_id, receipt)
+        return {"schema": "aios.matter.rollover.result.v1", "ok": True, "mode": "rollback", "state": "rolled_back", "replayed": True, "receipt_path": str(receipt_path)}
+    if not args.apply:
+        assert_rollback_receipt_binding(home, args.matter_id, receipt)
+        if not isinstance(receipt.get("rollback"), dict):
+            assert_rollback_guards(receipt)
+        return {
+            "schema": "aios.matter.rollover.result.v1",
+            "ok": True,
+            "mode": "rollback-dry-run",
+            "would_write": False,
+            "safe_to_apply": True,
+            "receipt_path": str(receipt_path),
+        }
+    with matter_rollover_lock(home, args.matter_id):
+        receipt = read_json_dict(receipt_path)
+        assert_rollback_receipt_binding(home, args.matter_id, receipt)
+        if receipt.get("state") == "rolled_back":
+            return {"schema": "aios.matter.rollover.result.v1", "ok": True, "mode": "rollback", "state": "rolled_back", "replayed": True, "receipt_path": str(receipt_path)}
+        if not isinstance(receipt.get("rollback"), dict):
+            assert_rollback_guards(receipt)
+            prepare_rollback_receipt(receipt)
+            receipt["rollback_authorization_ref"] = args.authorization_ref
+            write_rollover_receipt(receipt_path, receipt, state="rollback_prepared")
+        commit_rollback_canonical(receipt_path, receipt)
+        try:
+            publish_rollover_projections(home, receipt_path, receipt)
+        except MatterRolloverFailure as exc:
+            if exc.code == "PROJECTION_REBUILD_PENDING":
+                receipt = read_json_dict(receipt_path)
+                write_rollover_receipt(receipt_path, receipt, state="rollback_projection_pending")
+            raise
+        maybe_rollover_test_fault("rollback_projections_committed")
+        receipt = read_json_dict(receipt_path)
+        write_rollover_receipt(receipt_path, receipt, state="rolled_back")
+        return {"schema": "aios.matter.rollover.result.v1", "ok": True, "mode": "rollback", "state": "rolled_back", "replayed": False, "receipt_path": str(receipt_path)}
+
+
+def matter_rollover(args: argparse.Namespace) -> None:
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    try:
+        if args.rollback:
+            report = matter_rollover_rollback(args, home)
+        else:
+            required_rollover_args(args)
+            request_receipt = find_rollover_receipt_for_request(home, args)
+            if (
+                args.apply
+                and request_receipt is not None
+                and request_receipt[1].get("state") in {"canonical_committed", "projection_pending", "projections_committed"}
+            ):
+                report = resume_rollover_after_canonical(args, home, request_receipt)
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                return
+            candidate, context = build_rollover_candidate(args, home)
+            existing = find_rollover_receipt(home, candidate, context["plan_digest"])
+            if args.apply:
+                report = apply_rollover(args, home, candidate, context)
+            else:
+                if existing is None:
+                    assert_expected_rollover_preimage(args, context)
+                report = {
+                    "schema": "aios.matter.rollover.result.v1",
+                    "ok": True,
+                    "mode": "dry-run",
+                    "would_write": False,
+                    "replayed": existing is not None,
+                    "matter_id": args.matter_id,
+                    "candidate": candidate,
+                    "plan_digest": context["plan_digest"],
+                    "receipt_path": str(matter_rollover_receipt_path(home, args.matter_id, args.to_worksite_id)),
+                    "lock_path": str(matter_rollover_lock_path(home, args.matter_id)),
+                }
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    except MatterRolloverFailure as exc:
+        report = {"schema": "aios.matter.rollover.result.v1", "ok": False, "code": exc.code, "error": exc.message, **exc.details}
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        raise SystemExit(2)
 
 
 def _load_matter_material_functions() -> tuple[Any, Any, Any]:
@@ -4102,12 +5309,23 @@ def safe_view_id(record: dict[str, Any]) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-") or "matter"
 
 
+def exchange_directories(left: Path, right: Path) -> None:
+    """Atomically exchange two directories through Linux renameat2."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise OSError("atomic Matter View exchange is unavailable")
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    if renameat2(-100, os.fsencode(left), -100, os.fsencode(right), 2) != 0:  # AT_FDCWD, RENAME_EXCHANGE
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(left), str(right))
+
+
 def render_matter_view(home: Path, index: dict[str, Any]) -> dict[str, Any]:
     root = instance_paths(home)["view"] / "matters"
-    staging = root.with_name(root.name + ".tmp-" + hashlib.sha256(index["generated_at"].encode()).hexdigest()[:8])
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True)
+    root.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{root.name}.tmp-", dir=root.parent))
     open_cards: list[str] = []
     closed_cards: list[str] = []
     rendered = 0
@@ -4145,11 +5363,21 @@ def render_matter_view(home: Path, index: dict[str, Any]) -> dict[str, Any]:
     top = f"""<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>AIOS Matters</title><style>body{{font:16px/1.6 system-ui;max-width:1000px;margin:40px auto;padding:0 20px;color:#202124}}a{{color:#175cd3}}span{{color:#667085}}li{{margin:.6rem 0}}details{{margin-top:2rem}}</style><h1>AIOS 事务与交付物</h1><p>这是从 Worksite 真源生成的只读视图，不包含 internal 过程目录。</p><h2>打开或可继续</h2><ul>{''.join(open_cards)}</ul><details><summary>已关闭或已归档（{len(closed_cards)}）</summary><ul>{''.join(closed_cards)}</ul></details></html>"""
     (staging / "index.html").write_text(top, encoding="utf-8")
     if root.exists() or root.is_symlink():
-        if root.is_symlink() or root.is_file():
-            root.unlink()
-        else:
-            shutil.rmtree(root)
-    os.replace(staging, root)
+        if not root.is_dir() or root.is_symlink():
+            shutil.rmtree(staging)
+            raise SystemExit(f"refusing non-directory Matter View root: {root}")
+        try:
+            exchange_directories(staging, root)
+            fsync_directory(root.parent)
+        except Exception:
+            shutil.rmtree(staging)
+            raise
+        # `staging` is now the old complete View. Removal happens only after
+        # the new complete tree became visible in one atomic exchange.
+        shutil.rmtree(staging)
+    else:
+        os.replace(staging, root)
+        fsync_directory(root.parent)
     return {"schema": "aios.matter.view.v1", "ok": True, "path": str(root), "rendered": rendered}
 
 
@@ -4752,7 +5980,8 @@ def build_parser() -> argparse.ArgumentParser:
     decision_sub = decision.add_subparsers(dest="decision_cmd", required=True)
     decision_check_parser = decision_sub.add_parser("check", help="check exact policy ref, route guards, and packet shape only")
     decision_check_parser.add_argument("--packet", required=True, help="local Decision packet JSON")
-    decision_check_parser.add_argument("--policy-index", required=True, help="local policy index JSON")
+    decision_check_parser.add_argument("--policy-source", help="direct Local Policy Markdown; defaults to $AIOS_ROOT/workflow/local-policy.md")
+    decision_check_parser.add_argument("--policy-fragment", default="#policy-decision-surface", help="exact Local Policy fragment anchor")
     decision_check_parser.add_argument("--policy-id", default=DECISION_POLICY_ID)
     decision_check_parser.add_argument("--route-id", default=DECISION_ROUTE_ID)
     decision_check_parser.add_argument("--route-depth", type=int, default=1)
@@ -4844,6 +6073,27 @@ def build_parser() -> argparse.ArgumentParser:
     mg.add_argument("query")
     mg.add_argument("--json", action="store_true", help="accepted for namespace consistency; output is JSON by default")
     mg.set_defaults(func=matter_get)
+    mr = matter_sub.add_parser("rollover", help="CAS-protected exact Matter current-Worksite transaction")
+    mr.add_argument("matter_id", help="exact formal Matter ID; aliases, titles, and fuzzy matches are rejected")
+    mr.add_argument("--expected-current-id")
+    mr.add_argument("--expected-current-path")
+    mr.add_argument("--expected-current-role")
+    mr.add_argument("--expected-matter-sha256")
+    mr.add_argument("--expected-events-sha256")
+    mr.add_argument("--expected-event-line-count", type=int)
+    mr.add_argument("--to-worksite")
+    mr.add_argument("--to-worksite-id")
+    mr.add_argument("--to-role", choices=["current_canonical"])
+    mr.add_argument("--idempotency-key")
+    mr.add_argument("--fence-token", help="sha256:<digest> emitted by the frozen pass-1 candidate")
+    mr.add_argument("--rollback", help="exact default change-set receipt path for guarded rollback")
+    mr.add_argument("--expected-receipt-id")
+    mr_mode = mr.add_mutually_exclusive_group()
+    mr_mode.add_argument("--apply", action="store_true", help="write canonical files and projections; requires authorization")
+    mr_mode.add_argument("--dry-run", action="store_true", help="explicit zero-write mode; also the default")
+    mr.add_argument("--authorization-ref", help="durable owner authorization reference required with --apply")
+    mr.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
+    mr.set_defaults(func=matter_rollover)
     mm = matter_sub.add_parser("material", help="attach, list, or verify bounded source-owned Matter materials")
     mm_sub = mm.add_subparsers(dest="matter_material_cmd", required=True)
     mma = mm_sub.add_parser("attach", help="attach one registered local UTF-8 text file without lifecycle side effects")
@@ -4955,6 +6205,8 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--prune", action="store_true")
     sync.add_argument("--mode", choices=["copy", "symlink"])
     sync.add_argument("--force", action="store_true", help="overwrite locally modified managed skill copies")
+    sync.add_argument("--only", action="append", default=[], metavar="SKILL", help="select exact skill entries; repeatable and CAS-preserving")
+    sync.add_argument("--expected-state-sha256", metavar="SHA256", help="expected install-state SHA-256; fail closed on drift")
     sync.add_argument("--target", default="default", choices=["default", "universal", "hermes", "both"])
     sync.add_argument("--state-dir")
     sync.set_defaults(func=skillpack_sync)
@@ -4964,6 +6216,8 @@ def build_parser() -> argparse.ArgumentParser:
     dev_apply.add_argument("--dry-run", action="store_true")
     dev.add_argument("--target", default="default", choices=["default", "universal", "hermes", "both"])
     dev.add_argument("--force", action="store_true", help="overwrite locally modified managed skill copies")
+    dev.add_argument("--only", action="append", default=[], metavar="SKILL", help="select exact skill entries; repeatable and CAS-preserving")
+    dev.add_argument("--expected-state-sha256", metavar="SHA256", help="expected install-state SHA-256; fail closed on drift")
     dev.add_argument("--state-dir")
     dev.set_defaults(func=lambda a: skillpack_sync(argparse.Namespace(**{**vars(a), "mode": "symlink", "prune": False, "first_party_only": True})))
     adopt = sps.add_parser("adopt", help="promote a local runtime skill into aios-kit first-party source and link runtime to it")
