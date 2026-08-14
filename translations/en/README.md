@@ -56,7 +56,7 @@ Do not read, print, or commit secret values, subscription URLs, tokens, keys, or
 | Skill ecosystem | `find-skills`, `skill-creator`, `install-skill` | Discovers, installs, creates, and maintains reusable Agent skills |
 | MCP / tool discovery | `awesome-mcp-servers-discovery` | Researches and evaluates MCP servers |
 | Frontend and design | `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines` | UI/UX, frontend architecture, and web design review |
-| Solution refinement | `grilling`, `grill-me`, `grill-with-docs`, `domain-modeling` | Probes requirements, refines plans, and captures domain models and ADRs |
+| Domain modeling | `domain-modeling` | Clarifies domain terminology, maintains domain models, and records ADRs when warranted |
 | First-class AIOS capabilities | `aios-agent`, `aios-resource-resolver`, `aios-secret-management`, `aios-capability-operations`, `lins-living-loop`, `github-repo-search` | AIOS Agent strategy entry point, resource and capability routing, secret control plane, long-running task workflows, and GitHub project search and recommendations |
 
 ### `aios` CLI Capabilities

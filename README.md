@@ -50,7 +50,7 @@
 | Skill 生态 | `find-skills`、`skill-creator`、`install-skill` | 发现、安装、创建和维护可复用 Agent skills |
 | MCP / 工具发现 | `awesome-mcp-servers-discovery` | 调研和筛选 MCP server |
 | 前端与设计 | `frontend-design`、`ui-ux-pro-max`、`vercel-composition-patterns`、`web-design-guidelines` | UI/UX、前端架构和 Web 设计审查 |
-| 方案打磨 | `grilling`、`grill-me`、`grill-with-docs`、`domain-modeling` | 追问需求、打磨计划、沉淀领域模型和 ADR |
+| 领域建模 | `domain-modeling` | 澄清领域术语、维护领域模型，并在必要时记录 ADR |
 | AIOS 一等能力 | `aios-agent`、`aios-resource-resolver`、`aios-secret-management`、`aios-capability-operations`、`lins-living-loop`、`github-repo-search` | AIOS Agent 策略入口、资源与能力路由、秘密控制面、长期任务工作流、GitHub 项目搜索推荐 |
 
 ### `aios` CLI 能力
