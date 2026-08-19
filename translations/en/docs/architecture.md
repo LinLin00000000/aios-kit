@@ -1,5 +1,5 @@
 <!-- AUTO-GENERATED FILE. DO NOT EDIT. -->
-<!-- AIOS-TRANSLATION-METADATA {"schema":"aios.translation.v1","source_path":"docs/architecture.md","source_sha256":"bae3294e2d5d0cee344c34cb8f2ae52ff9c81493bcc1ddea1b32c66941b6dd3c","status":"generated"} -->
+<!-- AIOS-TRANSLATION-METADATA {"schema":"aios.translation.v1","source_path":"docs/architecture.md","source_sha256":"8df07db17fdbd0337345f2db0e0a7dee61f3fcb50ef2a3ff26a0266465aea7d3","status":"generated"} -->
 
 [简体中文](../../../docs/architecture.md) | **English**
 
@@ -99,7 +99,7 @@ For the detailed object model, risk controls, and minimum file contracts for ext
 ### Federated search boundary
 
 - AIOS standardizes only task semantics and provenance: Search Request, run-scoped Route, Run Evidence, and Worksite Receipt.
-- Source identity/owner/location remains the responsibility of the Source Registry + Resource Resolver; account/Binding/Secret Consumer remains the responsibility of Capability Operations.
+- Source identity/owner/location remains the responsibility of the Source Registry + Resource Resolver; actions follow `owner_ref` directly to a domain/provider Skill or service card, while account, Secret, and health facts remain with the actual executor owner.
 - Provider adapters own query translation, pagination, error/freshness handling, and optional acquisition. Caches are rebuildable and have `authority=none`.
 - `github_repo_search.py` and `github_source_cache.py` remain GitHub-specific adapters. Search results do not trigger automatic cloning; acquisition receipts, full SHAs, and cited paths are returned to the current Worksite.
 - There is currently no global Search Registry, generic cache key/API, database, daemon, route catalog, or top-level `aios search` command.

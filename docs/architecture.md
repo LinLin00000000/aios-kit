@@ -91,7 +91,7 @@ AIOS 可以在 `~/aios/cache/github/` 保留公开 GitHub 仓库的可重建获�
 ### Federated search boundary
 
 - AIOS 只统一 task semantics 与 provenance：Search Request、run-scoped Route、Run Evidence、Worksite Receipt。
-- Source identity/owner/location 仍归 Source Registry + Resource Resolver；account/Binding/Secret Consumer 仍归 Capability Operations。
+- Source identity/owner/location 仍归 Source Registry + Resource Resolver；动作直接跟随 `owner_ref` 到 domain/provider Skill 或 service card，account/Secret/health 归实际执行器 owner。
 - Provider adapter 拥有 query translation、pagination、error/freshness 与可选 acquisition；cache 可重建且 authority=none。
 - `github_repo_search.py` 与 `github_source_cache.py` 继续是 GitHub-specific adapters；搜索结果不自动 clone，acquisition receipt/full SHA/cited paths 回到当前 Worksite。
 - 当前不建立全局 Search Registry、通用 cache key/API、数据库、daemon、route catalog 或顶层 `aios search` 命令。

@@ -1,5 +1,5 @@
 <!-- AUTO-GENERATED FILE. DO NOT EDIT. -->
-<!-- AIOS-TRANSLATION-METADATA {"schema":"aios.translation.v1","source_path":"README.md","source_sha256":"a84bcc5429009f84fa5f6ce3ec9a286369a309731817d441daa11a3b5c65acf8","status":"generated"} -->
+<!-- AIOS-TRANSLATION-METADATA {"schema":"aios.translation.v1","source_path":"README.md","source_sha256":"cb10e92db390d390df7b1ecd0179e7fcf3128d907a978b2c336851a58f9bea56","status":"generated"} -->
 
 [简体中文](../../README.md) | **English**
 
@@ -57,7 +57,7 @@ Do not read, print, or commit secret values, subscription URLs, tokens, keys, or
 | MCP / tool discovery | `awesome-mcp-servers-discovery` | Researches and evaluates MCP servers |
 | Frontend and design | `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines` | UI/UX, frontend architecture, and web design review |
 | Domain modeling | `domain-modeling` | Clarifies domain terminology, maintains domain models, and records ADRs when warranted |
-| First-class AIOS capabilities | `aios-agent`, `aios-resource-resolver`, `aios-secret-management`, `aios-capability-operations`, `lins-living-loop`, `github-repo-search` | AIOS Agent strategy entry point, resource and capability routing, secret control plane, long-running task workflows, and GitHub project search and recommendations |
+| First-class AIOS capabilities | `aios-agent`, `aios-resource-resolver`, `aios-secret-management`, `lins-living-loop`, `github-repo-search` | AIOS Agent strategy entry point, resource and owner routing, secret control plane, long-running task workflows, and GitHub project search and recommendations |
 
 ### `aios` CLI Capabilities
 

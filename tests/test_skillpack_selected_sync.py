@@ -142,6 +142,41 @@ class SelectedSkillpackSyncTests(unittest.TestCase):
                 AIOS.skillpack_sync(args)
             self.assertFalse(runtime.exists())
 
+    def test_scoped_prune_removes_one_state_only_dangling_symlink(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aios-selected-prune-test-") as td:
+            root = Path(td)
+            manifest, state_path, original_rows = self._fixture(root)
+            manifest["first_party"] = [
+                item for item in manifest["first_party"] if item["skill"] != "alpha"
+            ]
+            runtime = root / "runtime"
+            runtime.mkdir()
+            dangling = runtime / "alpha"
+            dangling.symlink_to(root / "missing-alpha", target_is_directory=True)
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["managed"][1]["installed_path"] = str(dangling)
+            state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+            args = self._args(root / "home", sha256(state_path), apply=True)
+            args.only = ["alpha"]
+            args.prune = True
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(AIOS, "load_skillpack", return_value=manifest),
+                mock.patch.object(AIOS, "state_path", return_value=state_path),
+                mock.patch.object(AIOS, "target_dirs", return_value={"universal": runtime}),
+                contextlib.redirect_stdout(stdout),
+            ):
+                AIOS.skillpack_sync(args)
+            post = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual([row["skill"] for row in post["managed"]], ["vendor", "beta"])
+            self.assertEqual(post["managed"][0], original_rows[0])
+            self.assertEqual(post["managed"][1], original_rows[2])
+            self.assertFalse(dangling.exists())
+            self.assertFalse(dangling.is_symlink())
+            delta_line = next(line for line in stdout.getvalue().splitlines() if line.startswith("STATE ROW DELTA "))
+            delta = json.loads(delta_line.removeprefix("STATE ROW DELTA "))
+            self.assertEqual(delta["operation"], "delete")
+
     def test_unknown_only_entry_fails_closed_before_projection(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aios-selected-test-") as td:
             root = Path(td)

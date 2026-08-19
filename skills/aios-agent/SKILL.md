@@ -1,8 +1,9 @@
 ---
 name: aios-agent
-description: "Use when operating, evolving, updating, or governing AIOS itself: route intent to the owning policy, ResourceRef, Capability, Matter/LLL, or actuator without duplicating their bodies."
-version: 0.2.0
+description: "Use when operating, evolving, updating, or governing AIOS itself: route intent to the owning policy, ResourceRef, Matter/LLL, or actuator without duplicating their bodies."
 license: MIT
+metadata:
+  version: "0.2.1"
 ---
 
 # AIOS Agent
@@ -20,7 +21,7 @@ Human intent -> exact owner/ref -> domain actuator -> receipt/evidence
 | Portable product/evolution rules | `docs/evolution.md` and the relevant public source |
 | Current instance workflow behavior | the AIOS-managed local workflow policy |
 | Project/Source facts | existing Project/Source registries |
-| Capability definition/binding facts | the owning resource record and domain/provider owner |
+| Action and executor facts | the owning resource record and domain/provider owner |
 | Task state/recovery/evidence | Matter / LLL Worksite |
 | Deterministic action | CLI, script, API, or provider skill |
 | Secret value | Secret runtime/native secret owner; never this skill or a receipt |
@@ -31,9 +32,9 @@ A skill, index, viewer, runtime copy, or receipt is a pointer/projection unless 
 
 1. Apply precedence: current user instruction, then current Matter/mission, then exact local policy, then portable product default.
 2. Resolve a mentioned project, Source, service, device, vault, or other resource through `aios-resource-resolver` and `aios resource resolve ... --json` before acting.
-3. Resolve reusable action intent through `aios-capability-operations`; discover first, choose one explicit binding, and load an adapter ref only on demand.
+3. Follow the resolved `owner_ref` to the current domain/provider Skill or service card, then invoke that owner's existing CLI, MCP, or Skill script directly. Do not insert a generic discovery, binding, adapter, or health layer.
 4. Keep disposable work in chat. Resolve/create a Matter and use LLL only when durable state, recovery, evidence, or a validation boundary is needed.
-5. Route mutation to the domain owner/actuator. A ResourceRef, capability receipt, policy index, or Decision packet never grants write authority.
+5. Route mutation to the domain owner/actuator. A ResourceRef, receipt, policy index, or Decision packet never grants write authority.
 6. Return a structured result/receipt and leave current facts with their owner.
 
 ## Decision Surface pointer
@@ -63,6 +64,5 @@ The owning local policy/Worksite defines the complete closeout protocol; this sk
 ## Related skills
 
 - `aios-resource-resolver` — exact ResourceRef lookup and owner pointer.
-- `aios-capability-operations` — capability/binding discovery and lazy adapter-ref route.
 - `lins-living-loop` — durable Matter/Worksite execution and recovery.
 - `aios-secret-management` — metadata and controlled runtime secret use.

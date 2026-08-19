@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""O70 RED/GREEN tests for ResourceRef, Capability, and Decision routes."""
+"""O70 RED/GREEN tests for ResourceRef and Decision routes."""
 from __future__ import annotations
 
 import hashlib
@@ -48,7 +48,7 @@ class O70RouteTests(unittest.TestCase):
         (root / "aliases.yaml").write_text("\n".join(alias_lines) + "\n", encoding="utf-8")
 
     @staticmethod
-    def project(project_id: str, name: str, *, profile: str = "default", status: str = "active", aliases: list[str] | None = None, capabilities: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    def project(project_id: str, name: str, *, profile: str = "default", status: str = "active", aliases: list[str] | None = None) -> dict[str, Any]:
         return {
             "id": project_id,
             "kind": "project",
@@ -59,7 +59,6 @@ class O70RouteTests(unittest.TestCase):
             "version": "fixture-v1",
             "locations": [{"kind": "local", "path": f"~/projects/{project_id}"}],
             "role_in_aios": "fixture",
-            "capabilities": capabilities or [],
         }
 
     @staticmethod
@@ -140,96 +139,6 @@ class O70RouteTests(unittest.TestCase):
         self.assertEqual(mismatch["failure_class"], "CROSS_PROFILE_MISMATCH")
         _, missing = self.run_cli("resource", "resolve", "absent", "--json", ok=False)
         self.assertEqual(missing["failure_class"], "MISSING_RESOURCE")
-
-    def capability_fixture(self, *, health: str = "healthy", maturity: str = "verified", adapter_query: str = "adapter-kit") -> None:
-        capability = {
-            "id": "document.publish",
-            "name": "Publish Document",
-            "aliases": ["publish-docs"],
-            "profile": "default",
-            "status": "active",
-            "health": "healthy",
-            "maturity": "verified",
-            "adapter": {"id": "adapter.document.local", "resource_query": adapter_query},
-            "bindings": [
-                {
-                    "id": "primary",
-                    "name": "Primary",
-                    "aliases": ["default"],
-                    "profile": "default",
-                    "status": "active",
-                    "health": health,
-                    "maturity": maturity,
-                    "resource_query": "notes",
-                    "resource_kind": "source",
-                }
-            ],
-            "authorization_ref": "external-owner:document-publish",
-        }
-        self.write_registry(
-            "projects",
-            [
-                self.project("capability-owner", "Capability Owner", capabilities=[capability]),
-                self.project("adapter-kit", "Adapter Kit"),
-            ],
-        )
-        self.write_registry("sources", [self.source("notes", "Notes")])
-
-    def test_capability_discovery_and_resolution_are_lazy_and_provider_neutral(self) -> None:
-        self.capability_fixture(adapter_query="missing-adapter")
-        _, discovered = self.run_cli("capability", "discover", "--json")
-        self.assertEqual(discovered["verdict"], "DISCOVERED")
-        self.assertEqual(discovered["capabilities"][0]["adapter"]["load_state"], "deferred")
-        self.assertNotIn("resource_ref", discovered["capabilities"][0]["adapter"])
-
-        _, resolved = self.run_cli("capability", "resolve", "publish-docs", "--json")
-        self.assertEqual(resolved["verdict"], "RESOLVED")
-        self.assertEqual(resolved["target_resource_ref"]["canonical_id"], "source:default:notes")
-        self.assertEqual(resolved["adapter"]["load_state"], "deferred")
-        self.assertEqual(resolved["authorization"], {"implemented": False, "ref": "external-owner:document-publish", "state": "NOT_EVALUATED"})
-        self.assertNotIn("provider", resolved)
-
-        _, blocked = self.run_cli(
-            "capability", "resolve", "document.publish", "--load-adapter", "--json", ok=False
-        )
-        self.assertEqual(blocked["failure_class"], "MISSING_ADAPTER_RESOURCE")
-
-    def test_capability_loads_adapter_ref_only_on_demand(self) -> None:
-        self.capability_fixture()
-        _, receipt = self.run_cli(
-            "capability", "resolve", "document.publish", "--binding", "default", "--load-adapter", "--json"
-        )
-        self.assertEqual(receipt["adapter"]["load_state"], "ready")
-        self.assertEqual(receipt["adapter"]["resource_ref"]["canonical_id"], "project:default:adapter-kit")
-
-    def test_capability_unhealthy_immature_ambiguous_and_missing_fail_closed(self) -> None:
-        for health, maturity, failure_class in (
-            ("unhealthy", "verified", "UNHEALTHY_BINDING"),
-            ("healthy", "configured", "IMMATURE_BINDING"),
-        ):
-            with self.subTest(failure_class=failure_class):
-                self.capability_fixture(health=health, maturity=maturity)
-                _, receipt = self.run_cli("capability", "resolve", "document.publish", "--json", ok=False)
-                self.assertEqual(receipt["failure_class"], failure_class)
-
-        duplicate = {
-            "id": "document.publish",
-            "name": "Other Publisher",
-            "aliases": [],
-            "status": "active",
-            "health": "healthy",
-            "maturity": "verified",
-            "adapter": {"id": "other.adapter"},
-            "bindings": [],
-        }
-        self.capability_fixture()
-        projects_path = self.home / "aios" / "vault" / "ops" / "projects" / "registry.jsonl"
-        with projects_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(self.project("other-owner", "Other", capabilities=[duplicate])) + "\n")
-        _, ambiguous = self.run_cli("capability", "resolve", "document.publish", "--json", ok=False)
-        self.assertEqual(ambiguous["failure_class"], "AMBIGUOUS_CAPABILITY")
-        _, missing = self.run_cli("capability", "resolve", "missing", "--json", ok=False)
-        self.assertEqual(missing["failure_class"], "MISSING_CAPABILITY")
 
     def write_decision_fixture(self, question_count: int = 3) -> tuple[Path, Path, dict[str, Any]]:
         fixture = self.home / "decision-fixture"

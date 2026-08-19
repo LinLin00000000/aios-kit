@@ -703,14 +703,22 @@ def skillpack_sync(args: argparse.Namespace) -> None:
         item for item in enabled_items(manifest)
         if not getattr(args, "first_party_only", False) or item["kind"] == "first_party"
     ]
+    eligible_by_name = {
+        str(item.get("skill") or item.get("id")): item for item in eligible_items
+    }
+    state_skill_names = {str(entry.get("skill") or "") for entry in old_entries}
     if only_names:
-        eligible_by_name = {
-            str(item.get("skill") or item.get("id")): item for item in eligible_items
-        }
-        unknown = [name for name in only_names if name not in eligible_by_name]
+        unknown = [
+            name for name in only_names
+            if name not in eligible_by_name and not (args.prune and name in state_skill_names)
+        ]
         if unknown:
             raise SystemExit(f"unknown --only skill: {', '.join(unknown)}")
-        selected_items = [eligible_by_name[name] for name in dict.fromkeys(only_names)]
+        selected_items = [
+            eligible_by_name[name]
+            for name in dict.fromkeys(only_names)
+            if name in eligible_by_name
+        ]
     else:
         selected_items = eligible_items
 
@@ -731,6 +739,13 @@ def skillpack_sync(args: argparse.Namespace) -> None:
                 expanded.append((target_name, dst_root))
                 selected_keys.add((target_name, str(item.get("skill") or item.get("id"))))
         selected_targets[index] = expanded
+    if only_names and args.prune:
+        for entry in old_entries:
+            name = str(entry.get("skill") or "")
+            target = str(entry.get("target") or "")
+            if name in only_names and name not in eligible_by_name:
+                if args.target == "default" or target == args.target:
+                    selected_keys.add((target, name))
 
     preimage_sha = file_sha256(sp)
     expected_state_sha = getattr(args, "expected_state_sha256", None)
@@ -841,7 +856,7 @@ def skillpack_sync(args: argparse.Namespace) -> None:
         for e in stale:
             p = Path(e.get("installed_path", ""))
             print(f"{'PRUNE' if apply else 'DRY prune'} {p}")
-            if apply and p.exists():
+            if apply and (p.exists() or p.is_symlink()):
                 if p.is_symlink() or p.is_file():
                     p.unlink()
                 else:
@@ -1637,6 +1652,18 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
         for env_name, field_name in env_map.items():
             if field_name not in item_fields:
                 add("error", f"{path}.runtime.env_map.{env_name}", f"field not defined on item {secret_id}: {field_name}")
+        rotation = consumer.get("rotation")
+        if rotation is not None:
+            if not isinstance(rotation, dict) or not isinstance(rotation.get("fields"), list) or not rotation.get("fields"):
+                add("error", f"{path}.rotation.fields", "rotation fields must be a non-empty list")
+            else:
+                for field_name in rotation.get("fields", []):
+                    field_name = str(field_name)
+                    meta = item_fields.get(field_name)
+                    if not isinstance(meta, dict):
+                        add("error", f"{path}.rotation.fields", f"rotation field not defined on item {secret_id}: {field_name}")
+                    elif not meta.get("secret"):
+                        add("error", f"{path}.rotation.fields", f"rotation field must be secret on item {secret_id}: {field_name}")
 
     for path in metadata_files("replicas"):
         replica = safe_load(path)
@@ -1888,6 +1915,105 @@ def secret_sync_github(args: argparse.Namespace) -> None:
     replica["last_synced_at"] = now_iso()
     write_yaml_doc(replica_path, replica)
     append_secret_audit(home, {"event": "github_sync", "secret_id": args.secret_id, "replica_id": args.replica, "repo": repo, "keys": list(keys.keys()), "status": "synced"})
+    print("- secret_values_exposed: false")
+
+
+@contextlib.contextmanager
+def secret_rotation_lock(home: Path, secret_id: str) -> Any:
+    """Serialize value-backend updates for one secret item."""
+    value_path = secret_value_path(home, secret_id)
+    lock_path = value_path.with_suffix(value_path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise SystemExit(f"secret rotation lock is busy: {secret_id}") from exc
+        yield lock_path
+    finally:
+        os.close(fd)
+
+
+def secret_rotate(args: argparse.Namespace) -> None:
+    """Atomically update fields explicitly allow-listed by one consumer.
+
+    Values are accepted only through stdin and are never included in output,
+    audit records, command arguments, or metadata.  This is intentionally
+    narrower than generic secret editing so an OAuth refresh worker cannot
+    rewrite unrelated fields.
+    """
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    if args.field and args.json_stdin:
+        raise SystemExit("choose either --field or --json-stdin")
+    if not args.field and not args.json_stdin:
+        raise SystemExit("one of --field or --json-stdin is required")
+    if sys.stdin.isatty():
+        raise SystemExit("secret rotation requires values from a pipe, never interactive terminal input")
+
+    consumer_path = secret_consumer_path(home, args.consumer)
+    if not consumer_path.exists():
+        raise SystemExit(f"consumer metadata not found: {args.consumer}")
+    consumer = load_yaml_doc(consumer_path)
+    secret_id = str(consumer.get("uses_secret") or "")
+    if secret_id != args.secret_id:
+        raise SystemExit(f"consumer does not use secret: {args.consumer} -> {secret_id}")
+    rotation = consumer.get("rotation")
+    allowed = rotation.get("fields") if isinstance(rotation, dict) else None
+    if not isinstance(allowed, list) or not allowed:
+        raise SystemExit(f"consumer has no rotation allowlist: {args.consumer}")
+    allowed_fields = {str(field) for field in allowed}
+
+    item_path = secret_item_path(home, args.secret_id)
+    if not item_path.exists():
+        raise SystemExit(f"secret metadata not found: {args.secret_id}")
+    item = load_yaml_doc(item_path)
+    fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+
+    if args.json_stdin:
+        raw = sys.stdin.read()
+        try:
+            updates = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"rotation JSON is invalid: {exc}") from exc
+        if not isinstance(updates, dict) or not updates:
+            raise SystemExit("rotation JSON must be a non-empty object")
+    else:
+        value = sys.stdin.read().rstrip("\r\n")
+        if not value:
+            raise SystemExit("rotation value must not be empty")
+        updates = {str(args.field): value}
+
+    if len(json.dumps(updates, ensure_ascii=False)) > 128 * 1024:
+        raise SystemExit("rotation input exceeds 128 KiB")
+    for field_name, value in updates.items():
+        field_name = str(field_name)
+        if field_name not in allowed_fields:
+            raise SystemExit(f"field is not allow-listed for consumer: {field_name}")
+        meta = fields.get(field_name)
+        if not isinstance(meta, dict) or not meta.get("secret"):
+            raise SystemExit(f"rotation field must be a secret field: {field_name}")
+        if not isinstance(value, str) or not value:
+            raise SystemExit(f"rotation value must be a non-empty string: {field_name}")
+
+    value_path = secret_value_path(home, args.secret_id)
+    with secret_rotation_lock(home, args.secret_id):
+        value_doc = load_secret_values(home, args.secret_id)
+        current = value_doc.get("values")
+        if not isinstance(current, dict):
+            raise SystemExit(f"invalid secret value backend: {value_path}")
+        current = dict(current)
+        current.update({str(key): value for key, value in updates.items()})
+        value_doc["values"] = current
+        value_doc["stored_at"] = now_iso()
+        atomic_bytes(value_path, json_bytes(value_doc), mode=0o600)
+
+    append_secret_audit(home, {"event": "secret_rotated", "secret_id": args.secret_id, "consumer_id": args.consumer, "fields": sorted(str(key) for key in updates), "status": "stored"})
+    print("Secret rotation completed")
+    print(f"- secret_id: {args.secret_id}")
+    print(f"- consumer: {args.consumer}")
+    print("- fields: " + ", ".join(sorted(str(key) for key in updates)))
     print("- secret_values_exposed: false")
 
 
@@ -2584,23 +2710,12 @@ def source_validate(args: argparse.Namespace) -> None:
 
 RESOURCE_REF_SCHEMA = "aios.resource-ref.v1"
 RESOURCE_RESOLUTION_SCHEMA = "aios.resource-resolution.v1"
-CAPABILITY_DISCOVERY_SCHEMA = "aios.capability-discovery.v1"
-CAPABILITY_RESOLUTION_SCHEMA = "aios.capability-resolution.v1"
 DECISION_PACKET_SCHEMA = "aios.decision-packet.v1"
 DECISION_ROUTE_ID = "aios.decision-surface.route.v1"
 DECISION_POLICY_ID = "decision-surface"
 DECISION_CHECK_SCHEMA = "aios.decision-shape-check.v1"
 DECISION_MAX_ROUTE_DEPTH = 2
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-_CAPABILITY_MATURITY = {
-    "designed": 0,
-    "discovered": 1,
-    "configured": 2,
-    "verified": 3,
-    "available": 4,
-}
-
-
 def _stable_json_sha256(value: Any) -> str:
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
@@ -2892,338 +3007,6 @@ def resource_resolve(args: argparse.Namespace) -> None:
     if receipt["verdict"] != "RESOLVED":
         raise SystemExit(2)
 
-
-def _capability_candidates(home: Path) -> tuple[list[dict[str, Any]], list[str]]:
-    out: list[dict[str, Any]] = []
-    errors: list[str] = []
-    try:
-        owners = _resource_candidates(home)
-    except SystemExit as error:
-        return [], [f"resource source invalid: {error}"]
-    for owner in owners:
-        raw_capabilities = owner["record"].get("capabilities", []) or []
-        if not isinstance(raw_capabilities, list):
-            errors.append(f"{_resource_canonical_id(owner)}: capabilities must be a list")
-            continue
-        for index, capability in enumerate(raw_capabilities):
-            if not isinstance(capability, dict):
-                errors.append(f"{_resource_canonical_id(owner)}: capabilities[{index}] must be an object")
-                continue
-            out.append({"definition": capability, "owner": owner, "index": index})
-    return out, errors
-
-
-def _capability_profile(candidate: dict[str, Any]) -> str:
-    definition = candidate["definition"]
-    owner = candidate["owner"]["record"]
-    return str(definition.get("profile") or owner.get("profile") or "default")
-
-
-def _capability_canonical_id(candidate: dict[str, Any]) -> str:
-    definition = candidate["definition"]
-    return f"capability:{_capability_profile(candidate)}:{definition.get('id', '')}@{_resource_canonical_id(candidate['owner'])}"
-
-
-def _capability_match(candidate: dict[str, Any], query: str) -> str | None:
-    definition = candidate["definition"]
-    expected = query.strip().casefold()
-    if not expected:
-        return None
-    if str(definition.get("id") or "").casefold() == expected:
-        return "id"
-    aliases = definition.get("aliases", []) or []
-    if isinstance(aliases, list) and expected in [str(alias).casefold() for alias in aliases]:
-        return "alias"
-    if str(definition.get("name") or "").casefold() == expected:
-        return "name"
-    return None
-
-
-def _capability_summary(candidate: dict[str, Any]) -> dict[str, Any]:
-    definition = candidate["definition"]
-    adapter = definition.get("adapter") if isinstance(definition.get("adapter"), dict) else {}
-    bindings = definition.get("bindings") if isinstance(definition.get("bindings"), list) else []
-    return {
-        "canonical_id": _capability_canonical_id(candidate),
-        "id": str(definition.get("id") or ""),
-        "name": str(definition.get("name") or ""),
-        "profile": _capability_profile(candidate),
-        "status": str(definition.get("status") or "unknown"),
-        "health": str(definition.get("health") or "unknown"),
-        "maturity": str(definition.get("maturity") or "designed"),
-        "definition_owner": _resource_canonical_id(candidate["owner"]),
-        "definition_sha256": _stable_json_sha256(definition),
-        "adapter": {"id": str(adapter.get("id") or ""), "load_state": "deferred"},
-        "binding_ids": [str(binding.get("id") or "") for binding in bindings if isinstance(binding, dict)],
-    }
-
-
-def _capability_failure(
-    query: str | None,
-    failure_class: str,
-    *,
-    profile: str | None = None,
-    candidates: list[dict[str, Any]] | None = None,
-    details: list[str] | None = None,
-) -> dict[str, Any]:
-    return {
-        "schema": CAPABILITY_RESOLUTION_SCHEMA,
-        "verdict": "BLOCKED",
-        "failure_class": failure_class,
-        "query": {"value": query, "profile": profile},
-        "candidates": [_capability_summary(candidate) for candidate in (candidates or [])],
-        "details": details or [],
-    }
-
-
-def capability_discover(args: argparse.Namespace) -> None:
-    home = Path(args.home).expanduser() if args.home else Path.home()
-    candidates, errors = _capability_candidates(home)
-    if errors:
-        receipt = {
-            "schema": CAPABILITY_DISCOVERY_SCHEMA,
-            "verdict": "BLOCKED",
-            "failure_class": "INVALID_CAPABILITY_METADATA",
-            "capabilities": [],
-            "details": errors,
-        }
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if args.profile:
-        candidates = [candidate for candidate in candidates if _capability_profile(candidate).casefold() == args.profile.casefold()]
-    if args.resource:
-        owner_receipt = resolve_resource_ref(home, args.resource, profile=args.profile)
-        if owner_receipt["verdict"] != "RESOLVED":
-            receipt = {
-                "schema": CAPABILITY_DISCOVERY_SCHEMA,
-                "verdict": "BLOCKED",
-                "failure_class": "OWNER_RESOURCE_" + str(owner_receipt["failure_class"]),
-                "capabilities": [],
-                "details": [],
-            }
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-            raise SystemExit(2)
-        owner_id = owner_receipt["resource_ref"]["canonical_id"]
-        candidates = [candidate for candidate in candidates if _resource_canonical_id(candidate["owner"]) == owner_id]
-    receipt = {
-        "schema": CAPABILITY_DISCOVERY_SCHEMA,
-        "verdict": "DISCOVERED",
-        "failure_class": None,
-        "capabilities": sorted((_capability_summary(candidate) for candidate in candidates), key=lambda row: row["canonical_id"]),
-        "adapter_loading": "deferred_until_explicit_resolve_load_adapter",
-    }
-    print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-
-
-def _maturity_is_ready(value: Any) -> bool:
-    return _CAPABILITY_MATURITY.get(str(value or "designed").casefold(), -1) >= _CAPABILITY_MATURITY["verified"]
-
-
-def _binding_match(binding: dict[str, Any], query: str) -> str | None:
-    expected = query.strip().casefold()
-    if not expected:
-        return None
-    if str(binding.get("id") or "").casefold() == expected:
-        return "id"
-    aliases = binding.get("aliases", []) or []
-    if isinstance(aliases, list) and expected in [str(alias).casefold() for alias in aliases]:
-        return "alias"
-    if str(binding.get("name") or "").casefold() == expected:
-        return "name"
-    return None
-
-
-def capability_resolve(args: argparse.Namespace) -> None:
-    home = Path(args.home).expanduser() if args.home else Path.home()
-    candidates, errors = _capability_candidates(home)
-    if errors:
-        receipt = _capability_failure(args.query, "INVALID_CAPABILITY_METADATA", profile=args.profile, details=errors)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-
-    matches: list[dict[str, Any]] = []
-    for candidate in candidates:
-        matched_by = _capability_match(candidate, args.query)
-        if matched_by:
-            candidate = dict(candidate)
-            candidate["matched_by"] = matched_by
-            matches.append(candidate)
-    if args.profile is not None:
-        selected = [candidate for candidate in matches if _capability_profile(candidate).casefold() == args.profile.casefold()]
-        if not selected and matches:
-            receipt = _capability_failure(args.query, "CROSS_PROFILE_CAPABILITY", profile=args.profile, candidates=matches)
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-            raise SystemExit(2)
-        matches = selected
-    elif len({_capability_profile(candidate).casefold() for candidate in matches}) > 1:
-        receipt = _capability_failure(args.query, "CROSS_PROFILE_AMBIGUOUS", candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if not matches:
-        receipt = _capability_failure(args.query, "MISSING_CAPABILITY", profile=args.profile)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if len(matches) > 1:
-        receipt = _capability_failure(args.query, "AMBIGUOUS_CAPABILITY", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-
-    candidate = matches[0]
-    definition = candidate["definition"]
-    owner_record = candidate["owner"]["record"]
-    owner_status = str(owner_record.get("status") or "active").casefold()
-    if bool(owner_record.get("stale")) or owner_status == "archived":
-        receipt = _capability_failure(args.query, "STALE_CAPABILITY_OWNER", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if owner_status != "active":
-        receipt = _capability_failure(args.query, "UNAVAILABLE_CAPABILITY_OWNER", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if definition.get("enabled") is False or str(definition.get("status") or "").casefold() != "active":
-        receipt = _capability_failure(args.query, "DISABLED_CAPABILITY", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if str(definition.get("health") or "unknown").casefold() != "healthy":
-        receipt = _capability_failure(args.query, "UNHEALTHY_CAPABILITY", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if not _maturity_is_ready(definition.get("maturity")):
-        receipt = _capability_failure(args.query, "IMMATURE_CAPABILITY", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-
-    adapter = definition.get("adapter")
-    if not isinstance(adapter, dict) or not isinstance(adapter.get("id"), str) or not adapter.get("id"):
-        receipt = _capability_failure(args.query, "INVALID_ADAPTER_METADATA", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    bindings = definition.get("bindings", []) or []
-    if not isinstance(bindings, list) or not all(isinstance(binding, dict) for binding in bindings):
-        receipt = _capability_failure(args.query, "INVALID_BINDING_METADATA", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    binding_matches = list(bindings)
-    if args.binding:
-        binding_matches = [binding for binding in binding_matches if _binding_match(binding, args.binding)]
-    if args.profile:
-        profile_matches = [
-            binding
-            for binding in binding_matches
-            if str(binding.get("profile") or _capability_profile(candidate)).casefold() == args.profile.casefold()
-        ]
-        if not profile_matches and binding_matches:
-            receipt = _capability_failure(args.query, "CROSS_PROFILE_BINDING", profile=args.profile, candidates=matches)
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-            raise SystemExit(2)
-        binding_matches = profile_matches
-    elif len({str(binding.get("profile") or _capability_profile(candidate)).casefold() for binding in binding_matches}) > 1:
-        receipt = _capability_failure(args.query, "CROSS_PROFILE_AMBIGUOUS_BINDING", candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if not binding_matches:
-        receipt = _capability_failure(args.query, "MISSING_BINDING", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if len(binding_matches) > 1:
-        receipt = _capability_failure(args.query, "AMBIGUOUS_BINDING", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    binding = binding_matches[0]
-    if binding.get("enabled") is False or str(binding.get("status") or "").casefold() != "active":
-        receipt = _capability_failure(args.query, "DISABLED_BINDING", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if str(binding.get("health") or "unknown").casefold() != "healthy":
-        receipt = _capability_failure(args.query, "UNHEALTHY_BINDING", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    if not _maturity_is_ready(binding.get("maturity")):
-        receipt = _capability_failure(args.query, "IMMATURE_BINDING", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-
-    binding_profile = str(binding.get("profile") or _capability_profile(candidate))
-    target_query = binding.get("resource_query")
-    if not isinstance(target_query, str) or not target_query:
-        receipt = _capability_failure(args.query, "MISSING_TARGET_REF", profile=args.profile, candidates=matches)
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-    target = resolve_resource_ref(
-        home,
-        target_query,
-        resource_kind=str(binding.get("resource_kind")) if binding.get("resource_kind") else None,
-        profile=binding_profile,
-    )
-    if target["verdict"] != "RESOLVED":
-        target_failure = str(target["failure_class"])
-        failure_class = "MISSING_TARGET_RESOURCE" if target_failure == "MISSING_RESOURCE" else "TARGET_RESOURCE_" + target_failure
-        receipt = _capability_failure(args.query, failure_class, profile=args.profile, candidates=matches)
-        receipt["target_resolution"] = target
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        raise SystemExit(2)
-
-    adapter_receipt: dict[str, Any] = {"id": adapter["id"], "load_state": "deferred"}
-    if args.load_adapter:
-        adapter_query = adapter.get("resource_query")
-        if not isinstance(adapter_query, str) or not adapter_query:
-            receipt = _capability_failure(args.query, "MISSING_ADAPTER_REF", profile=args.profile, candidates=matches)
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-            raise SystemExit(2)
-        adapter_profile = str(adapter.get("profile") or _capability_profile(candidate))
-        adapter_resolution = resolve_resource_ref(
-            home,
-            adapter_query,
-            resource_kind=str(adapter.get("resource_kind")) if adapter.get("resource_kind") else None,
-            profile=adapter_profile,
-        )
-        if adapter_resolution["verdict"] != "RESOLVED":
-            adapter_failure = str(adapter_resolution["failure_class"])
-            failure_class = "MISSING_ADAPTER_RESOURCE" if adapter_failure == "MISSING_RESOURCE" else "ADAPTER_RESOURCE_" + adapter_failure
-            receipt = _capability_failure(args.query, failure_class, profile=args.profile, candidates=matches)
-            receipt["adapter_resolution"] = adapter_resolution
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-            raise SystemExit(2)
-        adapter_receipt = {
-            "id": adapter["id"],
-            "load_state": "ready",
-            "resource_ref": adapter_resolution["resource_ref"],
-            "provider_code_executed": False,
-        }
-
-    owner_ref = _resource_ref_from_candidate(home, candidate["owner"], "capability-owner")
-    receipt = {
-        "schema": CAPABILITY_RESOLUTION_SCHEMA,
-        "verdict": "RESOLVED",
-        "failure_class": None,
-        "query": {"value": args.query, "profile": args.profile},
-        "capability": {
-            "id": str(definition.get("id") or ""),
-            "name": str(definition.get("name") or ""),
-            "profile": _capability_profile(candidate),
-            "matched_by": candidate["matched_by"],
-            "status": str(definition.get("status")),
-            "health": str(definition.get("health")),
-            "maturity": str(definition.get("maturity")),
-            "definition_sha256": _stable_json_sha256(definition),
-            "owner_resource_ref": owner_ref,
-        },
-        "binding": {
-            "id": str(binding.get("id") or ""),
-            "profile": binding_profile,
-            "status": str(binding.get("status")),
-            "health": str(binding.get("health")),
-            "maturity": str(binding.get("maturity")),
-        },
-        "target_resource_ref": target["resource_ref"],
-        "adapter": adapter_receipt,
-        "authorization": {
-            "implemented": False,
-            "ref": definition.get("authorization_ref"),
-            "state": "NOT_EVALUATED",
-        },
-    }
-    print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _decision_failure(
@@ -5945,6 +5728,14 @@ def build_parser() -> argparse.ArgumentParser:
     sec_run.add_argument("command", nargs=argparse.REMAINDER)
     sec_run.set_defaults(func=secret_run)
 
+    sec_rotate = sec_sub.add_parser("rotate", help="atomically update consumer-allow-listed secret fields from stdin")
+    sec_rotate.add_argument("secret_id")
+    sec_rotate.add_argument("--consumer", required=True)
+    sec_rotate_input = sec_rotate.add_mutually_exclusive_group(required=True)
+    sec_rotate_input.add_argument("--field", help="update one allow-listed secret field from stdin")
+    sec_rotate_input.add_argument("--json-stdin", action="store_true", help="update several allow-listed fields from a JSON object on stdin")
+    sec_rotate.set_defaults(func=secret_rotate)
+
     sec_index = sec_sub.add_parser("index", help="index app/OS-owned secret locations without reading secret values")
     sec_index_sub = sec_index.add_subparsers(dest="index_cmd", required=True)
     sec_native = sec_index_sub.add_parser("native", help="index native SSH/Caddy secret locations")
@@ -5960,21 +5751,6 @@ def build_parser() -> argparse.ArgumentParser:
     resource_resolve_parser.add_argument("--profile")
     resource_resolve_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
     resource_resolve_parser.set_defaults(func=resource_resolve)
-
-    capability = sub.add_parser("capability", help="discover and route capability metadata embedded in existing resources")
-    capability_sub = capability.add_subparsers(dest="capability_cmd", required=True)
-    capability_discover_parser = capability_sub.add_parser("discover", help="list capability definitions without loading adapters")
-    capability_discover_parser.add_argument("--resource", help="restrict discovery to one exact resource")
-    capability_discover_parser.add_argument("--profile")
-    capability_discover_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
-    capability_discover_parser.set_defaults(func=capability_discover)
-    capability_resolve_parser = capability_sub.add_parser("resolve", help="resolve one capability and its explicit target binding")
-    capability_resolve_parser.add_argument("query")
-    capability_resolve_parser.add_argument("--binding", help="exact binding ID, alias, or name")
-    capability_resolve_parser.add_argument("--profile")
-    capability_resolve_parser.add_argument("--load-adapter", action="store_true", help="on demand: resolve adapter ResourceRef; never executes provider code")
-    capability_resolve_parser.add_argument("--json", action="store_true", help="accepted for consistency; output is always JSON")
-    capability_resolve_parser.set_defaults(func=capability_resolve)
 
     decision = sub.add_parser("decision", help="route and shape-check a provider-neutral Decision packet")
     decision_sub = decision.add_subparsers(dest="decision_cmd", required=True)

@@ -27,13 +27,12 @@ class AiosRouteCliTests(unittest.TestCase):
             home = Path(raw_home)
             top = self.run_cli(home, "--help")
             self.assertEqual(top.returncode, 0, top.stderr)
-            for command in ("resource", "capability", "decision"):
+            for command in ("resource", "decision"):
                 self.assertIn(command, top.stdout)
                 result = self.run_cli(home, command, "--help")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("usage:", result.stdout)
             self.assertIn("resolve", self.run_cli(home, "resource", "--help").stdout)
-            self.assertIn("discover", self.run_cli(home, "capability", "--help").stdout)
             self.assertIn("check", self.run_cli(home, "decision", "--help").stdout)
 
     def test_malformed_existing_registry_fails_closed_as_json(self) -> None:
@@ -50,19 +49,11 @@ class AiosRouteCliTests(unittest.TestCase):
             self.assertEqual(receipt["verdict"], "BLOCKED")
             self.assertEqual(receipt["failure_class"], "INVALID_RESOURCE_SOURCE")
 
-            result = self.run_cli(home, "capability", "discover", "--json")
-            self.assertEqual(result.returncode, 2)
-            self.assertEqual(result.stderr, "")
-            receipt = json.loads(result.stdout)
-            self.assertEqual(receipt["verdict"], "BLOCKED")
-            self.assertEqual(receipt["failure_class"], "INVALID_CAPABILITY_METADATA")
-
     def test_missing_routes_return_structured_fail_closed_receipts(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aios-route-missing-") as raw_home:
             home = Path(raw_home)
             cases = [
                 (("resource", "resolve", "missing", "--json"), "aios.resource-resolution.v1", "MISSING_RESOURCE"),
-                (("capability", "resolve", "missing", "--json"), "aios.capability-resolution.v1", "MISSING_CAPABILITY"),
             ]
             for argv, schema, failure_class in cases:
                 with self.subTest(argv=argv):
