@@ -47,7 +47,7 @@
 | 类别 | Skills | 用途 |
 |---|---|---|
 | 文档处理 | `docx`、`pptx`、`xlsx`、`pdf` | 让 Agent 能读写/检查常见办公文档与 PDF |
-| Skill 生态 | `find-skills`、`skill-creator`、`install-skill` | 发现、安装、创建和维护可复用 Agent skills |
+| Skill 生态 | `find-skills`、`skill-governance`、`install-skill` | 发现、治理、安装和维护可复用 Agent skills；创建规则按需加载治理 Skill 的 reference |
 | MCP / 工具发现 | `awesome-mcp-servers-discovery` | 调研和筛选 MCP server |
 | 前端与设计 | `frontend-design`、`ui-ux-pro-max`、`vercel-composition-patterns`、`web-design-guidelines` | UI/UX、前端架构和 Web 设计审查 |
 | 领域建模 | `domain-modeling` | 澄清领域术语、维护领域模型，并在必要时记录 ADR |

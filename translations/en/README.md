@@ -53,7 +53,7 @@ Do not read, print, or commit secret values, subscription URLs, tokens, keys, or
 | Category | Skills | Purpose |
 |---|---|---|
 | Document processing | `docx`, `pptx`, `xlsx`, `pdf` | Enables Agents to read, write, and inspect common office documents and PDFs |
-| Skill ecosystem | `find-skills`, `skill-creator`, `install-skill` | Discovers, installs, creates, and maintains reusable Agent skills |
+| Skill ecosystem | `find-skills`, `skill-governance`, `install-skill` | Discovers, governs, installs, and maintains reusable Agent skills; creation rules load on demand from the governance reference |
 | MCP / tool discovery | `awesome-mcp-servers-discovery` | Researches and evaluates MCP servers |
 | Frontend and design | `frontend-design`, `ui-ux-pro-max`, `vercel-composition-patterns`, `web-design-guidelines` | UI/UX, frontend architecture, and web design review |
 | Domain modeling | `domain-modeling` | Clarifies domain terminology, maintains domain models, and records ADRs when warranted |

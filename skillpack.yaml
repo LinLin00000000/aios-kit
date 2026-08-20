@@ -34,11 +34,6 @@ external:
     skill: find-skills
     enabled: true
     reason: Discover/install additional agent skills.
-  - id: skill-creator
-    source: anthropics/skills
-    skill: skill-creator
-    enabled: true
-    reason: Author and improve reusable skills.
   - id: awesome-mcp-servers-discovery
     source: aradotso/mcp-skills
     skill: awesome-mcp-servers-discovery

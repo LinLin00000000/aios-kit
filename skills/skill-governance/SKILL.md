@@ -1,15 +1,17 @@
 ---
 name: skill-governance
-description: "Use when a Skill needs lifecycle, canonical-source, provenance/license, manifest, runtime projection, install-state, adoption, deprecation, deletion, or rollback governance. Route authoring and evaluation mechanics to skill-creator."
+description: "Use when a Skill needs lifecycle, creation, canonical-source, provenance/license, manifest, runtime projection, install-state, adoption, deprecation, deletion, or rollback governance. Load the creation contract reference only for Skill creation or revision work."
 license: Apache-2.0
 metadata:
   formal_id: skill-governance
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Skill Governance
 
 This is the narrow first-party owner for Skill lifecycle and source/projection integrity. It governs how a Skill moves between lifecycle states; it does not author every Skill, own every audit, or manage general workflows.
+
+For creating or materially revising a Skill, load `references/skill-creation-contract.md` after this main body. It is deliberately second-level context: ordinary lifecycle work does not pay the full creation-method context cost.
 
 ## Owner contract
 
@@ -45,8 +47,8 @@ Treat provenance and license as entry gates, not cleanup details.
 
 - Record the origin, ownership class, license, and local-change policy before adoption or synthesis.
 - Reuse concepts only when a new first-party Skill is synthesized from external practice; do not copy external prose, body text, scripts, templates, assets, or code without an explicit licensed vendoring decision.
-- Keep Anthropic's external `skill-creator` package as an Apache-2.0 authoring, evaluation, viewer, description-optimization, and packaging companion. Its files, code, templates, and `LICENSE.txt` remain external and independently owned.
-- Keep `skill-library-governance/references/` as specialized read-only audit material. Those references may support reconciliation evidence but do not own lifecycle mutation.
+- Keep the external Anthropic `skill-creator` package's provenance and license boundaries in the private recovery snapshot. It is an optional evaluation/authoring companion, not an active first-party owner; its files, code, templates, and `LICENSE.txt` are not copied into `aios-kit`.
+- Keep `skill-governance/references/library-audit/` as specialized read-only audit material. Those references may support reconciliation evidence but do not own lifecycle mutation.
 
 A license mismatch, missing provenance, ambiguous owner, or same-name competing source fails closed.
 
@@ -56,10 +58,11 @@ Every operation has a bounded gate and a receipt:
 
 ### Create
 
-1. Confirm that no same-name canonical source, manifest entry, runtime target, or install-state row exists.
-2. Select the canonical first-party source and license before creating content.
-3. Prepare and validate a task-local candidate before touching live surfaces.
-4. Add exactly one owner-manifest entry and project it only through the declared owner actuator.
+1. Load `references/skill-creation-contract.md` and decide whether a new Skill is warranted.
+2. Confirm that no same-name canonical source, manifest entry, runtime target, or install-state row exists.
+3. Select the canonical first-party source and license before creating content.
+4. Prepare and validate a task-local candidate before touching live surfaces.
+5. Add exactly one owner-manifest entry and project it only through the declared owner actuator.
 
 ### Revise
 
@@ -115,8 +118,9 @@ Expected-current, preimage, postimage, rollback, and readback are one transactio
 ## Safe owner routing
 
 - Skill lifecycle, canonical source, ownership class, provenance/license, manifest/projection/install-state classification, adoption, deprecation, deletion, and rollback route here.
-- Drafting, editing craft, trigger evaluation, benchmark/viewer operation, description optimization, and packaging mechanics route to the external `skill-creator` companion.
-- Specialized library, loader, Curator, provenance-drift, overlap, consumer, and package-coherence investigations may use the compatibility package's read-only references.
+- Skill creation decisions, minimum body shape, narrow triggers, progressive disclosure, creation validation, thinning, shelfing, merge, and retirement criteria route to `references/skill-creation-contract.md`.
+- Specialized library, loader, Curator, provenance-drift, overlap, consumer, and package-coherence investigations load the concrete reference under `references/library-audit/` only when needed.
+- The external Anthropic `skill-creator` package is an optional, separately licensed evaluation/authoring recovery companion; it is not the first-party lifecycle owner and is not part of the default active route.
 - Decision framing routes to its decision-method owner; Matter/LLL, workflow topology, domain criteria, CLI behavior, Secret state, and product governance route to their exact owners.
 
 When routing is ambiguous, resolve the current owner and stop before mutation rather than creating another source or management layer.
@@ -127,4 +131,4 @@ A successful producer transaction establishes an applied candidate only. Accepta
 
 ## First-party provenance
 
-`skill-governance` is an Apache-2.0 first-party synthesis of lifecycle and source/projection governance concepts. It contains original narrow guidance. No external `skill-creator` prose, body text, scripts, templates, assets, or code is copied. The external companion remains separately licensed and owned.
+`skill-governance` is an Apache-2.0 first-party synthesis of lifecycle, source/projection, and model-neutral Skill creation governance. The creation contract and library-audit references are original or separately preserved read-only audit materials; no external `skill-creator` prose, body text, scripts, templates, assets, or code is copied. The external package is retained only as a private recovery/optional evaluation companion with its own provenance and license.
