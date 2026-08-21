@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -116,6 +117,203 @@ def instance_paths(home: Path, *, root: str | None = None, ops: str | None = Non
         "cache": root_path / "cache",
         "view": root_path / "view",
     }
+
+
+OPS_LOG_REQUIRED_FIELDS = (
+    "schema_version",
+    "ts",
+    "date",
+    "actor",
+    "type",
+    "scope",
+    "summary",
+    "status",
+)
+OPS_LOG_MAX_ENTRY_BYTES = 256 * 1024
+
+
+def _ops_log_fail(message: str) -> None:
+    raise SystemExit(f"aios ops log append: {message}")
+
+
+def _ops_log_timestamp(raw: str | None) -> tuple[str, str]:
+    if raw is None:
+        value = _dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    else:
+        value = raw.strip()
+    try:
+        parsed = _dt.datetime.fromisoformat(value)
+    except ValueError:
+        _ops_log_fail("--ts must be a valid ISO-8601 timestamp with an explicit timezone offset")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        _ops_log_fail("--ts must include an explicit timezone offset")
+    return value, parsed.date().isoformat()
+
+
+def _ops_log_scalar(name: str, value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        _ops_log_fail(f"--{name} must not be empty")
+    if "\x00" in cleaned:
+        _ops_log_fail(f"--{name} must not contain NUL bytes")
+    return cleaned
+
+
+def _ops_log_source(values: list[str]) -> dict[str, str]:
+    source: dict[str, str] = {}
+    for value in values:
+        key, separator, item = value.partition("=")
+        key = key.strip()
+        item = item.strip()
+        if not separator or not key or not item:
+            _ops_log_fail("--source must use non-empty KEY=VALUE syntax")
+        if key in source:
+            _ops_log_fail(f"duplicate --source key: {key}")
+        source[key] = item
+    return source
+
+
+def _ops_log_read_fd(fd: int) -> bytes:
+    chunks: list[bytes] = []
+    offset = 0
+    while True:
+        chunk = os.pread(fd, 1024 * 1024, offset)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        offset += len(chunk)
+
+
+def _ops_log_validate_existing(payload: bytes) -> int:
+    if not payload:
+        return 0
+    if not payload.endswith(b"\n"):
+        _ops_log_fail("existing maintenance log is missing its terminal newline")
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        _ops_log_fail(f"invalid existing maintenance log UTF-8: {exc}")
+    line_count = 0
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            _ops_log_fail(f"invalid existing maintenance log: blank line {line_number}")
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as exc:
+            _ops_log_fail(f"invalid existing maintenance log JSON at line {line_number}: {exc.msg}")
+        if not isinstance(item, dict):
+            _ops_log_fail(f"invalid existing maintenance log object at line {line_number}")
+        line_count += 1
+    return line_count
+
+
+def ops_log_append(args: argparse.Namespace) -> None:
+    """Append one complete, verified JSON event without replacing the log inode."""
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    ops_root = instance_paths(home)["ops"]
+    log_path = ops_root / "maintenance-log.jsonl"
+    lock_path = ops_root / ".maintenance-log.lock"
+    if not ops_root.is_dir():
+        _ops_log_fail(f"OPS vault does not exist: {ops_root}")
+    try:
+        metadata = log_path.lstat()
+    except FileNotFoundError:
+        _ops_log_fail(f"maintenance log does not exist: {log_path}")
+    if not stat.S_ISREG(metadata.st_mode) or log_path.is_symlink():
+        _ops_log_fail("maintenance log must be a regular non-symlink file")
+    if metadata.st_nlink != 1:
+        _ops_log_fail("maintenance log must have exactly one hard link")
+
+    ts, date = _ops_log_timestamp(args.ts)
+    entry: dict[str, Any] = {
+        "schema_version": 1,
+        "ts": ts,
+        "date": date,
+        "actor": _ops_log_scalar("actor", args.actor),
+        "type": _ops_log_scalar("type", args.event_type),
+        "scope": _ops_log_scalar("scope", args.scope),
+        "summary": _ops_log_scalar("summary", args.summary),
+        "objects": args.object,
+        "changes": args.change,
+        "verification": args.verification,
+        "impact": args.impact,
+        "followups": args.followup,
+        "artifacts": args.artifact,
+        "status": _ops_log_scalar("status", args.status),
+        "tags": args.tag,
+    }
+    source = _ops_log_source(args.source)
+    if source:
+        entry["source"] = source
+    if args.sensitive_handling:
+        entry["sensitive_handling"] = _ops_log_scalar("sensitive-handling", args.sensitive_handling)
+    missing = [field for field in OPS_LOG_REQUIRED_FIELDS if field not in entry or entry[field] in (None, "")]
+    if missing:
+        _ops_log_fail(f"entry is missing required fields: {', '.join(missing)}")
+    encoded = (json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    if len(encoded) > OPS_LOG_MAX_ENTRY_BYTES:
+        _ops_log_fail(f"entry exceeds {OPS_LOG_MAX_ENTRY_BYTES} bytes")
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    cloexec = getattr(os, "O_CLOEXEC", 0)
+    try:
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | nofollow | cloexec, 0o600)
+    except OSError as exc:
+        _ops_log_fail(f"cannot open lock file: {exc}")
+    try:
+        os.fchmod(lock_fd, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            log_fd = os.open(log_path, os.O_RDWR | os.O_APPEND | nofollow | cloexec)
+        except OSError as exc:
+            _ops_log_fail(f"cannot open maintenance log with O_APPEND: {exc}")
+        try:
+            current = os.fstat(log_fd)
+            if not stat.S_ISREG(current.st_mode) or current.st_nlink != 1:
+                _ops_log_fail("maintenance log identity changed or is not a single-link regular file")
+            if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+                _ops_log_fail("maintenance log identity changed before append")
+            mode = stat.S_IMODE(current.st_mode)
+            if mode != 0o600:
+                _ops_log_fail(f"maintenance log mode must be 0600 before append (current {mode:04o}); configure permissions separately")
+            before = _ops_log_read_fd(log_fd)
+            previous_lines = _ops_log_validate_existing(before)
+            written = os.write(log_fd, encoded)
+            if written != len(encoded):
+                _ops_log_fail(f"short append write: expected {len(encoded)} bytes, wrote {written}")
+            os.fsync(log_fd)
+            after = _ops_log_read_fd(log_fd)
+            prefix_preserved = after[: len(before)] == before
+            readback_verified = prefix_preserved and after[len(before) :] == encoded
+            if not readback_verified:
+                _ops_log_fail("append readback failed; existing prefix or appended record differs")
+        finally:
+            os.close(log_fd)
+    finally:
+        os.close(lock_fd)
+
+    receipt = {
+        "schema": "aios.ops-log-append.v1",
+        "version": 1,
+        "ok": True,
+        "path": str(log_path),
+        "inode": current.st_ino,
+        "previous_lines": previous_lines,
+        "line_number": previous_lines + 1,
+        "entry_bytes": len(encoded),
+        "entry_sha256": hashlib.sha256(encoded).hexdigest(),
+        "prefix_bytes": len(before),
+        "prefix_sha256": hashlib.sha256(before).hexdigest(),
+        "prefix_preserved": prefix_preserved,
+        "readback_verified": readback_verified,
+    }
+    if args.json:
+        print(json.dumps(receipt, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+    else:
+        print(
+            f"appended line {receipt['line_number']} to {display_path(log_path, home)} "
+            f"(prefix_preserved=true readback_verified=true entry_sha256={receipt['entry_sha256']})"
+        )
 
 
 def display_path(path: Path, home: Path | None = None) -> str:
@@ -5659,6 +5857,32 @@ def build_parser() -> argparse.ArgumentParser:
     upd.add_argument("--no-skills", action="store_true", help="with `update all`, skip managed skills")
     upd.add_argument("--no-ops", action="store_true", help="with `update all`, skip re-running the OPS vault template installer")
     upd.set_defaults(func=update)
+
+    ops = sub.add_parser("ops", help="operate the local OPS vault through guarded native commands")
+    ops_sub = ops.add_subparsers(dest="ops_cmd", required=True)
+    ops_log = ops_sub.add_parser("log", help="operate the append-only OPS maintenance log")
+    ops_log_sub = ops_log.add_subparsers(dest="ops_log_cmd", required=True)
+    ops_log_append_parser = ops_log_sub.add_parser(
+        "append",
+        help="append one validated event with locking, O_APPEND, fsync, and readback",
+    )
+    ops_log_append_parser.add_argument("--actor", required=True)
+    ops_log_append_parser.add_argument("--type", dest="event_type", required=True)
+    ops_log_append_parser.add_argument("--scope", required=True)
+    ops_log_append_parser.add_argument("--summary", required=True)
+    ops_log_append_parser.add_argument("--status", required=True, help="non-empty status value; common values are done/pending/failed/superseded")
+    ops_log_append_parser.add_argument("--ts", help="ISO-8601 timestamp with explicit offset; defaults to now")
+    ops_log_append_parser.add_argument("--object", action="append", default=[])
+    ops_log_append_parser.add_argument("--change", action="append", default=[])
+    ops_log_append_parser.add_argument("--verification", action="append", default=[])
+    ops_log_append_parser.add_argument("--impact", action="append", default=[])
+    ops_log_append_parser.add_argument("--followup", action="append", default=[])
+    ops_log_append_parser.add_argument("--artifact", action="append", default=[])
+    ops_log_append_parser.add_argument("--tag", action="append", default=[])
+    ops_log_append_parser.add_argument("--source", action="append", default=[], metavar="KEY=VALUE")
+    ops_log_append_parser.add_argument("--sensitive-handling")
+    ops_log_append_parser.add_argument("--json", action="store_true", help="emit a machine-readable append receipt")
+    ops_log_append_parser.set_defaults(func=ops_log_append)
 
 
     sec = sub.add_parser("secret", help="manage AIOS secret metadata, requests, receipts, replicas, and safe runtime injection")

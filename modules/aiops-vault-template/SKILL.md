@@ -90,7 +90,7 @@ When operating through an actuator project:
 7. Verify with real output from the consumer side: health check, log, HTTP request, `systemctl`, `docker ps`, backup listing, or equivalent.
 8. Update the right layer:
    - current facts -> `resources.md` or service card;
-   - important history -> one appended `maintenance-log.jsonl` object;
+   - important history -> one appended `maintenance-log.jsonl` object through the native `aios ops log append` command;
    - secret locations -> `secrets-location.md` without values;
    - service-local details -> service README/card.
 9. If a task crosses into secret intake, Secret Runtime/CLI workflows, AI API profiles, consumers/replicas, GitHub Secrets sync, or preventing agents from seeing secret values, load `aios-secret-management`; this skill only records ops/current-state and does not own secret runtime procedure.
@@ -102,7 +102,7 @@ When operating through an actuator project:
 
 - Global current state belongs in `resources.md`; service-local current state belongs in its service card; discovery metadata stays short and stable in `service.json`. None of them should exist only in the history log.
 - History belongs in `maintenance-log.jsonl`, one valid JSON object per line.
-- New maintenance-log entries must include the schema-required core fields used by `aiops.py check`: `schema_version`, `ts`, `date`, `actor`, `type`, `scope`, `summary`, and `status`. Prefer starting from `templates/log-entry.json` or the local `maintenance-log.schema.md` example instead of ad-hoc JSON.
+- New maintenance-log entries must include the schema-required core fields used by `aiops.py check`: `schema_version`, `ts`, `date`, `actor`, `type`, `scope`, `summary`, and `status`. Use `aios ops log append`; do not call `write_text`, `open(..., "w")`, `os.replace`, `cp`, `rsync`, or an ad-hoc Python writer against the live log. `scripts/aiops.py` remains a read/check interface.
 - Corrections should be new `correction` or `supersede` entries; do not rewrite history unless the user asks for a migration. If the just-appended line is malformed and `aiops.py check` fails, fix that fresh line immediately before finalizing.
 - Avoid duplicating the same fact across README, resources, service cards, and logs. Pick the owning layer.
 - Do not add long lists of likely user utterances to public fixtures, skills, `resources.md`, or service metadata. Let the Agent perform semantic selection from compact metadata; exact aliases are only canonical names/shorthands.
@@ -112,6 +112,10 @@ When operating through an actuator project:
 ## Validation checklist
 
 Before finalizing:
+
+- run `aios ops log append --help` and use the native command for any history write;
+- verify the append receipt reports `prefix_preserved=true` and `readback_verified=true`;
+- keep the live log mode at `0600` and, on ext4, protect the active log with `chattr +a`;
 
 - `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" check` passes or failures are explained.
 - JSONL files parse.

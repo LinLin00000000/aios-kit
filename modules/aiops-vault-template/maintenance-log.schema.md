@@ -4,6 +4,25 @@
 
 Each line is one JSON object. Prefer adding a `correction` or `supersede` event over editing old history.
 
+## Authoritative write path
+
+Use the native AIOS command from the installed `aios-kit` entrypoint:
+
+```bash
+aios ops log append \
+  --actor hermes-agent \
+  --type correction \
+  --scope example-scope \
+  --summary "One sentence summary" \
+  --status done \
+  --verification "readback passed" \
+  --json
+```
+
+The command validates the existing JSONL prefix, obtains an exclusive lock, opens the file with `O_APPEND`, writes one complete line, calls `fsync`, and verifies that the old prefix and new line read back byte-for-byte. The read-only `scripts/aiops.py` interface is for index/query/check operations; it is not a write path.
+
+Do not use `write_text`, `open(..., "w")`, `truncate`, `os.replace`, `cp`, `rsync`, or an ad-hoc Python script against the live log. On ext4, the active log should also be protected with `chmod 0600` and `chattr +a`.
+
 ## Recommended object
 
 ```json

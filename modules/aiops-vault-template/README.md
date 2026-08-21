@@ -10,6 +10,7 @@ It is not a CMDB SaaS, not a password manager, and not a deployment platform. It
 - **Dynamic context CLI**: `scripts/aiops.py services --json` emits only `id + name + summary`; the Agent/LLM selects the relevant service semantically, then `service <id> --json` loads that service's metadata, details, and references. The CLI does not pretend token overlap is semantic understanding.
 - **Thin skills**: portable agent instructions for reading the vault, respecting secret boundaries, verifying changes, and writing back only the right layer.
 - **Safe defaults**: real secrets stay out of Git; the public repo ships examples only.
+- **Guarded history writes**: use the native `aios ops log append` command; the vault query/check script is not a write API.
 
 ## Quick install prompt for an agent
 
@@ -112,7 +113,7 @@ python3 scripts/aiops.py check
 3. Create your private `secrets-location.md` from the example and keep it out of Git.
 4. Run `python3 scripts/aiops.py services --json` and `python3 scripts/aiops.py check`.
 5. Ask your agent to use the installed `aiops-vault` skill before operating services.
-6. After the first real maintenance action, append one JSON line to `maintenance-log.jsonl`.
+6. After the first real maintenance action, append one JSON line with `aios ops log append`; never overwrite or reconstruct the live JSONL file for a normal event.
 
 ## Updating an installed vault
 
