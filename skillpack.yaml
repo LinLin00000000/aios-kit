@@ -157,3 +157,12 @@ first_party:
     default_mode: copy
     targets: universal
     reason: "Narrow first-party owner for Skill lifecycle, canonical-source/projection integrity, provenance, and rollback governance."
+
+  - id: native-audio-understanding
+    path: skills/native-audio-understanding
+    source: LinLin00000000/aios-kit
+    skill: native-audio-understanding
+    enabled: true
+    default_mode: copy
+    targets: universal
+    reason: "Portable helper that sends a local audio file through an explicit native or OpenAI-compatible media protocol."
