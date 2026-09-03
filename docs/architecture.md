@@ -1,6 +1,6 @@
 # aios-kit 架构
 
-`aios-kit` 是一个装配/控制仓库，不是把所有资产都吞进来的 monorepo。
+`aios-kit` 是一个装配/控制仓库，不是把所有资产都吞进来的 monorepo。它的默认形态是 **Agent-first 的上下文工程骨架**：先按当前意图加载最小必要上下文，再把动作交给真正的 owner；只有跨会话、跨任务或安全边界确实需要时，才保留显式事实记录。
 
 ## 核心决策
 
@@ -15,28 +15,40 @@
 
 AIOS 的架构假设是：**Agent 是默认操作者，人类是授权者、目标设定者和兜底操作者**。普通用户不需要记住低层命令；低层命令存在，是为了让 Agent 有稳定、可验证、可恢复的执行面。
 
-最小交互模型：
+AIOS 的进一步设计原则是：**管理本身就是上下文工程**。数据资产、服务器、服务资源、云服务、项目、Skill 和行动能力，不默认对应一套传统管理平台；它们首先是不同 owner 提供的分层上下文。Agent 先加载紧凑候选，再按语义选择 owner，最后只在真实动作边界绑定稳定资源和安全事实。
 
 ```text
-Human Intent -> Agent Policy -> Machine Actuation -> State/Evidence
-人类意图 -> Agent 策略 -> 机器执行 -> 状态/证据
+Human Intent
+  -> Bootstrap Context
+  -> Compact Candidate Context
+  -> Agent Semantic Route
+  -> Owner Context
+  -> Action/Resource Context
+  -> Owner Actuator
+  -> Minimal State/Evidence
 ```
+
+精确 ID、路径、remote、版本和 consumer 仍可存在，但它们是最终 binding、幂等和审计句柄，不是用户必须先记住的发现入口。
 
 | 层 | 负责内容 | 典型载体 |
 |---|---|---|
 | Human Intent | 用户用自然语言表达目标、约束、授权和验收标准 | 对话、确认、偏好 |
-| Agent Policy | Agent 判断应该怎么做、是否安全、是否需要询问、用哪个工具 | skills、repo docs、registry、vault facts、LLL mission |
-| Machine Actuation | 执行确定性动作，尽量可 dry-run、doctor、validate、JSON 化、幂等 | `aios` CLI、scripts、MCP tools、APIs、文件操作 |
-| State/Evidence | 长期事实、变更证据、安装状态、维护记录和可恢复工作上下文 | manifest、registry、vault、install-state、logs、LLL workdir |
+| Agent Policy | Agent 判断应该怎么做、是否安全、是否需要询问、用哪个工具 | skills、compact catalog、本地项目上下文、owner 文档、必要时的 registry/vault facts、LLL mission |
+| Machine Actuation | 执行确定性动作，尽量可 dry-run、doctor、validate、JSON 化、幂等 | `aios` CLI、owner CLI、scripts、MCP tools、官方 API、文件操作 |
+| State/Evidence | 长期事实、变更证据、安装状态、维护记录和可恢复工作上下文 | 只有必要时的 manifest/registry、vault、install-state、logs、LLL workdir |
 
 这不是“把所有东西自动化”的口号，而是具体影响仓库边界和命令设计：
 
-1. **稳定探针优先**：每个长期模块都应尽量暴露 `doctor`、`status`、`validate` 和 `--json`，方便 agent 判断能否继续。
-2. **人类命令是 fallback**：文档中的 shell 命令需要可复制，但主要价值是让 agent 有明确操作面；正常情况下人类不需要逐条理解。
-3. **控制面不吞状态机**：AIOS 可以代理 `aios lll ...`，但 LLL 的队列、lease、runner、artifacts 仍归 LLL 协议/CLI 管理。
-4. **文件化治理**：项目注册、OPS vault、安装状态、维护日志和 LLL workdir 是跨 agent 的共同事实层。
-5. **公开可恢复**：公开仓库必须能在 fresh clone / Docker / 新机器上恢复关键能力，不能只依赖作者机器上的隐式 symlink。
-6. **自迭代优先**：Agent 在 AIOS 相关任务中发现反复失败、流程冗长、验证缺口或工具边界不清时，应主动提出或执行对 skill、文档、CLI、验证脚本和工作流的改进。
+1. **上下文优先，登记从严**：先加载当前意图所需的 compact catalog、项目/服务本地上下文和 owner 文档；只有需要稳定跨任务事实、资源边界或安全回读时才登记对象。
+2. **官方能力优先**：新增接入先查官方 CLI、官方 Skill、官方 MCP 和官方文档，再考虑 AIOps service card、薄引导 Skill、窄脚本，传统 API 直连最后考虑。
+3. **入口不要求精确字符串**：Agent 负责语义选择候选；精确 ID、路径、remote、版本和 consumer 只在最终安全 binding、执行和审计时出现。
+4. **分层动态上下文**：Bootstrap → compact candidates → owner context → action/resource context；每层只加载下一层所需内容，不建立全文常驻或递归上下文平台。
+5. **稳定探针优先**：每个长期模块都应尽量暴露 `doctor`、`status`、`validate` 和 `--json`，方便 Agent 判断能否继续，但不因此制造统一健康中心。
+6. **人类命令是 fallback**：文档中的 shell 命令需要可复制，但主要价值是让 Agent 有明确操作面；正常情况下人类不需要逐条理解。
+7. **控制面不吞状态机**：AIOS 可以代理 `aios lll ...`，但 LLL 的队列、lease、runner、artifacts 仍归 LLL 协议/CLI 管理。
+8. **文件化治理**：真正需要持久化的事实才进入 vault、必要的 registry、安装状态、维护日志和 LLL workdir；可由 owner 上下文即时恢复的内容不重复登记。
+9. **公开可恢复**：公开仓库必须能在 fresh clone / Docker / 新机器上恢复关键能力，不能只依赖作者机器上的隐式 symlink。
+10. **自迭代优先**：Agent 在 AIOS 相关任务中发现反复失败、流程冗长、验证缺口或工具边界不清时，应主动提出或执行对 skill、文档、CLI、验证脚本和工作流的改进。
 
 ## 渐进式演化
 
@@ -80,7 +92,7 @@ AIOS 可以在 `~/aios/cache/github/` 保留公开 GitHub 仓库的可重建获�
 
 - GitHub upstream 是外部源码真源；cache 的 authority 为 none，可以重建。
 - 当前 LLL Worksite 仍拥有 query、判断、receipt、pinned full SHA、cited paths 和必要证据。
-- Project/Source Registry 不为每个被调研的公共仓库新增长期条目；Managed Zone 不接收原始完整 clone。
+- 不为每个被调研的公共仓库新增长期 Project/Source 记录；Managed Zone 不接收原始完整 clone。
 - 搜索/README evidence 不自动触发 clone；只有选定仓库需要完整源码时才调用 `scripts/github_source_cache.py`。
 - 共享 cache 不作为可写工作树；实验/阅读从 pinned SHA 派生 cache root 外的 task-local detached worktree。
 - cache 是 Linux/WSL 上的 bare partial clone；本地状态探针禁止 lazy fetch，只有显式 fetch/refresh 或 worktree hydrate 才可联网。首次 cache 仅在完整验证后 no-replace 原子发布。
@@ -91,7 +103,7 @@ AIOS 可以在 `~/aios/cache/github/` 保留公开 GitHub 仓库的可重建获�
 ### Federated search boundary
 
 - AIOS 只统一 task semantics 与 provenance：Search Request、run-scoped Route、Run Evidence、Worksite Receipt。
-- Source identity/owner/location 仍归 Source Registry + Resource Resolver；动作直接跟随 `owner_ref` 到 domain/provider Skill 或 service card，account/Secret/health 归实际执行器 owner。
+- 稳定 Source identity/owner/location 仍由现有 Source 记录与动作边界 ResourceRef 绑定；动作直接跟随 `owner_ref` 到 domain/provider Skill 或 service card，account/Secret/health 归实际执行器 owner。
 - Provider adapter 拥有 query translation、pagination、error/freshness 与可选 acquisition；cache 可重建且 authority=none。
 - `github_repo_search.py` 与 `github_source_cache.py` 继续是 GitHub-specific adapters；搜索结果不自动 clone，acquisition receipt/full SHA/cited paths 回到当前 Worksite。
 - 当前不建立全局 Search Registry、通用 cache key/API、数据库、daemon、route catalog 或顶层 `aios search` 命令。

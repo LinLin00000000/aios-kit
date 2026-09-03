@@ -15,6 +15,9 @@
 7. **一个事实一个 owner，入口保持薄**：复杂原则和协议由明确文档或配置拥有；README、skill、memory、产品说明、投影和 Worksite 只能按各自角色引用、解释或保存证据，不能手工维护多份独立正文。
 8. **语义层优先于平台锁定**：Matter、Decision、Approval、Artifact、Asset 等工作流概念应先作为协议语义表达，再投影到 Kanban、GitHub、runner、UI 或企业系统。
 9. **实例策略有 scope 与 lifecycle**：跨任务、可合理关闭、显著影响交互/成本/风险的本地行为，才进入 AIOS-managed policy；使用少量模式和明确退出条件，避免布尔开关与永久兼容层膨胀。
+10. **管理即上下文工程**：数据资产、服务器、服务资源、云服务、项目和行动能力默认是多层 owner context，不是必须预先注册的管理对象；Agent 先加载上下文、理解和选择，只有稳定跨任务事实、资源边界或安全回读确实需要时才持久化登记。
+11. **官方能力优先**：新接入先查官方 CLI、官方 Skill、官方 MCP 和官方文档，再考虑 AIOps service card、薄引导 Skill、accepted narrow script，传统 API 直连最后考虑。
+12. **动态发现、最终精确绑定**：自然语言入口不要求固定字符串匹配；Agent 从 compact candidates 语义选择 owner，精确 ID、路径、remote、版本和 consumer 只在最终 action/resource binding、执行和审计边界出现。
 
 ## 第一性原理
 
@@ -28,13 +31,45 @@ AIOS 的核心不是自动化一切，也不是功能堆叠，而是建立 Agent
 
 不能清楚回答这些问题的功能，默认不进入核心路径。
 
+## 上下文工程作为默认管理模型
+
+AIOS 将“管理”理解为：在当前任务中，为 Agent 按需提供足够的上下文，让它能够理解对象、选择 owner、调用正确执行器并留下必要证据。
+
+这适用于：
+
+- 数据资产：数据根、敏感等级、来源和可逆边界；
+- 服务器与设备：节点身份、连接入口、授权范围和运行事实；
+- 服务与云资源：compact service catalog、owner card、官方入口和动作边界；
+- 项目：当前目录、项目本地文档、Git remote/tree 和必要的长期 owner 事实；
+- Skill 与行动能力：触发条件、操作规则、官方执行器、Secret consumer 和动作验收。
+
+推荐的上下文梯度是：
+
+```text
+Bootstrap
+  → compact candidates
+  → selected owner context
+  → action/resource context
+  → deterministic binding and receipt
+```
+
+上下文层不是新的全局注册表。每层只加载下一步所需的内容；候选由 Agent 语义选择，最终的路径、ID、版本、consumer 和权限边界由确定性执行器或 owner contract 校验。没有稳定跨任务边界的对象，不因“未来可能需要管理”而登记。
+
+因此，新增一个管理模块前必须先证明：
+
+1. Agent 无法从现有 owner context 和官方入口恢复所需事实；
+2. 该事实需要跨任务稳定保存，或必须作为安全/审计边界；
+3. 新模块不会复制另一个 owner 的正文、状态、授权或执行器；
+4. 删除它会让真实任务失败，而不是只让目录或命令看起来不完整。
+
 ## 本质复杂度与偶然复杂度
 
 本质复杂度只能被命名和隔离，不能假装不存在：
 
 | 领域 | 本质复杂度 |
 |---|---|
-| Projects / Resources | 同一对象可能有本地路径、远程 repo、alias、状态和运行位置 |
+| Projects / Resources | 同一对象可能有本地路径、远程 repo、alias、状态和运行位置，但不代表都需要中央登记 |
+| Context loading | Agent 需要逐层加载足够上下文，同时避免全文常驻、递归加载和上下文重复 |
 | Secrets | Agent 不能看明文，但运行时需要可信边界使用密钥 |
 | LLL | 长任务需要状态、恢复、证据和交接 |
 | OPS Vault | 私有事实不能进入公开 repo，但 Agent 需要知道在哪里查 |
@@ -43,7 +78,9 @@ AIOS 的核心不是自动化一切，也不是功能堆叠，而是建立 Agent
 
 偶然复杂度应主动删除或推迟：
 
-- 为假想未来需求提前做 daemon、broker、runner、dashboard；
+- 为假想未来需求提前做 daemon、broker、runner 或 dashboard；
+- 把每个项目、服务、数据资产或动作都登记进中央 registry，只为让入口看起来统一；
+- 为了替代字符串入口而新建 Context Registry、向量搜索或常驻 context compiler；
 - 每个模块都做 plugin 系统；
 - 每个原则都拆成新 skill；
 - 同一规则在 README、docs、skill、OPS log 中重复维护；
@@ -57,7 +94,7 @@ AIOS 的核心不是自动化一切，也不是功能堆叠，而是建立 Agent
 
 1. **先理解再缩短**：先读真实流程、相关调用者、事实 owner 和验收边界，不用最短实现替代理解。
 2. **先问是否需要存在**：如果核心工作不依赖它，优先删除或推迟；推迟项要有具体触发条件和可逆路径。
-3. **优先复用**：在理解约束后，依次检查已有代码/能力、标准库、原生平台和已安装依赖，再考虑新增抽象、依赖或平台。
+3. **优先复用与按需加载**：在理解约束后，先检查当前 Agent/Skill context、项目本地上下文、官方 CLI/Skill/MCP、标准库、原生平台和已安装依赖，再考虑新增 registry、抽象、依赖或平台。
 4. **保留承重结构**：不能为了少几行而删掉验证、安全、无障碍、错误或数据丢失处理、状态、恢复、provenance、权限、审计和显式要求。
 5. **计算总成本**：把新增文件、hook、常驻 prompt/context、配置、状态、升级/卸载、调试和维护成本一起计算。为了减少局部浪费而引入更大的运行时，是反精简。
 6. **留下最小闭环**：非平凡改动保留一次 focused verification；有意接受的上限或延后项写明 upgrade trigger，而不是把“以后再说”当作计划。
@@ -89,8 +126,8 @@ AIOS 不要求整个系统只有一个文件，而要求**每一项事实只有�
 
 | 模块 / 能力 | 当前阶段 | 已有最小闭环 | 下一步候选增强 | 暂不做 |
 |---|---|---|---|---|
-| Project / Resource registry | L1 | `aios project ...`、alias、registry 文件、compact `aios status --json` | 按真实消费需求补窄域 doctor JSON | 完整项目管理系统 |
-| Data Sources | L1 | `aios source list/get/add/alias/validate`、显式 Source records + Project 投影、Managed Zone 目录边界 | 从真实设备接入中补 inventory/backup/sync adapter | 全盘摄取、数据库、通用文件管理器 |
+| Project / Resource facts | L0/L1 | Agent + project-local context、compact catalog；仅少数稳定 owner 事实进入 `aios project/source` | 先减少默认 registry 入口，按真实消费者收窄 ResourceRef/binding | 完整项目管理系统、默认 Project→Source 全量投影 |
+| Data Sources | L1 | `aios source list/get/add/alias/validate`、显式 Source records、Managed Zone 目录边界 | 从真实设备接入中补 inventory/backup/sync adapter | 默认接管项目投影、全盘摄取、数据库、通用文件管理器 |
 | Secret management | L1.5 | request → intake → metadata/consumer/replica → run/sync/audit；`doctor`/`validate` 提供低风险探针 | 更通用的 provider preset 文档/模板；仅在真实摩擦出现后考虑可选 proxy/lease | 常驻 broker、默认 proxy、MCP secret tools、plugin 系统 |
 | LLL integration | L1 | `aios lll ...` 发现、创建、状态代理 | 更清楚地表达 AIOS 只代理不吞并 LLL 状态机 | 在 `aios-kit` 中重写 LLL runner |
 | OPS vault | L1 | 模板与 live vault 分离，OPS skill 入口 | 更好资源索引和维护记录模板 | 把公开 repo 变成私有 CMDB |
@@ -101,15 +138,17 @@ AIOS 不要求整个系统只有一个文件，而要求**每一项事实只有�
 
 ## 增强决策门槛
 
-新增能力前，维护者或 Agent 应回答：
+新增加入或管理模块前，维护者或 Agent 应回答：
 
-1. 它解决的是真实摩擦，还是想象中的未来完整性？
-2. 它减少了哪些重复配置、泄漏风险、手工步骤或恢复成本？
-3. 它是否能作为可选层存在，而不是污染默认路径？
-4. 它是否需要新的长期状态、后台进程、权限边界或维护面？
-5. 它是否应该先写进文档或 roadmap，而不是立即实现？
+1. Agent 能否从当前 bootstrap/compact/owner context 和官方入口恢复所需事实？
+2. 它解决的是真实摩擦，还是想象中的未来完整性？
+3. 这个事实是否需要跨任务稳定保存，或必须作为安全/审计边界？
+4. 它减少了哪些重复配置、泄漏风险、手工步骤或恢复成本？
+5. 它是否能作为可选层存在，而不是污染默认路径？
+6. 它是否需要新的长期状态、后台进程、权限边界或维护面？
+7. 它是否应该先写进 owner 文档或 roadmap，而不是立即实现？
 
-如果答案不清楚，默认只记录为候选增强，不实现。
+如果 Agent 能从现有上下文完成任务，默认不新增 registry、manager、resolver 或 context platform；如果只是用户体验不够优雅，优先改善 compact context 和 owner routing，而不是增加统一数据库。
 
 ## Secret 模块示例
 

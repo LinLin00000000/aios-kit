@@ -39,7 +39,7 @@
 | 工作目录 | `~/aios/work` | 全平台设计 | LLL / Agent 工作目录，承接长任务、调研、验证、交付物 | 对话外的持久工作层 |
 | Matter 派生索引与视图 | `~/aios/state/matters`、`~/aios/view/matters` | Linux / Windows | 跨 Worksite 查询 active/paused/closed/archived 事务，并只读展示精选交付物 | 可重建，不替代 Worksite 文件真源 |
 | 配置/状态/日志/缓存 | `~/aios/config`、`state`、`logs`、`cache` | 全平台设计 | 保存实例配置、安装状态、日志和缓存 | 避免散落在多个隐式位置 |
-| 私有 vault 边界 | `~/aios/vault/ops` | Linux 默认初始化；Windows 创建核心目录 | 放置 OPS vault、项目注册表、维护记录等私有事实 | 公共模板与真实私有数据分离 |
+| 私有 vault 边界 | `~/aios/vault/ops` | Linux 默认初始化；Windows 创建核心目录 | 放置 OPS vault、少数长期项目/Source 事实和维护记录等私有 owner context | 公共模板与真实私有数据分离；不要求所有对象登记 |
 | runtime skills 目标目录 | 默认 `~/.agents/skills`，可选 Hermes 目标 | Linux / WSL 完整同步；Windows 原生先初始化目标 | Agent 实际加载 skills 的位置 | 不接管整个 skills 目录，只逐个安装托管 skill |
 
 ### 默认托管 skills
@@ -51,7 +51,7 @@
 | MCP / 工具发现 | `awesome-mcp-servers-discovery` | 调研和筛选 MCP server |
 | 前端与设计 | `frontend-design`、`ui-ux-pro-max`、`vercel-composition-patterns`、`web-design-guidelines` | UI/UX、前端架构和 Web 设计审查 |
 | 领域建模 | `domain-modeling` | 澄清领域术语、维护领域模型，并在必要时记录 ADR |
-| AIOS 一等能力 | `aios-agent`、`aios-resource-resolver`、`aios-secret-management`、`lins-living-loop`、`github-repo-search` | AIOS Agent 策略入口、资源与 owner 路由、秘密控制面、长期任务工作流、GitHub 项目搜索推荐 |
+| AIOS 一等能力 | `aios-agent`、`aios-resource-resolver`、`aios-secret-management`、`lins-living-loop`、`github-repo-search` | AIOS Agent 策略入口、已选资源的动作边界绑定、秘密控制面、长期任务工作流、GitHub 项目搜索推荐 |
 
 ### `aios` CLI 能力
 
@@ -60,12 +60,14 @@
 | `aios status` | 查看实例根目录、vault、work、skills、modules 等摘要 | 人类 / Agent |
 | `aios doctor` / `aios doctor --json` | 校验实例、skillpack 与本地资产配置；JSON 模式输出 versioned `aios.doctor.v1` 机器契约 | Agent 优先 |
 | `aios update` | 更新模块、OPS 模板和托管 skills | Agent / 维护者 |
-| `aios project ...` | 管理最小项目/资源注册表与 alias | Agent / 维护者 |
+| `aios project ...` | 读取/维护少数需要长期稳定边界的项目事实（兼容入口；live help 仍写 registry）；普通项目优先由 Agent 加载本地上下文，不要求先注册 | Agent / 维护者 |
 | `aios matter ...` | 重建/查询派生 Matter 索引与 View，并对注册来源资料执行显式 attach/list/只读 verify；详见 [Matter 生命周期](docs/matter-lifecycle.md) 与 [Matter materials](docs/matter-materials.md) | Agent 优先 |
 | `aios lll ...` | 发现、创建、打开、检查 LLL workdir，生成 closeout change set，并以可恢复 quarantine 代替直接删除 | Agent 优先 |
 | `aios promotion ...` | 对已明确授权的长期资产提升做 dry-run、copy-if-absent 执行、校验与只读撤销检查 | Agent 优先 |
 | `aios skillpack ...` | 列出、同步、检查托管 runtime skills；维护者可用 `adopt` 把本地新建 skill 接管进 Git 真源 | 维护者 / Agent |
 | `aios assets ...` | 检查或链接本地资产发现 manifest | 维护者 |
+
+现场 `aios --help` 仍把 `project` 写成 “manage the minimal AIOS project registry”，把 `resource` 写成 resolve existing Project/Source records。它们是兼容/只读绑定 actuator 的残留措辞，不是中央注册表产品模型。
 
 ### Linux/server 附加能力
 
@@ -84,15 +86,18 @@
 
 Personal AIOS 的目标很简单：让 AI 从“临时聊天助手”变成“能围绕你的真实数字世界持续工作的操作层”。它需要知道项目在哪里、服务怎么检查、资料和密钥边界是什么、哪些工作能自动化、哪些必须确认。
 
-`aios-kit` 只做这个操作层的最小骨架：统一目录、托管 skills、资源注册表、OPS vault、LLL 工作流入口、安装/更新/检查命令。它不试图吞并所有工具，而是给不同 Agent 和工具一套共同现实锚点。
+`aios-kit` 只做这个操作层的最小骨架：统一入口、托管 skills、按需加载上下文、必要的长期事实、OPS vault、LLL 工作流入口、安装/更新/检查命令。它不试图吞并所有工具，也不要求所有项目、服务、数据资产或能力先进入一个中央管理表；它给不同 Agent 和工具提供共同现实锚点，并让真正的 owner 保留自己的上下文和执行器。
 
 设计取舍：
 
 | 原则 | 取舍 |
 |---|---|
-| Agent-first | 命令、文档、registry、vault 和日志要让 Agent 容易发现、解析和恢复；人类命令是 fallback。 |
-| 文件是真源 | 重要事实沉淀到 vault / registry / workdir / manifest，不困在一次对话里。 |
-| 薄控制面 | `aios` 负责发现、安装、更新和健康检查；LLL、Hermes、Mihomo 等仍保持自己的状态机。CLI/API 是 Agent actuator，不是让普通用户背命令。 |
+| Agent-first | 命令、Skill、compact catalog、本地项目上下文和 vault 事实要让 Agent 容易发现、解析和恢复；人类命令是 fallback。 |
+| 管理即上下文工程 | 数据资产、服务器、服务、云资源、项目和能力默认通过多层动态上下文加载，不先建传统管理平台；只有稳定边界和安全事实才持久化。 |
+| 官方能力优先 | 新接入先查官方 CLI、官方 Skill、官方 MCP 和官方文档；AIOps card、薄引导 Skill、窄脚本和传统 API 依次后置。 |
+| 动态发现，精确绑定 | Agent 负责从候选上下文中语义选择 owner；精确 ID、路径、remote、版本和 consumer 只在最终执行和审计边界绑定。 |
+| 文件是真源 | 需要跨任务恢复的重要事实沉淀到 owner 文件、必要的 vault/registry、workdir 或 manifest，不把可即时恢复的上下文重复登记。 |
+| 薄控制面 | `aios` 负责提供上下文入口、必要的结构检查和窄 actuator；LLL、Hermes、Mihomo 等仍保持自己的状态机。CLI/API 是 Agent actuator，不是让普通用户背命令。 |
 | 私有与公开分离 | 公开 repo 只放模板、脚本、skills 和结构；真实资产、密钥、订阅、维护日志和 local overlays 留在本地 vault/state。 |
 | 渐进演化 | 模块广度优先、点到为止；新增能力必须证明减少的系统复杂度大于引入的复杂度，详见 [docs/evolution.md](docs/evolution.md)。 |
 | 自迭代 | Agent 在使用 AIOS 时发现失败模式、冗长路径或验证缺口，应主动提出或沉淀对 skill、文档、CLI、验证脚本和工作流的改进。 |
@@ -155,8 +160,8 @@ aios doctor --json          # compact aios.doctor.v1；ok 与 exit code 对齐�
 aios update --dry-run       # 预览更新
 aios update                 # 更新模块、OPS 模板和托管 skills
 aios update skills          # 刷新托管 runtime skills
-aios project list           # 查看项目/资源注册表
-aios source list            # 查看显式 Source + Project 联邦投影
+aios project list           # 兼容入口：少数长期项目事实（help 仍写 registry）
+aios source list            # 兼容入口：显式 Source + Project 联邦投影（help 仍写 federated view）
 aios source validate        # 校验 Source identity / policy / locator 结构
 aios lll doctor --json      # Agent-first: 检查 LLL/Code Loop 能力
 aios lll list --json        # Agent-first: 枚举 LLL workdirs
@@ -175,6 +180,6 @@ aios lll list --json        # Agent-first: 枚举 LLL workdirs
 | [docs/architecture.md](docs/architecture.md) | repo 边界、本地结构、source/runtime 模型、关键决策 |
 | [docs/upstream-reconciliation.md](docs/upstream-reconciliation.md) | 外部组件、adapter/overlay、patch queue 与 maintained fork 的上游协调协议 |
 | [docs/evolution.md](docs/evolution.md) | AIOS 演化协议、模块成熟度地图和复杂度预算 |
-| [docs/aios-resource-architecture.md](docs/aios-resource-architecture.md) | AIOS 资源、项目注册表与 resolver 结构 |
+| [docs/aios-resource-architecture.md](docs/aios-resource-architecture.md) | AIOS 资源、动态上下文与最终 binding |
 | [docs/security-and-privacy.md](docs/security-and-privacy.md) | 安全与隐私边界、公开发布审计 |
 | [docs/development.md](docs/development.md) | 维护者开发、skillpack、发布流程 |

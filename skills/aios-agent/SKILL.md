@@ -3,15 +3,21 @@ name: aios-agent
 description: "Use when operating, evolving, updating, or governing AIOS itself: route intent to the owning policy, ResourceRef, Matter/LLL, or actuator without duplicating their bodies."
 license: MIT
 metadata:
-  version: "0.2.1"
+  version: "0.3.0"
 ---
 
 # AIOS Agent
 
-This is AIOS's thin Agent entry. It routes intent; it is not a second policy, resource, capability, workflow, or runtime owner.
+This is AIOS's thin Agent entry. It routes intent through bounded dynamic context; it is not a second policy, resource, capability, workflow, or runtime owner.
 
 ```text
-Human intent -> exact owner/ref -> domain actuator -> receipt/evidence
+Human intent
+  -> bootstrap/compact context
+  -> Agent semantic owner route
+  -> owner context
+  -> final action/resource binding
+  -> domain actuator
+  -> receipt/evidence
 ```
 
 ## Owner boundary
@@ -20,7 +26,7 @@ Human intent -> exact owner/ref -> domain actuator -> receipt/evidence
 |---|---|
 | Portable product/evolution rules | `docs/evolution.md` and the relevant public source |
 | Current instance workflow behavior | the AIOS-managed local workflow policy |
-| Project/Source facts | existing Project/Source registries |
+| Project/Source facts | existing Project/Source records only when a durable boundary is needed; otherwise current owner context/local project facts |
 | Action and executor facts | the owning resource record and domain/provider owner |
 | Task state/recovery/evidence | Matter / LLL Worksite |
 | Deterministic action | CLI, script, API, or provider skill |
@@ -31,11 +37,14 @@ A skill, index, viewer, runtime copy, or receipt is a pointer/projection unless 
 ## Route
 
 1. Apply precedence: current user instruction, then current Matter/mission, then exact local policy, then portable product default.
-2. Resolve a mentioned project, Source, service, device, vault, or other resource through `aios-resource-resolver` and `aios resource resolve ... --json` before acting.
-3. Follow the resolved `owner_ref` to the current domain/provider Skill or service card, then invoke that owner's existing CLI, MCP, or Skill script directly. Do not insert a generic discovery, binding, adapter, or health layer.
-4. Keep disposable work in chat. Resolve/create a Matter and use LLL only when durable state, recovery, evidence, or a validation boundary is needed.
-5. Route mutation to the domain owner/actuator. A ResourceRef, receipt, policy index, or Decision packet never grants write authority.
-6. Return a structured result/receipt and leave current facts with their owner.
+2. Load only the smallest needed context: bootstrap rules, then a compact candidate catalog from existing Skills, AIOps services, current Worksite, project-local files or official tooling.
+3. Select the owner semantically in the Agent; do not require the user to provide an exact ID, alias or path and do not add a generic semantic resolver.
+4. Load the selected owner's Skill, service card, runbook or project context. Prefer the official CLI, official Skill or official MCP before a custom wrapper or traditional API.
+5. Only at the action boundary bind the selected resource to a deterministic path, remote, canonical ID, version, profile and Secret consumer. Use `aios resource resolve ... --json` when a durable Project/Source record is genuinely required; otherwise keep an ephemeral binding in the current task/receipt.
+6. Invoke the owner actuator directly. Do not insert a generic discovery, binding, adapter or health layer.
+7. Keep disposable work in chat. Resolve/create a Matter and use LLL only when durable state, recovery, evidence or a validation boundary is needed.
+8. Route mutation to the domain owner/actuator. A ResourceRef, receipt, policy index or Decision packet never grants write authority.
+9. Return a structured result/receipt and leave current facts with their owner.
 
 ## Decision Surface pointer
 
@@ -58,7 +67,10 @@ The owning local policy/Worksite defines the complete closeout protocol; this sk
 
 - Public `aios-kit` contains portable routes and schemas, not private instance facts, organization IDs, endpoints, credentials, or Secret values.
 - `$AIOS_ROOT` contains the user's instance and registries; runtime skills are projections, not automatically canonical source.
-- Do not create a second registry, daemon, broker, marketplace, approval engine, authorization engine, or hidden workflow state machine for routing.
+- Do not create a second registry, daemon, broker, marketplace, approval engine, authorization engine, hidden workflow state machine or global context platform for routing.
+- Treat data, server, service, cloud, project and capability management as owner-specific dynamic context; do not create a manager merely to make the catalog look complete.
+- Prefer official CLI, official Skill and official MCP before AIOps cards, thin guides, narrow scripts or traditional APIs.
+- Exact IDs and paths are final binding/audit handles, not the primary natural-language discovery interface.
 - Before an AIOS architecture or CLI expansion, follow `docs/evolution.md`; reuse the existing owner and leave one focused verification.
 
 ## Related skills
