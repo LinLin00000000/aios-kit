@@ -14,16 +14,16 @@ These notes condense a design discussion that led to the initial `aios-secret-ma
 - GitHub Secrets are external replicas / sync targets, not local sources of truth.
 - SSH and Caddy secrets are app/OS-owned. Keep their native paths, index and verify them, but do not move or symlink them into AIOS.
 - Request manifests are useful for dynamic agent-generated intake but should be short-lived transaction files. Long-term truth lives in items/consumers/replicas YAML and audit JSONL.
+- Human-provided, remembered, or existing credentials use `intake`; machine-generated credentials that the Agent must not see use `generate`.
 
 ## MVP user story
 
 1. User asks to configure a secret.
 2. Agent decides the secret id, fields, consumers, replicas, and route.
 3. Agent creates a request manifest with no values.
-4. User runs `aios secret intake <request-id>` in their own shell.
-5. CLI collects values using safe interactive input and hidden password fields.
-6. CLI writes metadata, stores values through the backend, emits a receipt, and appends audit JSONL.
-7. Agent reads only receipt/metadata and continues verification.
+4. Human-provided credentials: the user runs `aios secret intake <request-id>` in their own shell. Machine-generated credentials: `aios secret generate <request-id>` runs non-interactively and generates locally without printing values.
+5. CLI validates the request, stores values through the backend, writes metadata, moves the request to `done/`, emits a receipt, and appends audit JSONL.
+6. Agent reads only receipt/metadata and continues verification.
 
 ## Pitfalls
 

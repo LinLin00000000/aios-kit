@@ -75,21 +75,22 @@ Agent-first data format rule:
 - JSONL for events/audit/history.
 - Markdown only for human-facing explanations or generated views, not as the machine truth source.
 
-## Intake workflow
+## Intake and generation workflow
 
 Default MVP flow:
 
 1. Agent resolves the intended secret identity, fields, consumer(s), replica(s), and route.
 2. Agent writes or asks the CLI to create a request manifest under `requests/pending/`; the request contains no secret values.
-3. Agent tells the user to run a short shell command such as:
+3. Choose the path by credential type: human-provided, remembered, or existing credentials use a short shell command such as:
 
    ```bash
    aios secret intake <request-id>
    ```
 
-4. User runs the command in a real local shell/TTY and enters values interactively.
-5. CLI / Minimal Runtime validates the request, hides password input, stores values, writes metadata, moves the request to `done/`, writes a receipt, and appends `audit.jsonl`.
-6. User reports completion; agent reads only the receipt and metadata.
+   Machine-only credentials instead use `aios secret generate <request-id>` non-interactively.
+4. For `intake`, the user runs the command in a real local shell/TTY and enters values interactively; `generate` creates values locally without exposing them.
+5. CLI / Minimal Runtime validates the request, hides password input for `intake`, stores values, writes metadata, moves the request to `done/`, writes a receipt, and appends `audit.jsonl`.
+6. After completion is reported or observed, agent reads only the receipt and metadata.
 7. Agent verifies consumers/replicas through redacted CLI outputs and updates ops records if needed.
 
 Never run an interactive intake through an agent-controlled terminal if doing so would capture secret input into tool logs/transcripts. Prefer asking the user to run the command themselves.
@@ -98,7 +99,7 @@ For machine-generated fields where the Agent must not see plaintext, use `aios s
 
 ### Ad-hoc external platform tokens
 
-For cloud/provider tokens, DNS credentials, CI tokens, webhook secrets, or other external-platform credentials where the current `aios secret request` CLI has no dedicated generator yet, manually create a generic `secret_intake` manifest instead of falling back to chat-pasted tokens or long-lived ad-hoc `.env` files.
+For cloud/provider tokens, DNS credentials, CI tokens, webhook secrets, or other credentials that a person must provide, manually create a generic `secret_intake` manifest instead of using `generate`, chat-pasted tokens, or long-lived ad-hoc `.env` files.
 
 Minimum pattern:
 

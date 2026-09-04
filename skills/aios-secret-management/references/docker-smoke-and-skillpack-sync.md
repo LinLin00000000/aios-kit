@@ -17,7 +17,7 @@ A good smoke covers:
 1. `install.sh --dry-run --non-interactive ...` in the container.
 2. `./aios --home "$HOME" init --root "$HOME/aios" --skills-dir "$HOME/.agents/skills"`.
 3. `AIOS_ROOT="$HOME/aios" ./aios --home "$HOME" secret layout init`.
-4. request creation/show + intake dry-run.
+4. request creation/show + `intake` and `generate` dry-runs (use a synthetic machine-only request for `generate`).
 5. app-owned native index/verify using human-output checks.
 6. `./aios --home "$HOME" skillpack list` and `skillpack sync --dry-run`, grepping for the relevant first-party skill entry.
 7. dummy metadata/value backend for `secret list/show/verify/sync --dry-run/run` plumbing.
@@ -36,5 +36,5 @@ A good smoke covers:
 
 - grep `aios-secret-management` in `skillpack list` and `skillpack sync --dry-run` output when testing Secret skill distribution.
 - assert `source_values_read: false` for GitHub sync dry-runs.
-- assert `secret_values_exposed: false` for intake/verify outputs.
+- assert `secret_values_exposed: false` for intake/generate/verify outputs.
 - for `secret run`, print only a non-sensitive field and a boolean such as `api_key_set=True`, not the value.
