@@ -25,6 +25,8 @@ aios secret request create --manifest ./request.yaml --dry-run --json
 aios secret request show req_ai_api_translation_default
 aios secret intake req_ai_api_translation_default --dry-run
 aios secret intake req_ai_api_translation_default
+aios secret generate req_machine_secret --dry-run --json
+aios secret generate req_machine_secret --json
 aios secret list --json
 aios secret validate --json
 aios secret doctor --json
@@ -36,6 +38,8 @@ aios secret index native --ssh --caddy
 ```
 
 `aios secret intake` 必须在真实 shell/TTY 中运行。password 字段用 hidden input；CLI 不提供 `--value` 参数，也不会把值写进 receipt、audit、Markdown 或聊天记录。二次确认默认关闭：一般从网页或密码管理器复制粘贴的 API key、token 等，不需要重复粘贴；只有 request 明确设置 `confirm: true` 时才会启用。
+
+人提供、需要记住或已经存在的凭据走 `intake`；Postgres、Redis、`SESSION_SECRET` 这类不需要人记住的机器随机凭据走 `generate`。`generate` 只处理 pending 的 `secret_intake` request：secret 字段默认用本机 `secrets` 模块生成 32 字节 hex（可用 `generate: true` 和 `length` 明确调整），非 secret 字段必须有 `default`；明显的人类凭据必须显式 `generate: true`，否则 fail closed。它可以在非 TTY、Agent 工具中运行，并沿用 intake 的落盘、receipt 和 audit 路径，但任何输出都不包含明文；不要让 Agent 执行 `openssl rand` 再把结果带入工具输出。
 
 所有 Agent 可读的 JSON/状态输出都应包含或等价表达：
 

@@ -18,6 +18,7 @@ import io
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -1386,7 +1387,7 @@ def request_manifest_issues(req: dict[str, Any]) -> list[dict[str, str]]:
         field_names.add(name)
         if "confirm" in field and not isinstance(field.get("confirm"), bool):
             add(f"fields[{i}].confirm", "confirm must be a boolean; use true to opt in")
-        if field_is_secret(field) and field.get("default") not in (None, ""):
+        if field_is_secret(field) and "default" in field:
             add(f"fields[{i}].default", "secret fields must not define defaults")
 
     item = req.get("item")
@@ -1643,6 +1644,199 @@ def write_replica_from_request(home: Path, secret_id: str, replica: dict[str, An
     return rid
 
 
+def store_secret_request(
+    home: Path,
+    dirs: dict[str, Path],
+    req_path: Path,
+    req: dict[str, Any],
+    request_id: str,
+    values: dict[str, Any],
+    field_meta: dict[str, Any],
+    *,
+    audit_event: str,
+) -> dict[str, Any]:
+    """Persist one completed request through the shared intake path."""
+    secret_id = str(req.get("secret_id") or "")
+    consumers = [write_consumer_from_request(home, secret_id, c) for c in (req.get("consumers") or []) if isinstance(c, dict)]
+    replicas = [write_replica_from_request(home, secret_id, r) for r in (req.get("replicas") or []) if isinstance(r, dict)]
+    consumers = [x for x in consumers if x]
+    replicas = [x for x in replicas if x]
+    item_info = req.get("item") if isinstance(req.get("item"), dict) else {}
+    item = {
+        "schema_version": 1,
+        "id": secret_id,
+        "kind": item_info.get("kind", req.get("secret_kind", "generic_secret")),
+        "ownership": "aios_owned",
+        "backend": "aios-local-file",
+        "status": "configured",
+        "fields": field_meta,
+        "backend_ref": f"values/{safe_secret_id(secret_id)}.json",
+        "intended_use": item_info.get("intended_use", []),
+        "consumers": consumers,
+        "replicas": replicas,
+        "metadata": {"agent_can_read_plaintext": False, **(item_info.get("metadata", {}) if isinstance(item_info.get("metadata"), dict) else {})},
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    val_path = secret_value_path(home, secret_id)
+    item_path = secret_item_path(home, secret_id)
+    value_doc = {"schema_version": 1, "schema": SECRET_VALUE_SCHEMA, "secret_id": secret_id, "stored_at": now_iso(), "values": values}
+    write_private_text(val_path, json.dumps(value_doc, ensure_ascii=False, indent=2) + "\n", mode=0o600)
+    write_yaml_doc(item_path, item)
+    request_id = str(req.get("request_id") or request_id)
+    receipt = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "secret_id": secret_id,
+        "status": "stored",
+        "stored_at": now_iso(),
+        "backend": "aios-local-file",
+        "fields": list(values.keys()),
+        "secret_fields": [k for k, v in field_meta.items() if v.get("secret")],
+        "consumer_ids": consumers,
+        "replica_ids": replicas,
+        "secret_values_exposed": False,
+    }
+    receipt_path = dirs["receipts"] / f"{safe_secret_id(request_id)}.json"
+    receipt["receipt_path"] = str(receipt_path)
+    write_private_text(receipt_path, json.dumps(receipt, ensure_ascii=False, indent=2) + "\n")
+    done_path = dirs["done"] / req_path.name
+    if done_path.exists():
+        done_path.unlink()
+    req_path.rename(done_path)
+    append_secret_audit(home, {"event": audit_event, "request_id": request_id, "secret_id": secret_id, "fields": list(values.keys()), "consumer_ids": consumers, "replica_ids": replicas, "receipt": str(receipt_path)})
+    return {
+        "secret_id": secret_id,
+        "item_path": item_path,
+        "receipt_path": receipt_path,
+        "fields": list(values.keys()),
+        "secret_fields": [k for k, v in field_meta.items() if v.get("secret")],
+        "consumer_ids": consumers,
+        "replica_ids": replicas,
+    }
+
+
+_HUMAN_CREDENTIAL_FIELD_RE = re.compile(
+    r"(?i)(?:api[\s_-]*key|access[\s_-]*key|refresh[\s_-]*token|"
+    r"auth(?:entication)?[\s_-]*token|bearer[\s_-]*token|"
+    r"password|passphrase|client[\s_-]*secret|token)"
+)
+GENERATED_SECRET_MIN_BYTES = 16
+
+
+def secret_generation_plan(fields: list[dict[str, Any]]) -> tuple[dict[str, int], dict[str, Any], list[str], list[str]]:
+    """Validate a whole request before generating any secret value."""
+    lengths: dict[str, int] = {}
+    defaults: dict[str, Any] = {}
+    generated_fields: list[str] = []
+    default_fields: list[str] = []
+    issues: list[str] = []
+    for field in fields:
+        name = str(field.get("name") or "")
+        if field_is_secret(field):
+            generate = field.get("generate")
+            if "generate" in field and not isinstance(generate, bool):
+                issues.append(f"{name}: generate must be a boolean")
+            if _HUMAN_CREDENTIAL_FIELD_RE.search(" ".join([name, str(field.get("label") or "")])) and generate is not True:
+                issues.append(f"{name}: appears to be a human-provided credential; use intake or set generate: true")
+            elif generate is False:
+                issues.append(f"{name}: generation is disabled; use intake or set generate: true")
+            length = field.get("length", 32)
+            if isinstance(length, bool) or not isinstance(length, int):
+                issues.append(f"{name}: length must be an integer number of bytes")
+            elif length < GENERATED_SECRET_MIN_BYTES:
+                issues.append(f"{name}: length must be at least {GENERATED_SECRET_MIN_BYTES} bytes")
+            else:
+                lengths[name] = length
+                generated_fields.append(name)
+        else:
+            if "default" not in field:
+                issues.append(f"{name}: non-secret fields must define a default for generate; use intake or add a default")
+                continue
+            default = field.get("default")
+            if default is None:
+                issues.append(f"{name}: default must not be null for generate")
+                continue
+            if field.get("required") and default == "":
+                issues.append(f"{name}: required default must not be empty")
+                continue
+            choices = field.get("choices") or []
+            if choices and str(default) not in [str(choice) for choice in choices]:
+                issues.append(f"{name}: default must be one of the declared choices")
+                continue
+            defaults[name] = default
+            default_fields.append(name)
+    if issues:
+        raise SystemExit("secret generation refused:\n- " + "\n- ".join(issues))
+    return lengths, defaults, generated_fields, default_fields
+
+
+def secret_generate(args: argparse.Namespace) -> None:
+    """Generate machine-only secret fields without exposing their values."""
+    home = Path(args.home).expanduser() if args.home else Path.home()
+    dirs = secret_dirs(home) if args.dry_run else ensure_secret_layout(home)
+    req_path = find_request_path(home, args.request_id, include_done=False)
+    req = load_yaml_doc(req_path)
+    fail_manifest_issues(request_manifest_issues(req))
+    fields = req.get("fields") or []
+    if not isinstance(fields, list) or not fields:
+        raise SystemExit(f"request has no fields: {req_path}")
+    secret_id = str(req.get("secret_id") or "")
+    if not secret_id:
+        raise SystemExit("request missing secret_id")
+    val_path = secret_value_path(home, secret_id)
+    item_path = secret_item_path(home, secret_id)
+    if (val_path.exists() or item_path.exists()) and not args.force:
+        raise SystemExit(f"secret already exists for {secret_id}; pass --force to replace")
+    lengths, defaults, generated_fields, default_fields = secret_generation_plan([field for field in fields if isinstance(field, dict)])
+    if args.dry_run:
+        payload = {
+            "request": str(req_path),
+            "secret_id": secret_id,
+            "generated_fields": generated_fields,
+            "default_fields": default_fields,
+            "secret_values_exposed": False,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print("Secret generation dry-run")
+            print(f"- request: {req_path}")
+            print(f"- secret_id: {secret_id}")
+            print("- generated_fields: " + ", ".join(generated_fields))
+            print("- default_fields: " + ", ".join(default_fields))
+            print("- secret_values_exposed: false")
+        return
+    values: dict[str, Any] = {}
+    field_meta: dict[str, Any] = {}
+    for field in fields:
+        name = str(field["name"])
+        secret = field_is_secret(field)
+        value = secrets.token_hex(lengths[name]) if secret else defaults[name]
+        values[name] = value
+        meta = {"type": field.get("type", "string"), "secret": secret, "required": bool(field.get("required")), "value_status": "stored"}
+        if not secret:
+            meta["value"] = value
+        field_meta[name] = meta
+    stored = store_secret_request(home, dirs, req_path, req, args.request_id, values, field_meta, audit_event="generate_completed")
+    payload = {
+        "secret_id": stored["secret_id"],
+        "item": str(stored["item_path"]),
+        "receipt": str(stored["receipt_path"]),
+        "generated_fields": generated_fields,
+        "secret_values_exposed": False,
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print("Secret generation completed")
+        print(f"- secret_id: {stored['secret_id']}")
+        print(f"- item: {stored['item_path']}")
+        print(f"- receipt: {stored['receipt_path']}")
+        print("- generated_fields: " + ", ".join(generated_fields))
+        print("- secret_values_exposed: false")
+
+
 def secret_intake(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     dirs = ensure_secret_layout(home)
@@ -1685,51 +1879,9 @@ def secret_intake(args: argparse.Namespace) -> None:
         if not meta["secret"]:
             meta["value"] = value
         field_meta[name] = meta
-    consumers = [write_consumer_from_request(home, secret_id, c) for c in (req.get("consumers") or []) if isinstance(c, dict)]
-    replicas = [write_replica_from_request(home, secret_id, r) for r in (req.get("replicas") or []) if isinstance(r, dict)]
-    consumers = [x for x in consumers if x]
-    replicas = [x for x in replicas if x]
-    item_info = req.get("item") if isinstance(req.get("item"), dict) else {}
-    item = {
-        "schema_version": 1,
-        "id": secret_id,
-        "kind": item_info.get("kind", req.get("secret_kind", "generic_secret")),
-        "ownership": "aios_owned",
-        "backend": "aios-local-file",
-        "status": "configured",
-        "fields": field_meta,
-        "backend_ref": f"values/{safe_secret_id(secret_id)}.json",
-        "intended_use": item_info.get("intended_use", []),
-        "consumers": consumers,
-        "replicas": replicas,
-        "metadata": {"agent_can_read_plaintext": False, **(item_info.get("metadata", {}) if isinstance(item_info.get("metadata"), dict) else {})},
-        "created_at": now_iso(),
-        "updated_at": now_iso(),
-    }
-    value_doc = {"schema_version": 1, "schema": SECRET_VALUE_SCHEMA, "secret_id": secret_id, "stored_at": now_iso(), "values": values}
-    write_private_text(val_path, json.dumps(value_doc, ensure_ascii=False, indent=2) + "\n", mode=0o600)
-    write_yaml_doc(item_path, item)
-    receipt = {
-        "schema_version": 1,
-        "request_id": req.get("request_id", args.request_id),
-        "secret_id": secret_id,
-        "status": "stored",
-        "stored_at": now_iso(),
-        "backend": "aios-local-file",
-        "fields": list(values.keys()),
-        "secret_fields": [k for k, v in field_meta.items() if v.get("secret")],
-        "consumer_ids": consumers,
-        "replica_ids": replicas,
-        "secret_values_exposed": False,
-    }
-    receipt_path = dirs["receipts"] / f"{safe_secret_id(str(req.get('request_id', args.request_id)))}.json"
-    receipt["receipt_path"] = str(receipt_path)
-    write_private_text(receipt_path, json.dumps(receipt, ensure_ascii=False, indent=2) + "\n")
-    done_path = dirs["done"] / req_path.name
-    if done_path.exists():
-        done_path.unlink()
-    req_path.rename(done_path)
-    append_secret_audit(home, {"event": "intake_completed", "request_id": req.get("request_id", args.request_id), "secret_id": secret_id, "fields": list(values.keys()), "consumer_ids": consumers, "replica_ids": replicas, "receipt": str(receipt_path)})
+    stored = store_secret_request(home, dirs, req_path, req, args.request_id, values, field_meta, audit_event="intake_completed")
+    item_path = stored["item_path"]
+    receipt_path = stored["receipt_path"]
     print("Secret intake completed")
     print(f"- secret_id: {secret_id}")
     print(f"- item: {item_path}")
@@ -5913,6 +6065,13 @@ def build_parser() -> argparse.ArgumentParser:
     sec_intake.add_argument("--dry-run", action="store_true", help="validate request shape without prompting for values")
     sec_intake.add_argument("--force", action="store_true", help="rotate/update an existing local secret item")
     sec_intake.set_defaults(func=secret_intake)
+
+    sec_generate = sec_sub.add_parser("generate", help="generate machine-only secret fields without printing their values")
+    sec_generate.add_argument("request_id")
+    sec_generate.add_argument("--dry-run", action="store_true", help="validate and list fields without writing")
+    sec_generate.add_argument("--force", action="store_true", help="replace an existing local secret item")
+    sec_generate.add_argument("--json", action="store_true", help="emit a redacted JSON result")
+    sec_generate.set_defaults(func=secret_generate)
 
     sec_list = sec_sub.add_parser("list", help="list secret item metadata")
     sec_list.add_argument("--json", action="store_true")

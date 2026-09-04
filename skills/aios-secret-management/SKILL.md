@@ -94,6 +94,8 @@ Default MVP flow:
 
 Never run an interactive intake through an agent-controlled terminal if doing so would capture secret input into tool logs/transcripts. Prefer asking the user to run the command themselves.
 
+For machine-generated fields where the Agent must not see plaintext, use `aios secret generate <request-id>` instead of running `openssl` or another generator in Agent tools; keep human-provided credentials on `intake`.
+
 ### Ad-hoc external platform tokens
 
 For cloud/provider tokens, DNS credentials, CI tokens, webhook secrets, or other external-platform credentials where the current `aios secret request` CLI has no dedicated generator yet, manually create a generic `secret_intake` manifest instead of falling back to chat-pasted tokens or long-lived ad-hoc `.env` files.
@@ -178,6 +180,7 @@ MVP commands:
 aios secret request show <request-id>
 aios secret request create --manifest <path> [--dry-run --json]
 aios secret intake <request-id>
+aios secret generate <request-id> [--dry-run] [--force] [--json]
 aios secret list
 aios secret validate --json
 aios secret doctor --json

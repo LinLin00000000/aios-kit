@@ -53,7 +53,7 @@ CLI   = 确定性执行者
 
 ## CLI 设计
 
-Secret 管理的一等入口是 `aios secret ...`。它按 **Secret Registry + Minimal Secret Runtime** 工作：Registry 管理 request、metadata、receipt、replica、consumer 和审计；当前 Runtime 只支持 `aios secret run` 的 env 注入。secret value 只能通过真实 TTY 的 `aios secret intake <request-id>` 录入，Agent 不读取、不打印、不提交 values。详细说明见 [`docs/secret-management.md`](./secret-management.md)。
+Secret 管理的一等入口是 `aios secret ...`。它按 **Secret Registry + Minimal Secret Runtime** 工作：Registry 管理 request、metadata、receipt、replica、consumer 和审计；当前 Runtime 只支持 `aios secret run` 的 env 注入。人提供的 secret value 通过真实 TTY 的 `aios secret intake <request-id>` 录入，机器随机 secret 通过非交互的 `aios secret generate <request-id>` 生成；Agent 不读取、不打印、不提交 values。详细说明见 [`docs/secret-management.md`](./secret-management.md)。
 
 CLI 分两层：
 
