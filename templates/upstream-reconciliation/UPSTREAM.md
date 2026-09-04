@@ -49,6 +49,12 @@ validation:
 deployment_impact:
   policy_ref: optional-abstract-policy-ref
   runbook_ref: optional-abstract-runbook-ref
+release:
+  artifact_identity: immutable-sha-or-digest
+  build_input: exact-source-commit
+  production_source_mount: forbidden
+  promotion: separate-human-or-environment-gate
+  rollback: previous-known-good-artifact
 ---
 
 # Upstream reconciliation: example-component
@@ -83,7 +89,24 @@ Describe why the project uses this upstream component, why the selected reposito
 - Guarded merge: the first reconciliation is proposal-only. After one manually approved and validated success, set `automation_baseline: established`; only R0/R1, Git-clean, behaviorally unrelated, fully green, no-unknown updates may auto-merge with a post-merge receipt.
 - Human Decision: required under `policy.human_required_if`; approval must bind the exact candidate SHA/digest. Minor differences that do not change a Delta, Invariant, or product choice stay in the report rather than interrupting the Human.
 - Deploy: separate authorization from merge/apply; reference the private project/OPS policy rather than embedding commands here.
-- Rollback: identify current, candidate, and previous-known-good revisions before actuation.
+- Release: use **build once, promote by exact identity**. Build from the exact candidate commit, record the immutable artifact identity, and promote that exact artifact only after the environment gate. Do not bind production to a live source checkout.
+- If frontend and backend share one artifact, promote and roll them back together. Split release units only with an explicit compatibility and rollback contract.
+- Keep runtime configuration and secrets outside the public artifact; record the runtime configuration revision without recording secret values.
+- Rollback: identify current, candidate, and previous-known-good revisions before actuation; do not silently combine an old binary with an unverified config or migration.
+
+## Release receipt
+
+A production release receipt should minimally record, in a private owner surface when necessary:
+
+- `source_commit`
+- `artifact_digest` or checksum
+- `runtime_config_revision`
+- `migration_revision` or an explicit `none`
+- staging validation and key Invariant result
+- promotion Decision/Change reference and approver
+- `previous_known_good`
+
+The receipt is evidence, not a second runtime state owner. Do not place secret values, private hosts, or deployment commands in the public `UPSTREAM.md`.
 
 ## Current decisions
 

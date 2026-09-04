@@ -320,6 +320,41 @@ Decision 必须绑定精确 candidate SHA 和 evidence set；candidate 增加 co
 - previous-known-good、candidate、current 三个版本必须精确可识别。
 - rollback 触及不可逆数据或未知 secret 时停止并回到 Human。
 
+### 7.6 构建产物与发布提升
+
+上游协调不仅管理源码如何合并，也管理源码如何成为正在运行的版本。**源码、构建产物和运行环境是三个不同的身份层**：
+
+```text
+source candidate
+  → immutable build artifact
+  → staging observation
+  → production promotion
+  → previous-known-good rollback
+```
+
+通用发布契约：
+
+- 开发工作树可以快速迭代、运行本地前后端或使用临时配置；生产不得挂载正在修改的源码目录，也不得把开发服务器当作生产入口。
+- 构建必须绑定 exact source commit；生产部署必须绑定不可变 artifact identity，例如 container image digest、binary checksum、package digest 或静态站点 artifact digest。分支名、`latest`、可变 tag 和“刚刚构建成功”都不能作为生产身份。
+- `commit`、`push`、CI 通过、artifact 构建、staging 部署、生产 promotion、数据库 migration 和 rollback 是不同状态，不能由前一个状态隐式推出后一个状态。
+- 默认采用 **build once, promote by exact identity**：同一份已验收 artifact 从 staging 提升到生产，不在生产机器上重新编译或按当前工作树重建。
+- 如果前端和后端在同一个生产 artifact 中（例如前端静态资源嵌入后端二进制），二者应作为一个版本原子提升和回滚；只有当两者有明确兼容协议、独立健康检查和独立回滚能力时，才拆成两个发布单元。
+- 运行时配置、域名、数据库连接和 secret 不烘焙进公共 artifact；由目标环境的受控配置/Secret Runtime 提供。配置变更仍需记录 exact revision 和影响范围。
+- 每次生产 promotion 至少绑定：`source_commit`、`artifact_digest`、`runtime_config_revision`、`migration_revision`（无 migration 也明确记录）和 `previous_known_good`。任一项读回不一致就停止，不凭名称猜测。
+- 生产默认需要独立的 Human/environment gate。源码合并或镜像生成不自动重启、切流、改 DNS、执行 migration 或公开新入口。
+- rollback 优先回到已验证的 `previous-known-good` artifact 和兼容配置；涉及不可逆 migration、数据删除或未知 secret 时，自动化只准备和报告，回到 Human 决策。
+
+最小发布回执应能回答：
+
+1. 这次运行的源码 exact commit 是什么？
+2. 实际运行的 artifact digest/checksum 是什么？
+3. 它是否经过了与生产相同的 staging smoke/Invariant 检查？
+4. 谁、依据哪个 Decision/Change 授权了 promotion？
+5. 上一个可回退版本和配置是什么？
+6. 如果失败，回退是否只需切回旧 artifact，还是涉及数据恢复和人工处置？
+
+这套契约不要求先引入 registry、发布平台或 CI/CD 产品。单机项目可以用一个私有 compose/服务配置和一份脱敏 release receipt 实现；只有重复发布摩擦真实出现后，才下沉为通用 actuator。
+
 ## 8. GitHub Actions、自托管 Agent 与供应链
 
 | 工作 | GitHub-hosted ephemeral | 自托管 Agent/runner | 私有 actuator | Human |
