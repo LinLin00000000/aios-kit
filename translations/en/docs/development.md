@@ -1,4 +1,5 @@
 <!-- AUTO-GENERATED FILE. DO NOT EDIT. -->
+<!-- AIOS-TRANSLATION-METADATA {"schema":"aios.translation.v1","source_path":"docs/development.md","source_sha256":"cd73d75f765d467e1d9913d212c9de362cde8fed22f7883d50e5502bc0e6ee91","status":"generated"} -->
 
 [简体中文](../../../docs/development.md) | **English**
 
@@ -6,75 +7,75 @@
 
 # Development Guide
 
-This document is for maintainers, contributors, and future collaborating AI Agents. The README is only the public entry point; modules, skills, local overlays, release validation, and AI collaboration rules belong here.
+This document is for maintainers, contributors, and AI Agents collaborating on future work. The README is only the public entry point; modules, skills, local overlays, release verification, and AI collaboration rules belong here.
 
 ## Product Surface Rules
 
-The README is the product entry point, not a maintenance log, personal explanation, or draft of decisions. It should only include: project positioning, installation, common commands, core directories, boundaries, and documentation entry points.
+The README is the product entry point, not a maintenance log, personal explanation, or draft decision record. Include only: project positioning, installation, common commands, core directories, boundaries, and documentation entry points.
 
-Complex background, design details, private/local overlays, and AI collaboration prompts should go in `docs/` or LLL workspace reports.
+Put complex background, design details, private/local overlays, and AI collaboration prompts in `docs/` or LLL workspace reports.
 
 ## Evolution Protocol
 
-Before maintainers and Agents add modules, extend the CLI, split skills, or introduce automation, they should first read [docs/evolution.md](evolution.md).
+Before adding a module, extending the CLI, splitting a skill, or introducing automation, maintainers and Agents should first read [docs/evolution.md](evolution.md).
 
-Default strategy: improve the shared reality layer first, then the execution surface; file things and add doctor/status/validate before considering daemon/service/CI; patch an existing umbrella skill or development documentation before creating a new skill. Any added complexity must explain what duplication, risk, or manual steps it removes.
+Default strategy: complete the shared reality layer before adding the execution surface; document and implement doctor/status/validate before considering daemon/service/CI; patch an existing umbrella skill or development documentation before creating a new skill. Any added complexity must explain which duplication, risks, or manual steps it removes.
 
 ## Development Philosophy: Human / Agent / CLI
 
-AIOS development uses a three-layer division of labor by default, instead of stuffing all intelligence, state, and execution into skills or chat:
+AIOS development follows a three-layer division of responsibilities by default, rather than putting all intelligence, state, and execution into skills or chat:
 
 ```text
 Human = sovereign decision-maker
-Agent = judge, interpreter, coordinator
+Agent = judge, explainer, and coordinator
 CLI   = deterministic executor
 ```
 
-- **Human** is responsible for direction, value judgments, aesthetic tradeoffs, risk authorization, and final acceptance.
-- **Agent** is responsible for understanding intent, explaining state, designing options, coordinating tools, finding gaps, and returning real decisions to the Human when needed.
-- **CLI / script** is responsible for repeatable, verifiable, low-ambiguity structural actions, such as init, append event, validate, doctor, render, index, archive, and promote dry-run.
+- **Human** is responsible for direction, value judgments, aesthetic trade-offs, risk authorization, and final acceptance.
+- **Agent** is responsible for understanding intent, explaining state, designing options, coordinating tools, identifying gaps, and returning real decisions to the Human when necessary.
+- **CLI / script** is responsible for repeatable, verifiable, low-ambiguity structural actions such as init, append event, validate, doctor, render, index, archive, and promote dry-run.
 
-Therefore, skills should remain thin entry points and routers; repeated structural logic should preferentially move down into project protocols, CLI, scripts, or schemas. The Agent’s user-facing UX can be natural language, but at the machine layer it should use dry-run, doctor/status/validate, JSON/status output, and idempotent commands as much as possible.
+Therefore, skills should remain thin entry points with routing responsibilities; repetitive structural logic should preferably be moved into project protocols, CLIs, scripts, or schemas. The Agent-facing UX can use natural language, but the machine layer should use dry-run, doctor/status/validate, JSON/status output, and idempotent commands whenever possible.
 
 ## Workflow / LLL Semantic Layers
 
-When AIOS introduces richer workflow concepts, first treat them as semantic layers above LLL rather than creating a parallel source of truth:
+When AIOS introduces richer workflow concepts, first treat them as a semantic layer above LLL, rather than creating a parallel source of truth:
 
-- The LLL workdir is a recoverable, auditable work site and operational kernel.
-- Matter / transaction can serve as the default aggregate root for long-running work; Project, Workflow Run, Case, Engagement, Issue, Kanban card, and HTML report are better treated as views, subtypes, or projections.
-- Markdown/HTML reports, charts, and dashboard snapshots are Presentation Views. They can appear early to compress state and improve decision quality.
-- Kanban, GitHub, runner, CI, Feishu approvals, and other systems that change state are Execution Projections. They should only be connected when link-back, permission boundaries, write-back, conflict handling, and validation paths are clear.
-- During closeout, distinguish deliverables, asset candidates, archived evidence, and pruned noise; the AIOS vault/project documentation/digital garden should only accept selected semantic assets, not raw process garbage.
+- The LLL workdir is a recoverable, auditable working environment and operational kernel.
+- Matter / transactions can serve as the default aggregate root for long-running work; Project, Workflow Run, Case, Engagement, Issue, Kanban card, and HTML report are better treated as views, subtypes, or projections.
+- Markdown/HTML reports, charts, and dashboard snapshots are Presentation Views. They may appear early to compress state and improve decision quality.
+- Systems that change state, such as Kanban, GitHub, runners, CI, and Feishu approvals, are Execution Projections. They should be connected only when link-back, permission boundaries, write-back, conflict handling, and verification paths are clear.
+- At closeout, distinguish between deliverables, asset candidates, archived evidence, and pruned noise; the AIOS vault, project documentation, and digital garden should receive only selected semantic assets, not raw process debris.
 
-This layering should be able to expand across personal AIOS, team collaboration, and enterprise digital delivery through extensions, views, policies, and adapters, instead of rewriting core protocols for different scales.
+This layering should be extensible through extensions, views, policies, and adapters across personal AIOS, team collaboration, and enterprise digital delivery, rather than rewriting the core protocol for different scales.
 
 ## Documentation Language Rules
 
-The repository’s source documentation is maintained only in Simplified Chinese:
+The repository maintains source documentation only in Simplified Chinese:
 
-- `README.md` and `docs/*.md` use Simplified Chinese as the only source language. Do not maintain English translations in titles or body text at the same time.
-- English documentation is only generated by the automatic translation workflow into `translations/en/**`. Do not manually modify generated files.
-- If English wording needs to change, first improve the Chinese source documentation or translation script, then regenerate the English version.
-- Technical terms, commands, file names, configuration keys, and product names can remain in English, such as `runtime skills`, `skillpack`, `registry`, and `install-state.json`.
+- `README.md` and `docs/*.md` use Simplified Chinese as their sole source language; do not maintain English translations alongside Chinese in headings or body text.
+- English documentation is generated only by the automated translation process into `translations/en/**`; do not modify generated files manually.
+- If the English wording needs to change, first improve the Chinese source documentation or translation script, then regenerate the English version.
+- Technical terms, commands, filenames, configuration keys, and product names may remain in English, such as `runtime skills`, `skillpack`, `registry`, and `install-state.json`.
 
 ## CLI Design
 
-The first-class entry point for secret management is `aios secret ...`. It works as **Secret Registry + Minimal Secret Runtime**: the Registry manages requests, metadata, receipts, replicas, consumers, and audit; the current Runtime only supports env injection through `aios secret run`. Secret values can only be entered through a real TTY via `aios secret intake <request-id>`. Agents do not read, print, or commit values. See [`docs/secret-management.md`](secret-management.md) for details.
+The first-class entry point for secret management is `aios secret ...`. It operates as a **Secret Registry + Minimal Secret Runtime**: the Registry manages requests, metadata, receipts, replicas, consumers, and auditing; the current Runtime supports only env injection through `aios secret run`. Human-provided secret values are entered through the real TTY using `aios secret intake <request-id>`; machine-generated random secrets are created non-interactively using `aios secret generate <request-id>`; Agents do not read, print, or submit values. See [`docs/secret-management.md`](secret-management.md) for details.
 
 The CLI has two layers:
 
 | Layer | User-facing examples | Purpose |
 |---|---|---|
-| Product commands | `aios status`, `aios doctor`, `aios update`, `aios update skills`, `aios update modules lins-living-loop` | Stable commands for regular users |
-| Expert subdomains | `aios skillpack sync --apply`, `aios skillpack dev-link --apply`, `aios assets doctor` | Manifest reconciliation, development, debugging |
+| Product commands | `aios status`, `aios doctor`, `aios update`, `aios update skills`, `aios update modules lins-living-loop` | Stable commands for ordinary users |
+| Expert subdomains | `aios skillpack sync --apply`, `aios skillpack dev-link --apply`, `aios assets doctor` | Inventory reconciliation, development, and debugging |
 
-`skillpack sync` means “reconcile/converge runtime skills according to `skillpack.yaml`”; it is not a normal update. Regular users should prefer:
+`skillpack sync` means “reconcile/converge runtime skills according to `skillpack.yaml`”; it is not a regular update. Ordinary users should prefer:
 
 ```bash
 aios update skills
 ```
 
-`aios update` is equivalent to `aios update all` by default. Use these when granularity is needed:
+`aios update` is equivalent to `aios update all` by default. Use the following when finer-grained control is needed:
 
 ```bash
 aios update modules
@@ -83,7 +84,27 @@ aios update skills
 aios update ops
 ```
 
-An update target only deserves to become an independent subject when it has an independent lifecycle, duration, failure risk, or explicit user intent. For now, `modules`, `skills`, and `ops` are enough.
+An update object should become an independent subject only when it has an independent lifecycle, duration, failure risk, or explicit user intent. For now, `modules`, `skills`, and `ops` are sufficient.
+
+## GitHub source cache helper development
+
+`scripts/github_source_cache.py` is a narrow helper used by `github-repo-search` when a selected repository requires a complete source tree. It is not a new top-level `aios` product command. It uses the standard library plus system Git, public-GitHub-only behavior, a bare cache, and task-local detached worktrees; it does not take over the default search flow.
+
+Development and regression tests must run offline: use a temporary HOME under `/tmp`, an explicitly specified temporary `--cache-root`, and a local bare remote fixture. Tests place a dedicated fake-Git executable at the front of `PATH`; for fixture processes only, it injects an exact command-local rewrite from the canonical GitHub URL to the local bare remote. The production helper must not contain a test mode, arbitrary remotes, or a rewrite escape hatch. Tests must not write to the live `~/aios/cache/github` or depend on user secrets or real GitHub clone/fetch operations.
+
+Production acquisition/worktree commands clear ambient `GIT_*`, isolate user/system Git configuration and user HOME authentication files, and apply a narrow allowlist to cache-local configuration. This prevents credentials, URL rewrites, includes, hooks, or smudge/process filters from changing public-GitHub-only semantics. When a proxy is needed, use process-level `HTTPS_PROXY` / `HTTP_PROXY`. Before each cache use, the helper also rejects symlinks or special files in the bare metadata tree, preventing objects, refs, or worktree metadata from escaping the cache boundary. Local object probes for partial clones must set `GIT_NO_LAZY_FETCH=1` and use `git cat-file -t <SHA>` to verify that the input itself is a commit object. Otherwise, an ordinary object check could silently access the promisor remote, or mistake an annotated tag object for a full commit SHA. Network access is allowed only for explicit fetch/refresh operations and, when creating a worktree, on-demand hydration of missing blobs.
+
+Shared changes use the kernel `flock` on a persistent lockfile; the lockfile itself may remain, while the lock is released through the file descriptor. The first partial cache is atomically published only after complete validation and a successful pinned request, using Linux/WSL `renameat2(RENAME_NOREPLACE)`, and must never overwrite an unexpectedly existing final path. When cleaning up partial/worktree failures, first atomically move owned paths matching the device/inode to a random sibling, then recursively clear them through the already-held directory fd. For marker-present worktrees, also verify the bidirectional relationship between `.git` and `cache/worktrees/<id>`, isolate the corresponding Git metadata first, and then isolate the target. If a path is replaced after inspection, the helper restores the isolated metadata, preserves the replacement, and does not recursively delete it by pathname. After publication, if the target inode no longer belongs to the original partial cache, the helper clears the official cache path, preserves the foreign content in an unofficial sibling, and fails closed.
+
+Focused tests:
+
+```bash
+python3 -m py_compile scripts/github_source_cache.py
+python3 -m unittest tests.test_github_source_cache -v
+env -u AIOS_ROOT -u AIOS_HOME python3 -m unittest tests.test_source_cli -v
+```
+
+Finally, run the project's full `unittest discover`; fixtures must cover canonicalization, first acquisition/reuse, explicit fetch/refresh, failure cleanup, two-process concurrency, protection against deleting the wrong lock, redaction, and worktree/cache boundaries.
 
 ## Global Command Installation
 
@@ -93,13 +114,13 @@ The installer always creates:
 ~/aios/bin/aios -> ~/aios/modules/aios-kit/aios
 ```
 
-Users are recommended to add `~/aios/bin` to PATH:
+Users are advised to add `~/aios/bin` to PATH:
 
 ```bash
 export PATH="$HOME/aios/bin:$PATH"
 ```
 
-If the user wants to write directly into an existing PATH directory, they can use:
+If users want to write directly to an existing PATH directory, they can use:
 
 ```bash
 bash install.sh --global-bin ~/.local/bin
@@ -109,60 +130,60 @@ The installer will not overwrite an existing conflicting `~/.local/bin/aios`.
 
 ## Adding a Portable Skill
 
-A skill suitable for the portable base pack should satisfy at least one condition:
+A skill suitable for inclusion in the portable base pack should meet at least one of these criteria:
 
-- Most AIOS users will need it frequently;
-- It significantly improves default capabilities after installation and has small side effects;
-- It is strongly related to core AIOS flows, such as skill discovery, document workflows, LLL, and resource/project resolution.
+- Most AIOS users need it frequently.
+- It significantly improves default capabilities after installation with minimal side effects.
+- It is strongly related to AIOS core workflows, such as skill discovery, document workflows, LLL, or resource/project resolution.
 
 Steps:
 
-1. Add the entry to `skillpack.yaml`, clearly writing `source`, `skill`, and `reason`.
-2. Run dry-run:
+1. Add the entry to `skillpack.yaml`, clearly specifying `source`, `skill`, and `reason`.
+2. Run a dry-run:
 
    ```bash
    aios skillpack sync --dry-run
    aios update skills --dry-run
    ```
 
-3. Install and validate for real:
+3. Install and verify it:
 
    ```bash
    aios update skills
    aios doctor
    ```
 
-4. Do a fresh HOME smoke install to avoid pollution from existing local files.
-5. Commit/push after passing public audit.
+4. Perform a fresh HOME smoke install to avoid contamination from existing local files.
+5. Commit/push after passing the public audit.
 
 ## Adding a First-Party Skill
 
-If a skill is maintained by AIOS itself, prefer the following source-of-truth locations. Regular users do not need to remember these commands; users only need to tell the Agent “put this skill under AIOS management.” The Agent is responsible for classification, dry-run, execution, and validation.
+If a skill is maintained by AIOS itself, prefer the following source-of-truth locations. Ordinary users do not need to remember these commands; they only need to tell the Agent, “Bring this skill under AIOS management.” The Agent is responsible for classification, dry-run, execution, and verification.
 
-If it is only an instruction for the current Agent to run a command, do not rush to create a new skill; first put it into an umbrella skill, development documentation, or an existing related skill. Only split it into a narrow companion skill when the domain boundary is stable, frequent, high-risk, or has an independent validation model.
+If this is merely an instruction for the current Agent to execute a command, do not rush to create a new skill; put it in an umbrella skill, the development documentation, or an existing related skill first. Split it into a narrow companion skill only when the domain boundary is stable, the usage is frequent, the risk is high, or the verification model is independent.
 
 ### Skill Splitting Principles
 
-Split skills by stable domain boundaries, not by “each CLI subcommand” or “one-off migration flow.”
+Split skills by stable domain boundaries, not by “one skill for every CLI subcommand” or “one skill for every one-off migration workflow.”
 
 | Form | Suitable when | Risk |
 |---|---|---|
-| Umbrella skill | Cross-AIOS architecture, updates, local/private boundary, Agent operation strategy; the flow is still evolving; unified mental model is needed | Can become a junk drawer if too large; keep it as a thin entry point and router |
-| Narrow companion skill | Frequent, high-risk, with an independent validation model, and does not pollute other tasks after loading, such as secrets, service operations, and resource resolution | Too many splits duplicate principles and increase triggering and maintenance cost |
+| Umbrella skill | It spans AIOS architecture, updates, local/private boundaries, and Agent operating policies; the workflow is still evolving; a unified mental model is needed | It may become a dumping ground when too large; keep it as a thin entry point with routing responsibilities |
+| Narrow companion skill | It is frequent, high-risk, has an independent verification model, and does not pollute other tasks when loaded, such as secrets, service operations, or resource resolution | Splitting too much repeats principles and increases triggering and maintenance costs |
 
-Current default: `aios-agent` as the umbrella policy skill; `aios-resource-resolver`, `aios-secret-management`, `aiops-vault`, and `aiops-service-operations` remain narrow domain skills.
+Current default: `aios-agent` serves as the umbrella policy skill; `aios-resource-resolver`, `aios-secret-management`, `aiops-vault`, and `aiops-service-operations` remain narrow domain skills.
 
 ### First-Party Skill Source-of-Truth Locations
 
 | Scenario | Source-of-truth location | Runtime installation method |
 |---|---|---|
-| Small AIOS-specific skill | `aios-kit/skills/<skill>` | copy for user installs, symlink on development machines |
-| Independent product-style skill | independent repo under `~/aios/modules/<repo>` | copy for user installs, symlink on development machines |
-| Sub-skill inside a template repo | `<repo>/skills/<skill>` | copy for user installs, symlink on development machines |
+| Small AIOS-specific skill | `aios-kit/skills/<skill>` | Copy for user installation, symlink on development machines |
+| Independent product-like skill | Independent repo under `~/aios/modules/<repo>` | Copy for user installation, symlink on development machines |
+| Sub-skill within a template repo | `<repo>/skills/<skill>` | Copy for user installation, symlink on development machines |
 
-Do not treat the runtime skills directory as the source of truth. Development machines can symlink individual runtime skills to Git worktrees, but public installation defaults to copy.
+Do not treat the runtime skills directory as the source of truth. Development machines may symlink individual runtime skills to Git worktrees, but public installation uses copy mode by default.
 
-If a skill was first created locally by Hermes/Agent and should become an AIOS-managed, Git-managed, releasable first-party skill, the Agent can use the `adopt` actuator to take it over instead of manually moving directories. `adopt` is an execution surface for Agents/maintainers, not UX that users need to remember:
+If a skill is first created locally using Hermes/Agent and should become an AIOS-managed, Git-managed, publishable first-party skill, the Agent can take it over using the `adopt` actuator instead of moving the directory manually. `adopt` is an Agent/maintainer execution surface, not UX that users need to remember:
 
 ```bash
 cd ~/projects/aios-kit
@@ -170,7 +191,7 @@ cd ~/projects/aios-kit
 # Preview: automatically search ~/.agents/skills and ~/.hermes/skills for a skill with the same name
 ./aios skillpack adopt <skill-name> --dry-run
 
-# Specify source and apply: by default, move it to skills/<skill-name>, write skillpack.yaml,
+# Specify the source and execute: by default, move it to skills/<skill>, update skillpack.yaml,
 # then replace ~/.agents/skills/<skill-name> with a symlink to the Git source of truth
 ./aios skillpack adopt <skill-name> \
   --from ~/.hermes/skills/<category>/<skill-name> \
@@ -178,20 +199,20 @@ cd ~/projects/aios-kit
   --replace-runtime \
   --reason "<why this is an AIOS first-party skill>"
 
-# If you only want to copy it into the repo and keep the original directory, use --copy;
-# but after adoption, avoid continuing to edit the old directory.
+# To copy it into the repo while retaining the original directory, use --copy; after takeover,
+# avoid continuing to edit the old directory.
 ./aios skillpack adopt <skill-name> --from <path> --copy --apply --replace-runtime
 ```
 
-Safety boundaries of `adopt`:
+Safety boundaries for `adopt`:
 
-- Dry-run by default; files are only written with `--apply`.
-- If `skillpack.yaml` already manages a skill with the same name, it refuses.
-- If multiple local candidates are discovered automatically, explicit `--from` is required.
-- The default destination is `skills/<skill>`; use `--dest modules/<module>/skills/<skill>` only when it is tightly bound to a module.
-- Runtime uses the `~/.agents/skills/<skill>` symlink by default; do not create an overlay with the same name under `~/.hermes/skills`, unless intentionally overriding and cleaning it up afterward.
+- Dry-run is the default; files are written only with `--apply`.
+- If `skillpack.yaml` already manages a skill with the same name, the command will refuse.
+- If automatic discovery finds multiple local candidates, it requires an explicit `--from`.
+- The default destination is `skills/<skill>`; use `--dest modules/<module>/skills/<skill>` only when the skill is tightly coupled to a module.
+- The default runtime location is the `~/.agents/skills/<skill>` symlink; do not create a same-name `~/.hermes/skills` overlay unless intentionally overriding it and cleaning it up afterward.
 
-Validate after adoption:
+Verify after takeover:
 
 ```bash
 ./aios skillpack doctor --target universal
@@ -202,97 +223,97 @@ python3 scripts/audit_public.py
 
 ## Adding a Module
 
-A module is an updatable source or template checkout under `~/aios/modules/<name>`. Objects suitable as modules usually have independent lifecycles, such as LLL, OPS vault template, and future multi-device interconnection modules.
+A module is an updateable source or template checkout under `~/aios/modules/<name>`. Suitable modules generally have an independent lifecycle, such as LLL, the OPS vault template, or a future multi-device interconnection module.
 
 When adding a module, determine:
 
-- Is it public portable base, or a local overlay?
+- Is it a public portable base or a local overlay?
 - Does the installer need to clone it?
-- Is `aios update modules <name>` enough, or is an additional refresh step needed?
+- Is `aios update modules <name>` sufficient, or is an additional refresh step required?
 - Does it provide a runtime skill? If so, where should the runtime skill be copied/symlinked?
 
-If it is only a single skill, do not turn it into a module too early. Put it in `skillpack.yaml` or `aios-kit/skills/<skill>` first.
+If it is only a single skill, do not make it a module prematurely. Put it in `skillpack.yaml` or `aios-kit/skills/<skill>` first.
 
 ## Local Overlay Strategy
 
-Local overlays are for a specific user’s own machines, private infrastructure, central control plane, or experimental modules. They can belong to that user’s AIOS instance, but they do not belong to the public portable base pack.
+Local overlays are for a specific user's machine, private infrastructure, central control plane, or experimental modules. They may belong to that user's AIOS instance, but not to the public portable base pack.
 
-Public documentation must not record real private overlay names, private resource aliases, hostnames, secret handles, or machine-specific operations facts. These facts should live in the live AIOS instance, such as OPS vault, instance state, local registry, or local-only Agent profile layer.
+Public documentation must not record real private overlay names, private resource aliases, hostnames, secret handles, or machine-specific operational facts. Put these facts in the live AIOS instance instead, such as the OPS vault, instance state, local registry, or local-only Agent profile layer.
 
-`skillpack.local.yaml` is only a compatibility/debug mode: it may exist when a local checkout temporarily needs overlay reconciliation, but it is not the recommended long-term location for private instance facts, and it must remain Git ignored.
+`skillpack.local.yaml` is only a compatibility/debugging mode: it may exist when a local checkout temporarily needs overlay reconciliation, but it is not the recommended long-term location for private instance facts and must remain Git-ignored.
 
-In the future, if multi-device interconnection, central Agent, or remote execution becomes a public core AIOS capability, abstract a portable module/skill and only publish general flows, schemas, and templates, not private resource facts.
+If multi-device interconnection, a central Agent, or remote execution becomes a public core capability of AIOS in the future, abstract it into a portable module/skill that exposes only generic workflows, schemas, and templates—not private resource facts.
 
 ## Differences Between AIOps Skills
 
-`aiops-vault` is the entry/companion skill for the OPS vault. It defines how to read the vault, follow secret boundaries, and maintain `resources.md`, `maintenance-log.jsonl`, `secrets-location.md`, and so on. Its `SKILL.md` is located at the root of the built-in `aios-kit` module `modules/aiops-vault-template`, so the development machine runtime symlink points to that module root:
+`aiops-vault` is the entry-point/companion skill for the OPS vault. It defines how to read the vault, observe secret boundaries, and maintain `resources.md`, `maintenance-log.jsonl`, `secrets-location.md`, and so on. Its `SKILL.md` is located at the root of the built-in `modules/aiops-vault-template` module within `aios-kit`, so the development-machine runtime symlink points to the module root:
 
 ```text
 ~/.agents/skills/aiops-vault -> ~/projects/aios-kit/modules/aiops-vault-template
 ```
 
-`aiops-service-operations` is a narrower service operations workflow skill, located in a subdirectory of the built-in template module:
+`aiops-service-operations` is a narrower service-operations workflow skill located in a subdirectory of the built-in template module:
 
 ```text
 ~/.agents/skills/aiops-service-operations -> ~/projects/aios-kit/modules/aiops-vault-template/skills/aiops-service-operations
 ```
 
-## How to Ask AI to Add a Module
+## How to Have AI Add a Module
 
 ```text
-I made a new module: <module name>.
+I created a new module: <module name>.
 Local path: <path>.
-Goal: include it in AIOS’s portable installation/update flow.
-Please determine whether it should be portable base, first-party skill, independent module, or local overlay.
-Requirements: do not copy my private data or secrets; do not take over a friend’s entire existing skills directory; README should only contain information the public needs; development rules should go into docs/development.md; run dry-run, doctor, public audit, and fresh HOME smoke install; commit and push after passing.
+Goal: include it in AIOS's portable installation/update workflow.
+Please determine whether it should be a portable base, first-party skill, independent module, or local overlay.
+Requirements: do not copy my private data or secrets; do not take over the entire existing skills directory of a friend; put only information needed by ordinary users in the README; put development rules in docs/development.md; run a dry-run, doctor, public audit, and fresh HOME smoke install; commit and push after it passes.
 ```
 
-## AIOS Self-Iteration Rules
+## AIOS Self-Evolution Rules
 
-AIOS is not a one-time installer; it is an operational layer for long-term work. In any AIOS-related task, the Agent should actively observe whether the system itself shows signals for improvement:
+AIOS is not a one-time installation package, but an operating layer for long-term work. In any AIOS-related task, the Agent should proactively observe whether the system itself shows signs of improvement opportunities:
 
-- Repeated manual steps should become CLI/API actuators;
-- Skill trigger conditions, boundaries, or validation methods are outdated or ambiguous;
-- The CLI is too verbose or lacks dry-run/doctor/validate/JSON, making it hard for the Agent to execute safely;
-- The public/private boundary is easy to misjudge;
-- Updating a user instance can easily overwrite local evolution;
-- Validation gaps, hardcoded paths, duplicated state, or hidden assumptions.
+- Repeated manual steps should become CLI/API actuators.
+- Skill triggering conditions, boundaries, or verification methods are outdated or ambiguous.
+- The CLI is too verbose or lacks dry-run/doctor/validate/JSON, making safe Agent execution difficult.
+- Public/private boundaries are easy to misjudge.
+- Updating a user instance can easily overwrite local evolution.
+- There are verification gaps, hard-coded paths, duplicated state, or hidden assumptions.
 
 Handling strategy:
 
-1. If the fix is safe and clearly scoped, directly update the related skill, documentation, script, or validation.
-2. If it would change the workflow, CLI surface, compatibility, or architecture, first propose a short improvement suggestion to the user.
-3. If not handled for now, write the failure mode into the LLL error/trace, OPS maintenance log, or related issue/todo.
+1. If the fix is safe and clearly scoped, update the relevant skill, documentation, script, or verification directly.
+2. If it changes the workflow, CLI surface, compatibility, or architecture, first make a brief improvement proposal to the user.
+3. If it is not handled for now, record the failure mode in the LLL error/trace, OPS maintenance log, or a relevant issue/todo.
 
-Do not self-iterate for ceremony; only fix real failure modes, repeated friction, risk ambiguity, or validated simplification opportunities.
+Do not self-evolve for the sake of ceremony; fix only real failure modes, recurring friction, ambiguous risks, or verified opportunities for simplification.
 
 ## Upstream / Instance Update Reconciliation Model
 
-`aios-kit` is the seed/upstream of an AIOS instance, not the single source of truth that overwrites user instances long-term. After long-term use, runtime skills, local overlays, OPS vault, registry, workflows, and Agent behavior will all develop personalized evolution. Updates must reconcile, not reset.
+`aios-kit` is the seed/upstream for an AIOS instance, not a single source of truth that permanently overwrites the user instance. Over long-term use, runtime skills, local overlays, the OPS vault, the registry, workflows, and Agent behavior all develop instance-specific changes. Updates must reconcile rather than reset.
 
-Classify before updating:
+Classify items before updating:
 
-| Object | Strategy |
+| Item | Strategy |
 |---|---|
-| upstream-managed copy | If install-state/hash shows it has not been locally modified, update automatically; if locally modified, propose merge/force/skip |
-| user-owned / local overlay | Belongs to the instance; do not overwrite it from public upstream, and do not publish private facts |
-| runtime skill local edits | Treat as possible user/Agent self-iteration; prefer three-way merge: upstream new version, last installed baseline, local evolved copy |
-| generated/cache | Can be safely rebuilt or cleaned according to state |
-| external/app-owned | AIOS only indexes/checks; it does not move or take over |
+| upstream-managed copy | If install-state/hash indicates no local modifications, update automatically; if locally modified, propose merge/force/skip |
+| user-owned / local overlay | Belongs to the instance; do not overwrite from public upstream or publish private facts |
+| runtime skill local edits | Treat as possible user/Agent self-evolution; prefer a three-way merge among the new upstream version, the previous installation baseline, and the locally evolved copy |
+| generated/cache | Safely rebuild or clean according to state |
+| external/app-owned | AIOS only indexes/checks; it does not move or take over these items |
 
-Future update tools should prioritize `status`, `diff`, `doctor`, `propose`, and `reconcile`, so the Agent can explain “what will change, why, where the conflicts are, and what safe options exist.”
+Future update tools should prioritize `status`, `diff`, `doctor`, `propose`, and `reconcile`, so the Agent can explain “what will change, why, where conflicts are, and which safe options are available.”
 
 ## Skillpack Update Semantics
 
 `aios-kit` is more conservative than simply “adding everything again”:
 
-- Each managed skill records its installation path and local content hash;
-- Before updating, if a runtime skill is found to have been locally modified by the user, overwrite is refused by default;
-- Only explicit `--force` overwrites;
-- Stale skills are removed only with `--prune --apply`;
-- prune only deletes paths recorded in install-state as managed by `aios-kit`.
+- Each managed skill records its installation path and local content hash.
+- Before updating, if a runtime skill has been modified locally by the user, refuse to overwrite it by default.
+- Overwriting requires an explicit `--force`.
+- Stale skills are removed only with `--prune --apply`.
+- Pruning deletes only paths recorded in install-state as managed by `aios-kit`.
 
-Development machines can use symlink mode so edits made by the Agent to runtime skills land in a Git-visible worktree:
+Development machines can use symlink mode so edits to runtime skills by the Agent land in a Git-visible worktree:
 
 ```bash
 cd ~/projects/aios-kit
@@ -300,23 +321,23 @@ cd ~/projects/aios-kit
 ./aios skillpack doctor
 ```
 
-Regular user/friend installations use copy mode by default:
+Ordinary users/friends use copy mode by default:
 
 ```bash
 ./aios skillpack sync --apply
 ```
 
-`--apply` and `--dry-run` are mutually exclusive; low-level skillpack/assets commands only preview by default, and only make actual changes when `--apply` is passed explicitly.
+`--apply` and `--dry-run` are mutually exclusive; low-level skillpack/assets commands preview by default and modify files only when `--apply` is explicitly provided.
 
-## Installation Wizard Development
+## Installer Wizard Development
 
-`aios-install` is a Go/huh interactive frontend and does not own the real installation actions. Maintenance principles:
+`aios-install` is a Go/huh interactive frontend and does not own the actual installation actions. Maintenance principles:
 
-- `install.sh` remains the installation backend and automation contract; Go only constructs `install.sh --non-interactive ...` arguments.
-- Private parameters (such as `--proxy-subscription-url`) are masked by default in preview/JSON reports; only the actual argv preserves the real value.
-- Non-TTY/CI/Agent scenarios should prefer `--no-wizard --print-command` or `--json`.
-- Users should not be required to preinstall Go; Go is only used for development builds, and official distribution provides prebuilt binaries through GitHub Release.
-- The distribution order of `install.sh --wizard` is: `aios-install` on PATH → `go run` in the checkout → download release asset and verify `aios-install_checksums.txt` → Bash fallback.
+- `install.sh` remains the installation backend and automation contract; Go only constructs the `install.sh --non-interactive ...` arguments.
+- Private parameters such as `--proxy-subscription-url` are redacted by default in previews/JSON reports; the actual argv retains the real values.
+- For non-TTY/CI/Agent scenarios, prefer `--no-wizard --print-command` or `--json`.
+- Users should not be required to preinstall Go; Go is used only for development builds, while official distribution provides precompiled binaries through GitHub Releases.
+- The distribution order for `install.sh --wizard` is: `aios-install` on PATH → `go run` in the checkout → download the release asset and verify `aios-install_checksums.txt` → Bash fallback.
 
 Common development commands:
 
@@ -328,9 +349,9 @@ scripts/build_aios_install_release.sh /tmp/aios-install-dist
 ./aios-install --no-wizard --script ./install.sh --json --dry-run
 ```
 
-The current `huh` v1 requires Go 1.23+; development machines can use Go toolchain auto, and release CI should explicitly install Go 1.23 or newer.
+The current `huh` v1 requires Go 1.23+; development machines may use Go toolchain auto, while release CI should explicitly install Go 1.23 or a newer version.
 
-The release workflow is located at `.github/workflows/release-aios-install.yml`. When pushing a `v*` tag, it builds:
+The release workflow is located at `.github/workflows/release-aios-install.yml`. Pushing a `v*` tag builds:
 
 ```text
 aios-install_linux_amd64.tar.gz
@@ -344,7 +365,7 @@ aios-install_checksums.txt
 
 ## Release Checklist
 
-Before release, run at least:
+Run at least the following before release:
 
 ```bash
 bash -n install.sh
@@ -366,4 +387,4 @@ tmp_home="$(mktemp -d)"
 git status --short
 ```
 
-When installer, skillpack, module clone, or runtime skills paths are involved, a fresh HOME smoke install is required.
+A fresh HOME smoke install is required whenever the changes involve the installer, skillpack, module cloning, or runtime skill paths.
