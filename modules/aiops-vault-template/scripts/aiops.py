@@ -12,6 +12,7 @@ SECRET_PATTERNS = [
 ]
 DEFAULT_EXCLUDES = {".git", "__pycache__", ".pytest_cache", "archive", "evidence/private"}
 SERVICE_SCHEMA = "aios.ops.service.v1"
+VISIBILITY_VALUES = {"public", "private"}
 
 def looks_like_vault(path: Path) -> bool:
     return any((path / name).exists() for name in ["resources.md", "resources.example.md", "maintenance-log.jsonl", "maintenance-log.example.jsonl"])
@@ -117,12 +118,15 @@ def load_service_records(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
         if not isinstance(record, dict) or record.get("schema") != SERVICE_SCHEMA:
             errors.append(f"{rel}: expected {SERVICE_SCHEMA} object")
             continue
-        missing = [key for key in ["id", "name", "summary", "references"] if key not in record]
+        missing = [key for key in ["id", "name", "summary", "visibility", "references"] if key not in record]
         if missing:
             errors.append(f"{rel}: missing {', '.join(missing)}")
             continue
         if not all(isinstance(record[key], str) and record[key].strip() for key in ["id", "name", "summary"]):
             errors.append(f"{rel}: id/name/summary must be non-empty strings")
+            continue
+        if not isinstance(record.get("visibility"), str) or record["visibility"] not in VISIBILITY_VALUES:
+            errors.append(f"{rel}: visibility must be one of: private, public")
             continue
         if not isinstance(record["references"], list) or not all(isinstance(ref, dict) for ref in record["references"]):
             errors.append(f"{rel}: references must be an array of objects")
@@ -180,12 +184,12 @@ def cmd_services(args: argparse.Namespace) -> int:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 2
-    catalog = [{"id": r["id"], "name": r["name"], "summary": r["summary"]} for r in records]
+    catalog = [{"id": r["id"], "name": r["name"], "summary": r["summary"], "visibility": r["visibility"]} for r in records]
     if args.json:
         print(json.dumps({"schema": "aios.ops.service-catalog.v1", "services": catalog}, ensure_ascii=False, indent=2))
     elif catalog:
         for item in catalog:
-            print(f"{item['id']}\t{item['name']}\t{item['summary']}")
+            print(f"{item['id']}\t{item['name']}\t{item['visibility']}\t{item['summary']}")
     else:
         print("No service metadata records. Add services/<id>/service.json.")
     return 0
@@ -328,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("index").set_defaults(func=cmd_index)
     p = sub.add_parser("resources"); p.add_argument("--section"); p.add_argument("--full", action="store_true"); p.set_defaults(func=cmd_resources)
-    p = sub.add_parser("services", help="emit compact id/name/summary catalog for Agent/LLM selection"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_services)
+    p = sub.add_parser("services", help="emit compact id/name/summary/visibility catalog for Agent/LLM selection"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_services)
     p = sub.add_parser("service", help="load one service by exact id, name, or alias"); p.add_argument("selector"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_service)
     p = sub.add_parser("host"); p.add_argument("query"); p.set_defaults(func=lambda a: search_resources(a.query, "host"))
     p = sub.add_parser("log"); p.add_argument("--tail", type=int, default=20); p.add_argument("--summary", action="store_true"); p.add_argument("--query"); p.set_defaults(func=cmd_log)

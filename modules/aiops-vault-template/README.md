@@ -6,8 +6,8 @@ It is not a CMDB SaaS, not a password manager, and not a deployment platform. It
 
 ## What this gives you
 
-- **File truth source**: `resources.md` for global current state, `services/<id>/service.json` for compact service discovery metadata/references, optional `service-card.md` for dedicated details, and `maintenance-log.jsonl` for append-only history.
-- **Dynamic context CLI**: `scripts/aiops.py services --json` emits only `id + name + summary`; the Agent/LLM selects the relevant service semantically, then `service <id> --json` loads that service's metadata, details, and references. The CLI does not pretend token overlap is semantic understanding.
+- **File truth source**: `resources.md` for global current state, `services/<id>/service.json` for compact service discovery metadata/references including intentional `visibility`, optional `service-card.md` for dedicated details, and `maintenance-log.jsonl` for append-only history.
+- **Dynamic context CLI**: `scripts/aiops.py services --json` emits only `id + name + summary + visibility`; the Agent/LLM selects the relevant service semantically, then `service <id> --json` loads that service's metadata, details, and references. The CLI does not pretend token overlap is semantic understanding.
 - **Thin skills**: portable agent instructions for reading the vault, respecting secret boundaries, verifying changes, and writing back only the right layer.
 - **Safe defaults**: real secrets stay out of Git; the public repo ships examples only.
 - **Guarded history writes**: use the native `aios ops log append` command; the vault query/check script is not a write API.
@@ -79,10 +79,19 @@ Keep these layers separate:
 | `resources.md` | Global current resource state: hosts, domains, resource pools, cross-service infrastructure, unknowns | Detailed service runbooks or conversational alias lists |
 | `maintenance-log.jsonl` | What changed, why, verification, impact, follow-ups | Current-state truth |
 | `secrets-location.md` | Names and locations of secrets, access/rotation notes | Secret values, tokens, private keys, cookies, recovery codes |
-| `services/<id>/service.json` | Stable discovery metadata: id, name, one short summary, exact aliases, optional details path, references | Dynamic status dumps, long symptom phrase lists, or secret values |
+| `services/<id>/service.json` | Stable discovery metadata: id, name, one short summary, `visibility: public|private`, exact aliases, optional details path, references | Dynamic status dumps, long symptom phrase lists, or secret values |
 | `services/<id>/service-card.md` | Optional detailed runbook/current service context loaded only after selection; metadata references may point to existing canonical detail sources instead | Global inventory of unrelated services |
 | `scripts/aiops.py` | Deterministic catalog/load/filter actuators for the Agent | An embedded LLM, semantic ranking engine, or second fact database |
 | Skills | When and how agents should read, act, verify, and write back | Private inventories or drifting service facts |
+
+## Visibility boundary
+
+`visibility` is a required, human-maintained intent marker for whether a logical service is a candidate for a future public asset directory:
+
+- `public`: the logical service may be considered for an explicitly curated public projection.
+- `private`: do not include the logical service in that projection, even if it has a public hostname, tunnel, or authenticated Internet entry.
+
+It does **not** mean anonymous access, an unprotected admin path, current runtime health, or public data. Interface audience, authentication, and data sensitivity remain separate concerns. Do not infer this field from DNS, hostname, HTTP reachability, or login state; do not copy a whole service card or `resources.md` into a public page.
 
 ## Core commands
 
@@ -109,7 +118,7 @@ python3 scripts/aiops.py check
 ## First-use checklist
 
 1. Fill the smallest useful `resources.md`: one host, shared infrastructure, backup status, and unknowns.
-2. For each service the Agent should discover, create `services/<id>/service.json` and keep only a short stable summary plus references there; add the adjacent `service-card.md` only when the service needs its own runbook.
+2. For each service the Agent should discover, create `services/<id>/service.json` with a short stable summary, an explicit `visibility` value (`public` or `private`), and references; add the adjacent `service-card.md` only when the service needs its own runbook.
 3. Create your private `secrets-location.md` from the example and keep it out of Git.
 4. Run `python3 scripts/aiops.py services --json` and `python3 scripts/aiops.py check`.
 5. Ask your agent to use the installed `aiops-vault` skill before operating services.

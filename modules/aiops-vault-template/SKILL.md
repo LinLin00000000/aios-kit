@@ -17,11 +17,13 @@ Use this split:
 - `resources.md`: global current state and cross-service resource relationships.
 - `maintenance-log.jsonl`: append-only history of decisions, maintenance, checks, incidents, and corrections.
 - `secrets-location.md`: secret names, storage locations, access/rotation notes only; never secret values.
-- `services/<service>/service.json`: compact discovery metadata (`id`, `name`, one short `summary`, exact aliases, details path, references).
+- `services/<service>/service.json`: compact discovery metadata (`id`, `name`, one short `summary`, required `visibility` of `public` or `private`, exact aliases, details path, references).
 - `services/<service>/service-card.md`: optional per-service runbook/details loaded only after selection; otherwise follow the metadata references to the canonical detail source.
 - `scripts/aiops.py`: deterministic catalog/load/filter interface over the vault; it is not the semantic reasoning layer.
 
 Do not infer current infrastructure from this skill. Read the vault and inspect live state where safe.
+
+`visibility` is an intent-only public-directory candidate marker. It does not assert anonymous access, authentication state, runtime health, or data sensitivity. Do not infer it from DNS, hostname, HTTP reachability, or an existing login page; keep interface audience and authentication details in the service card when they materially affect operations.
 
 ## Automation actuator projects
 
@@ -59,8 +61,8 @@ When operating through an actuator project:
    `AIOPS_ROOT="$AIOPS_ROOT"` assignment.
 2. Read the local vault `README.md` first if the task may change files, services, exposure, credentials, or backups.
 3. For a service request, use progressive context loading:
-   - run `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" services --json`;
-   - use the current Agent/LLM to compare the user's intent with each service's `name` and short `summary`;
+   - run `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" services --json` to obtain `id`, `name`, `summary`, and `visibility`;
+   - use the current Agent/LLM to compare the user's intent with each service's `name`, short `summary`, and `visibility`;
    - once one service is selected, run `AIOPS_ROOT="$AIOPS_ROOT" python3 "$AIOPS_ROOT/scripts/aiops.py" service "<exact-id>" --json` to load its details and references;
    - if several services remain plausible, ask one outcome-level choice or inspect only those candidates. Do not pass the whole natural-language sentence to a token-overlap matcher and call that semantic routing.
 4. Use the other command slices only when needed:

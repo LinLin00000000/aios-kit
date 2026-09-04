@@ -20,6 +20,10 @@ class SmokeTests(unittest.TestCase):
             self.assertIn("summary", obj)
             self.assertNotIn("SECRET", json.dumps(obj))
 
+    def test_service_template_declares_visibility(self):
+        record = json.loads((ROOT / "templates" / "service.json").read_text(encoding="utf-8"))
+        self.assertIn(record["visibility"], {"public", "private"})
+
     def test_cli_check_on_repo_examples(self):
         with tempfile.TemporaryDirectory() as td:
             vault = Path(td) / "vault"
@@ -69,9 +73,9 @@ class SmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             vault = Path(td) / "vault"
             services = vault / "services"
-            for service_id, name, summary in [
-                ("example-api", "Example API", "Fictional API service for public tests."),
-                ("notes-web", "Notes Web", "Fictional local notes website."),
+            for service_id, name, summary, visibility in [
+                ("example-api", "Example API", "Fictional API service for public tests.", "public"),
+                ("notes-web", "Notes Web", "Fictional local notes website.", "private"),
             ]:
                 directory = services / service_id
                 directory.mkdir(parents=True)
@@ -80,6 +84,7 @@ class SmokeTests(unittest.TestCase):
                     "id": service_id,
                     "name": name,
                     "summary": summary,
+                    "visibility": visibility,
                     "aliases": [name.lower()],
                     "references": [
                         {
@@ -111,7 +116,11 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(catalog["schema"], "aios.ops.service-catalog.v1")
             self.assertEqual(
                 [sorted(item) for item in catalog["services"]],
-                [["id", "name", "summary"], ["id", "name", "summary"]],
+                [["id", "name", "summary", "visibility"], ["id", "name", "summary", "visibility"]],
+            )
+            self.assertEqual(
+                {item["id"]: item["visibility"] for item in catalog["services"]},
+                {"example-api": "public", "notes-web": "private"},
             )
             self.assertNotIn("Detailed runbook", json.dumps(catalog))
 
@@ -123,6 +132,7 @@ class SmokeTests(unittest.TestCase):
                 )
             )
             self.assertEqual(context["service"]["id"], "example-api")
+            self.assertEqual(context["service"]["visibility"], "public")
             self.assertIn("Detailed runbook for example-api", context["details"])
             self.assertEqual(context["details_path"], "services/example-api/service-card.md")
 
@@ -189,6 +199,7 @@ class SmokeTests(unittest.TestCase):
                                 "id": service_id,
                                 "name": name,
                                 "summary": "Fully synthetic collision fixture.",
+                                "visibility": "private",
                                 "aliases": aliases,
                                 "references": [],
                             }
@@ -206,6 +217,44 @@ class SmokeTests(unittest.TestCase):
                 )
                 self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
                 self.assertIn("selector", (out.stdout + out.stderr).lower())
+
+    def test_check_requires_valid_visibility(self):
+        for label, visibility in [("missing", None), ("invalid", "pending")]:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                vault = Path(td) / "vault"
+                (vault / "scripts").mkdir(parents=True)
+                for path, content in {
+                    "README.md": "# Synthetic vault\n",
+                    "resources.md": "# Synthetic resources\n",
+                    "maintenance-log.schema.md": "# Synthetic schema\n",
+                    "maintenance-log.jsonl": "",
+                    "scripts/aiops.py": "# existence marker for check\n",
+                }.items():
+                    (vault / path).write_text(content, encoding="utf-8")
+                record = {
+                    "schema": "aios.ops.service.v1",
+                    "id": "visibility-fixture",
+                    "name": "Visibility Fixture",
+                    "summary": "Synthetic visibility validation fixture.",
+                    "aliases": [],
+                    "references": [],
+                }
+                if visibility is not None:
+                    record["visibility"] = visibility
+                directory = vault / "services" / "visibility-fixture"
+                directory.mkdir(parents=True)
+                (directory / "service.json").write_text(json.dumps(record), encoding="utf-8")
+                env = os.environ.copy()
+                env["AIOPS_ROOT"] = str(vault)
+                out = subprocess.run(
+                    [sys.executable, str(SCRIPT), "check"],
+                    env=env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertNotEqual(out.returncode, 0)
+                self.assertIn("visibility", (out.stdout + out.stderr).lower())
 
     def test_cli_log_query(self):
         env = os.environ.copy()

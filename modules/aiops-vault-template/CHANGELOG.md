@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added required service metadata `visibility: public|private`; the compact service catalog now exposes it and validation rejects missing or invalid values.
 - Replaced token-overlap service lookup with a compact `services --json` catalog plus exact `service <id> --json` context loading; the calling Agent/LLM now owns semantic selection.
 - Added `service.json` metadata/reference templates and validation while keeping detailed service cards lazily loaded.
 - Kept `host` and `log --query` as explicit deterministic text filters rather than presenting them as semantic natural-language routing.

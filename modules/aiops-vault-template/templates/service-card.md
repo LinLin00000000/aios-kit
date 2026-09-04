@@ -19,6 +19,15 @@
 - Ports:
 - Volumes:
 
+## Interfaces (optional)
+
+Add this section only when a service has multiple entry points or audience/authentication boundaries that need to be explicit. Do not create an empty table for every service.
+
+| Role | Endpoint | Audience | Network boundary | Auth |
+|---|---|---|---|---|
+| User web/API | | | | |
+| Health / metrics | | | | |
+
 ## Operations
 
 - Start:

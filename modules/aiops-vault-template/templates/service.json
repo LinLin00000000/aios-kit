@@ -3,6 +3,7 @@
   "id": "example-service",
   "name": "Example Service",
   "summary": "A short, stable description that lets an Agent decide whether this service is relevant.",
+  "visibility": "private",
   "aliases": [
     "example-service"
   ],
