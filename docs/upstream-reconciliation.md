@@ -320,6 +320,15 @@ Decision 必须绑定精确 candidate SHA 和 evidence set；candidate 增加 co
 - previous-known-good、candidate、current 三个版本必须精确可识别。
 - rollback 触及不可逆数据或未知 secret 时停止并回到 Human。
 
+### 生产持续授权与逐次审批
+
+生产授权可以逐版本批准，也可以由 Human 事先批准有边界的项目政策。下文的 Human gate／生产审批均包含这两种方式，不要求政策范围内重复确认。
+
+- 项目政策声明触发条件、目标范围、验证要求、维护窗口或立即发布条件、例外、暂停方式和回滚边界；项目仓库拥有政策，私有 OPS 拥有实例运行参数。
+- 合入受保护主分支可以成为已授权发布的触发器，但合并、构建和发布成功仍是不同状态，必须读取实际运行版本并验证。
+- 持续授权不覆盖未声明的数据迁移、权限扩大、Secret 变更或公开暴露；超出范围或证据不足时停止相关动作，交回 Human。
+- 未建立明确政策时仍默认逐次批准。授权不由 AI 自行扩大，也不因定时触发而放宽。
+
 ### 7.6 构建产物与发布提升
 
 上游协调不仅管理源码如何合并，也管理源码如何成为正在运行的版本。**源码、构建产物和运行环境是三个不同的身份层**：
@@ -332,6 +341,8 @@ source candidate
   → previous-known-good rollback
 ```
 
+开发验收、产物验证与生产发布是不同职责，不要求三套常驻环境。可使用按需测试环境或临时隔离容器完成 staging observation；必须验证最终发布的精确产物，不以开发服务器验收替代它。协议不强制分支名称、部署工具、时刻或 Agent 专用文件。
+
 通用发布契约：
 
 - 开发工作树可以快速迭代、运行本地前后端或使用临时配置；生产不得挂载正在修改的源码目录，也不得把开发服务器当作生产入口。
@@ -341,7 +352,7 @@ source candidate
 - 如果前端和后端在同一个生产 artifact 中（例如前端静态资源嵌入后端二进制），二者应作为一个版本原子提升和回滚；只有当两者有明确兼容协议、独立健康检查和独立回滚能力时，才拆成两个发布单元。
 - 运行时配置、域名、数据库连接和 secret 不烘焙进公共 artifact；由目标环境的受控配置/Secret Runtime 提供。配置变更仍需记录 exact revision 和影响范围。
 - 每次生产 promotion 至少绑定：`source_commit`、`artifact_digest`、`runtime_config_revision`、`migration_revision`（无 migration 也明确记录）和 `previous_known_good`。任一项读回不一致就停止，不凭名称猜测。
-- 生产默认需要独立的 Human/environment gate。源码合并或镜像生成不自动重启、切流、改 DNS、执行 migration 或公开新入口。
+- 生产需要 Human/environment gate，可由上述项目持续授权政策满足。未获政策覆盖时，源码合并或镜像生成不授权重启、切流、改 DNS、执行 migration 或公开新入口。
 - rollback 优先回到已验证的 `previous-known-good` artifact 和兼容配置；涉及不可逆 migration、数据删除或未知 secret 时，自动化只准备和报告，回到 Human 决策。
 
 最小发布回执应能回答：
