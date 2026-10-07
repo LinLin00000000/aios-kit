@@ -1249,12 +1249,41 @@ def write_yaml_doc(path: Path, data: dict[str, Any], *, mode: int = 0o600) -> No
     write_private_text(path, dump_yaml_doc(data), mode=mode)
 
 
+SECRET_METADATA_SUFFIXES = (".yaml", ".yml", ".json")
+
+
+def secret_metadata_files(root: Path) -> list[Path]:
+    return sorted({path for suffix in SECRET_METADATA_SUFFIXES for path in root.glob(f"*{suffix}")})
+
+
+def secret_metadata_path(root: Path, object_id: str) -> Path:
+    """Use one existing metadata file, or .yaml for a new object; never choose a duplicate."""
+    object_id = safe_secret_id(object_id)
+    paths = [root / f"{object_id}{suffix}" for suffix in SECRET_METADATA_SUFFIXES]
+    existing = [path for path in paths if path.exists() or path.is_symlink()]
+    if len(existing) > 1:
+        raise SystemExit(f"multiple metadata files for id: {object_id}")
+    return existing[0] if existing else paths[0]
+
+
+def load_secret_metadata(path: Path) -> dict[str, Any]:
+    """Do not expose a parser exception containing malformed metadata plaintext."""
+    try:
+        data = load_yaml_doc(path)
+    except (Exception, SystemExit):
+        raise SystemExit(f"could not parse metadata object: {path}") from None
+    object_id = data.get("id")
+    if not isinstance(object_id, str) or object_id != path.stem or safe_secret_id(object_id) != object_id:
+        raise SystemExit(f"metadata id must match canonical filename: {path}")
+    return data
+
+
 def secret_item_path(home: Path, secret_id: str) -> Path:
-    return secret_dirs(home)["items"] / f"{safe_secret_id(secret_id)}.yaml"
+    return secret_metadata_path(secret_dirs(home)["items"], secret_id)
 
 
 def secret_consumer_path(home: Path, consumer_id: str) -> Path:
-    return secret_dirs(home)["consumers"] / f"{safe_secret_id(consumer_id)}.yaml"
+    return secret_metadata_path(secret_dirs(home)["consumers"], consumer_id)
 
 
 def secret_replica_path(home: Path, replica_id: str) -> Path:
@@ -1294,10 +1323,16 @@ def redacted_item_metadata(item: dict[str, Any]) -> dict[str, Any]:
     out = json.loads(json.dumps(item, ensure_ascii=False))
     fields = out.get("fields")
     if isinstance(fields, dict):
-        for meta in fields.values():
-            if isinstance(meta, dict) and meta.get("secret"):
+        for name, meta in fields.items():
+            if secret_field_metadata_issue(meta):
+                # Unknown classification or malformed structures are not safe to echo.
+                fields[name] = {"value_status": "redacted_invalid_metadata"}
+            elif field_is_secret(meta):
                 meta.pop("value", None)
                 meta["value_status"] = meta.get("value_status") or "stored_redacted"
+    elif "fields" in out:
+        out["fields"] = {}
+        out["fields_status"] = "redacted_invalid_metadata"
     out["secret_values_exposed"] = False
     return out
 
@@ -1325,6 +1360,93 @@ def consumer_env_map(consumer: dict[str, Any]) -> dict[str, str]:
     return {str(k): str(v) for k, v in env_map.items()}
 
 
+def consumer_secret_sources(consumer: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Validate either one legacy source or an explicit binding allowlist.
+
+    The empty key denotes the fixed-source mode, never a selectable binding.
+    Binding entries may not override the shared runtime/env_map.
+    """
+    if "bindings" not in consumer:
+        secret_id = consumer.get("uses_secret")
+        if not secret_id:
+            raise SystemExit("consumer missing uses_secret or bindings")
+        if not isinstance(secret_id, str) or safe_secret_id(secret_id) != secret_id:
+            raise SystemExit("consumer requires a canonical uses_secret id")
+        return {"": {"uses_secret": secret_id}}
+    if "uses_secret" in consumer:
+        raise SystemExit("consumer uses_secret and bindings are mutually exclusive")
+    bindings = consumer["bindings"]
+    if not isinstance(bindings, dict) or not bindings:
+        raise SystemExit("consumer bindings must be a non-empty object")
+    sources: dict[str, dict[str, Any]] = {}
+    for key, entry in bindings.items():
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", key):
+            raise SystemExit("invalid consumer binding key")
+        if not isinstance(entry, dict) or set(entry) - {"uses_secret", "enabled", "status"}:
+            raise SystemExit(f"binding {key} must contain uses_secret and optional enabled/status only")
+        secret_id = entry.get("uses_secret")
+        if not isinstance(secret_id, str) or not secret_id or safe_secret_id(secret_id) != secret_id:
+            raise SystemExit(f"binding {key} requires a canonical uses_secret id")
+        if "enabled" in entry and not isinstance(entry["enabled"], bool):
+            raise SystemExit(f"binding {key} enabled must be a boolean")
+        if entry.get("status", "active") not in ("active", "configured", "retired", "disabled"):
+            raise SystemExit(f"binding {key} has an unsupported status")
+        sources[key] = dict(entry)
+    return sources
+
+
+def consumer_binding_enabled(source: dict[str, Any]) -> bool:
+    return source.get("enabled", True) and source.get("status", "active") in ("active", "configured")
+
+
+def resolve_consumer_secret(consumer: dict[str, Any], binding: str | None) -> tuple[str, str | None]:
+    sources = consumer_secret_sources(consumer)
+    if "bindings" not in consumer:
+        if binding is not None:
+            raise SystemExit("fixed consumer does not accept --binding")
+        return str(sources[""]["uses_secret"]), None
+    if binding is None:
+        if len(sources) != 1:
+            raise SystemExit("--binding is required for a consumer with multiple bindings")
+        binding = next(iter(sources))
+    if binding not in sources:
+        raise SystemExit(f"unknown consumer binding: {binding}")
+    source = sources[binding]
+    if not consumer_binding_enabled(source):
+        raise SystemExit(f"consumer binding is not enabled: {binding}")
+    return str(source["uses_secret"]), binding
+
+
+def secret_field_metadata_issue(meta: Any) -> str | None:
+    """Require an unambiguous classification before injecting/redacting a field."""
+    if not isinstance(meta, dict):
+        return "field metadata must be an object"
+    if not isinstance(meta.get("secret"), bool):
+        return "field metadata secret must be an explicit boolean"
+    if "type" in meta and not isinstance(meta["type"], str):
+        return "field metadata type must be a string"
+    if field_is_secret(meta) and not meta["secret"]:
+        return "field metadata type and secret classification disagree"
+    if meta["secret"] and "value" in meta:
+        return "secret field metadata must not store plaintext value"
+    return None
+
+
+def consumer_item_field_issues(item: dict[str, Any], secret_id: str, env_map: dict[str, str]) -> list[str]:
+    fields = item.get("fields")
+    if not isinstance(fields, dict):
+        return [f"item fields must be an object: {secret_id}"]
+    issues = []
+    for field_name in dict.fromkeys(env_map.values()):
+        if field_name not in fields:
+            issues.append(f"field not defined on item {secret_id}: {field_name}")
+        else:
+            issue = secret_field_metadata_issue(fields[field_name])
+            if issue:
+                issues.append(f"{secret_id}.{field_name}: {issue}")
+    return issues
+
+
 def normalize_consumer_runtime(consumer: dict[str, Any], secret_id: str) -> dict[str, Any]:
     """Normalize request-time consumer metadata without dropping compatibility."""
     out = json.loads(json.dumps(consumer, ensure_ascii=False))
@@ -1333,6 +1455,7 @@ def normalize_consumer_runtime(consumer: dict[str, Any], secret_id: str) -> dict
     runtime = out.get("runtime")
     if isinstance(runtime, dict):
         kind = str(runtime.get("kind") or "env")
+        runtime["kind"] = kind
         if kind == "env" and runtime.get("env_map") is None and isinstance(legacy_env_map, dict):
             runtime["env_map"] = legacy_env_map
         if kind == "env" and out.get("env_map") is None and isinstance(runtime.get("env_map"), dict):
@@ -1342,12 +1465,67 @@ def normalize_consumer_runtime(consumer: dict[str, Any], secret_id: str) -> dict
     return out
 
 
+def request_consumer_document(secret_id: str, consumer: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_consumer_runtime(consumer, secret_id)
+    return {"schema_version": 1, "kind": "consumer", **normalized}
+
+
+def request_consumer_registration_issues(home: Path, req: dict[str, Any]) -> list[dict[str, str]]:
+    """Preflight all consumers before prompting/generating/writing any values.
+
+    Intake owns a single-item transaction, not shared-consumer registration.
+    Existing fixed consumers can be reused only without semantic changes.
+    """
+    issues: list[dict[str, str]] = []
+    seen: set[str] = set()
+    secret_id = str(req.get("secret_id") or "")
+    for i, consumer in enumerate(req.get("consumers") or []):
+        if not isinstance(consumer, dict) or not consumer.get("id"):
+            continue  # Structural errors are reported by request_manifest_issues.
+        cid = str(consumer["id"])
+        message = ""
+        registration_id = safe_secret_id(cid)
+        if "bindings" in consumer:
+            message = "requests cannot register binding consumers"
+        elif registration_id in seen:
+            message = "duplicate consumer registration in request"
+        else:
+            try:
+                path = secret_consumer_path(home, cid)
+            except SystemExit:
+                message = "existing consumer conflicts; multiple metadata files for id"
+            else:
+                if path.exists() or path.is_symlink():
+                    try:
+                        existing = load_secret_metadata(path)
+                        consumer_secret_sources(existing)
+                        candidate = request_consumer_document(secret_id, consumer)
+                        previous = request_consumer_document(secret_id, existing)
+                        ignored = {"created_at", "updated_at"}
+                        if ("bindings" in existing or
+                                {k: v for k, v in candidate.items() if k not in ignored} !=
+                                {k: v for k, v in previous.items() if k not in ignored}):
+                            message = "existing consumer conflicts; update registry metadata separately"
+                    except (Exception, SystemExit):
+                        message = "existing consumer conflicts; could not read registry metadata"
+        seen.add(registration_id)
+        if message:
+            issues.append({"severity": "error", "path": f"consumers[{i}]", "message": message})
+    return issues
+
+
 def request_manifest_issues(req: dict[str, Any]) -> list[dict[str, str]]:
     """Validate a secret intake request manifest without reading any values."""
     issues: list[dict[str, str]] = []
 
     def add(path: str, message: str, severity: str = "error") -> None:
         issues.append({"severity": severity, "path": path, "message": message})
+
+    def canonical_id(value: Any) -> bool:
+        try:
+            return isinstance(value, str) and bool(value) and safe_secret_id(value) == value
+        except SystemExit:
+            return False
 
     def check_no_values(obj: Any, path: str = "$") -> None:
         forbidden = {"value", "values", "secret_value", "secret_values", "plaintext", "password_value", "api_key_value", "token_value"}
@@ -1366,9 +1544,9 @@ def request_manifest_issues(req: dict[str, Any]) -> list[dict[str, str]]:
         add("kind", "request kind must be secret_intake")
     if not str(req.get("request_id") or ""):
         add("request_id", "request_id is required")
-    secret_id = str(req.get("secret_id") or "")
-    if not secret_id:
-        add("secret_id", "secret_id is required")
+    secret_id = req.get("secret_id")
+    if not canonical_id(secret_id):
+        add("secret_id", "secret_id must be a non-empty canonical string")
     fields = req.get("fields") or []
     if not isinstance(fields, list) or not fields:
         add("fields", "fields must be a non-empty list")
@@ -1385,6 +1563,8 @@ def request_manifest_issues(req: dict[str, Any]) -> list[dict[str, str]]:
         if name in field_names:
             add(f"fields[{i}].name", f"duplicate field name: {name}")
         field_names.add(name)
+        if "type" in field and not isinstance(field["type"], str):
+            add(f"fields[{i}].type", "field type must be a string")
         if "confirm" in field and not isinstance(field.get("confirm"), bool):
             add(f"fields[{i}].confirm", "confirm must be a boolean; use true to opt in")
         if field_is_secret(field) and "default" in field:
@@ -1403,11 +1583,16 @@ def request_manifest_issues(req: dict[str, Any]) -> list[dict[str, str]]:
         if not isinstance(consumer, dict):
             add(f"consumers[{i}]", "consumer must be an object")
             continue
-        if not consumer.get("id"):
-            add(f"consumers[{i}].id", "consumer id is required")
-        uses_secret = str(consumer.get("uses_secret") or secret_id)
-        if secret_id and uses_secret != secret_id:
-            add(f"consumers[{i}].uses_secret", "consumer uses_secret must match request secret_id")
+        if not canonical_id(consumer.get("id")):
+            add(f"consumers[{i}].id", "consumer id must be a non-empty canonical string")
+        if "bindings" in consumer:
+            add(f"consumers[{i}].bindings", "requests cannot register binding consumers")
+        if "uses_secret" in consumer:
+            uses_secret = consumer["uses_secret"]
+            if not canonical_id(uses_secret):
+                add(f"consumers[{i}].uses_secret", "consumer uses_secret must be a non-empty canonical string")
+            elif canonical_id(secret_id) and uses_secret != secret_id:
+                add(f"consumers[{i}].uses_secret", "consumer uses_secret must match request secret_id")
         runtime = consumer.get("runtime")
         env_map = consumer.get("env_map")
         if isinstance(runtime, dict):
@@ -1568,6 +1753,8 @@ def secret_request_create(args: argparse.Namespace) -> None:
         raise SystemExit(f"manifest not found: {src}")
     data = load_yaml_doc(src)
     issues = request_manifest_issues(data)
+    if not issues:
+        issues.extend(request_consumer_registration_issues(home, data))
     if args.json:
         payload = {"schema": SECRET_SCHEMA, "ok": not any(i.get("severity") == "error" for i in issues), "manifest": str(src), "issues": issues, "secret_values_exposed": False}
         if args.dry_run or not payload["ok"]:
@@ -1629,9 +1816,41 @@ def write_consumer_from_request(home: Path, secret_id: str, consumer: dict[str, 
     cid = str(consumer.get("id") or "")
     if not cid:
         return ""
-    normalized = normalize_consumer_runtime(consumer, secret_id)
-    data = {"schema_version": 1, "id": cid, "kind": "consumer", "uses_secret": secret_id, "updated_at": now_iso(), **normalized}
-    write_yaml_doc(secret_consumer_path(home, cid), data)
+    fail_manifest_issues(request_consumer_registration_issues(home, {"secret_id": secret_id, "consumers": [consumer]}))
+    path = secret_consumer_path(home, cid)
+    if not path.exists():
+        data = {**request_consumer_document(secret_id, consumer), "updated_at": now_iso()}
+        # Serialize before publication. JSON is valid YAML 1.2 and avoids an empty
+        # registry file if serialization fails (including the optional YAML path).
+        text = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False) + "\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            # A competing registration may have appeared after the preflight.
+            fail_manifest_issues(request_consumer_registration_issues(home, {"secret_id": secret_id, "consumers": [consumer]}))
+        else:
+            owned = os.fstat(fd)
+            try:
+                os.fchmod(fd, 0o600)  # Never chmod a replacement at the path.
+                fh = os.fdopen(fd, "w", encoding="utf-8")
+                fd = -1  # The context now owns and closes the descriptor.
+                with fh:
+                    fh.write(text)
+            except OSError:
+                # Verify this exact absolute target still names our inode before
+                # removing a partial write. Never remove a concurrent replacement.
+                target = path.absolute()
+                try:
+                    current = target.lstat()
+                    if (current.st_dev, current.st_ino) == (owned.st_dev, owned.st_ino):
+                        target.unlink()
+                except OSError:
+                    pass  # Keep the original write error; cleanup is best effort.
+                raise
+            finally:
+                if fd != -1:
+                    os.close(fd)
     return cid
 
 
@@ -1657,6 +1876,8 @@ def store_secret_request(
 ) -> dict[str, Any]:
     """Persist one completed request through the shared intake path."""
     secret_id = str(req.get("secret_id") or "")
+    fail_manifest_issues(request_manifest_issues(req))
+    fail_manifest_issues(request_consumer_registration_issues(home, req))
     consumers = [write_consumer_from_request(home, secret_id, c) for c in (req.get("consumers") or []) if isinstance(c, dict)]
     replicas = [write_replica_from_request(home, secret_id, r) for r in (req.get("replicas") or []) if isinstance(r, dict)]
     consumers = [x for x in consumers if x]
@@ -1778,6 +1999,7 @@ def secret_generate(args: argparse.Namespace) -> None:
     req_path = find_request_path(home, args.request_id, include_done=False)
     req = load_yaml_doc(req_path)
     fail_manifest_issues(request_manifest_issues(req))
+    fail_manifest_issues(request_consumer_registration_issues(home, req))
     fields = req.get("fields") or []
     if not isinstance(fields, list) or not fields:
         raise SystemExit(f"request has no fields: {req_path}")
@@ -1843,6 +2065,7 @@ def secret_intake(args: argparse.Namespace) -> None:
     req_path = find_request_path(home, args.request_id, include_done=False)
     req = load_yaml_doc(req_path)
     fail_manifest_issues(request_manifest_issues(req))
+    fail_manifest_issues(request_consumer_registration_issues(home, req))
     fields = req.get("fields") or []
     if not isinstance(fields, list) or not fields:
         raise SystemExit(f"request has no fields: {req_path}")
@@ -1890,8 +2113,8 @@ def secret_intake(args: argparse.Namespace) -> None:
 
 
 def secret_validate_report(home: Path) -> dict[str, Any]:
-    """Validate Secret Registry metadata without reading secret values."""
-    dirs = ensure_secret_layout(home)
+    """Read-only validation: never create layout, chmod, or read secret values."""
+    dirs = secret_dirs(home)
     problems: list[dict[str, str]] = []
 
     def add(severity: str, path: str, message: str) -> None:
@@ -1899,18 +2122,13 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
 
     def metadata_files(kind: str) -> list[Path]:
         root = dirs[kind]
-        out: list[Path] = []
-        for suffix in ("*.yaml", "*.yml", "*.json"):
-            out.extend(root.glob(suffix))
-        return sorted(set(out))
+        return secret_metadata_files(root)
 
     def safe_load(path: Path) -> dict[str, Any] | None:
         try:
-            return load_yaml_doc(path)
-        except SystemExit as exc:
-            add("error", str(path), str(exc))
-        except Exception as exc:
-            add("error", str(path), f"could not parse metadata: {exc}")
+            return load_secret_metadata(path) if path.parent in (dirs["items"], dirs["consumers"]) else load_yaml_doc(path)
+        except (Exception, SystemExit):
+            add("error", str(path), "could not parse metadata object or id does not match canonical filename")
         return None
 
     def check_metadata_for_values(obj: Any, path: str, *, allow_field_value: bool = False) -> None:
@@ -1931,7 +2149,8 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
         try:
             mode = path.stat().st_mode & 0o777
         except FileNotFoundError:
-            add("error", str(path), f"missing {expected_kind}")
+            # Optional/unused layout is diagnostic only; validation cannot create it.
+            add("error" if path == dirs["root"] else "warning", str(path), f"missing {expected_kind}")
             return
         if mode & 0o077:
             add("warning", str(path), f"{expected_kind} should not be group/world accessible; mode={oct(mode)}")
@@ -1945,6 +2164,11 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
 
     items: dict[str, dict[str, Any]] = {}
     for path in metadata_files("items"):
+        try:
+            secret_metadata_path(dirs["items"], path.stem)
+        except SystemExit:
+            add("error", str(path), "multiple metadata files for id")
+            continue
         item = safe_load(path)
         if item is None:
             continue
@@ -1964,8 +2188,9 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
             add("error", f"{path}.fields", "AIOS-owned item fields must be an object")
         if isinstance(fields, dict):
             for field_name, meta in fields.items():
-                if isinstance(meta, dict) and meta.get("secret") and "value" in meta:
-                    add("error", f"{path}.fields.{field_name}.value", "secret field metadata must not store plaintext value")
+                issue = secret_field_metadata_issue(meta)
+                if issue:
+                    add("error", f"{path}.fields.{field_name}", issue)
         if item.get("ownership") == "app_owned":
             if item.get("do_not_move") is not True:
                 add("warning", f"{path}.do_not_move", "app/OS-owned secrets should declare do_not_move: true")
@@ -1976,7 +2201,15 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
             if not value_path.exists():
                 add("warning", str(value_path), f"value backend missing for configured item {item_id}")
 
+    binding_consumer_count = 0
+    consumer_binding_count = 0
+    consumer_ids: set[str] = set()
     for path in metadata_files("consumers"):
+        try:
+            secret_metadata_path(dirs["consumers"], path.stem)
+        except SystemExit:
+            add("error", str(path), "multiple metadata files for id")
+            continue
         consumer = safe_load(path)
         if consumer is None:
             continue
@@ -1984,36 +2217,44 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
         cid = str(consumer.get("id") or "")
         if not cid:
             add("error", str(path), "consumer missing id")
-        secret_id = str(consumer.get("uses_secret") or "")
-        if not secret_id:
-            add("error", f"{path}.uses_secret", "consumer missing uses_secret")
-            continue
-        item = items.get(secret_id)
-        if item is None:
-            add("error", f"{path}.uses_secret", f"consumer references missing secret item: {secret_id}")
-            continue
+        if cid in consumer_ids:
+            add("error", str(path), "duplicate consumer id")
+        consumer_ids.add(cid)
         try:
+            sources = consumer_secret_sources(consumer)
             env_map = consumer_env_map(consumer)
-        except SystemExit as exc:
-            add("error", str(path), str(exc))
+        except (Exception, SystemExit):
+            add("error", str(path), "invalid consumer source or runtime metadata")
             continue
-        raw_item_fields = item.get("fields")
-        item_fields = raw_item_fields if isinstance(raw_item_fields, dict) else {}
-        for env_name, field_name in env_map.items():
-            if field_name not in item_fields:
-                add("error", f"{path}.runtime.env_map.{env_name}", f"field not defined on item {secret_id}: {field_name}")
-        rotation = consumer.get("rotation")
-        if rotation is not None:
-            if not isinstance(rotation, dict) or not isinstance(rotation.get("fields"), list) or not rotation.get("fields"):
-                add("error", f"{path}.rotation.fields", "rotation fields must be a non-empty list")
-            else:
-                for field_name in rotation.get("fields", []):
-                    field_name = str(field_name)
-                    meta = item_fields.get(field_name)
-                    if not isinstance(meta, dict):
-                        add("error", f"{path}.rotation.fields", f"rotation field not defined on item {secret_id}: {field_name}")
-                    elif not meta.get("secret"):
-                        add("error", f"{path}.rotation.fields", f"rotation field must be secret on item {secret_id}: {field_name}")
+        has_bindings = "bindings" in consumer
+        if has_bindings:
+            binding_consumer_count += 1
+            consumer_binding_count += len(sources)
+            if "rotation" in consumer:
+                add("error", f"{path}.rotation", "binding consumers do not support rotation")
+        for binding, source in sources.items():
+            secret_id = str(source["uses_secret"])
+            ref_path = f"{path}.bindings.{binding}.uses_secret" if has_bindings else f"{path}.uses_secret"
+            item = items.get(secret_id)
+            if item is None:
+                add("error", ref_path, f"consumer references missing secret item: {secret_id}")
+                continue
+            raw_item_fields = item.get("fields")
+            item_fields = raw_item_fields if isinstance(raw_item_fields, dict) else {}
+            for issue in consumer_item_field_issues(item, secret_id, env_map):
+                add("error", f"{ref_path}.runtime.env_map", issue)
+            rotation = consumer.get("rotation")
+            if rotation is not None and not has_bindings:
+                if not isinstance(rotation, dict) or not isinstance(rotation.get("fields"), list) or not rotation.get("fields"):
+                    add("error", f"{path}.rotation.fields", "rotation fields must be a non-empty list")
+                else:
+                    for field_name in rotation.get("fields", []):
+                        field_name = str(field_name)
+                        meta = item_fields.get(field_name)
+                        if not isinstance(meta, dict):
+                            add("error", f"{path}.rotation.fields", f"rotation field not defined on item {secret_id}: {field_name}")
+                        elif not meta.get("secret"):
+                            add("error", f"{path}.rotation.fields", f"rotation field must be secret on item {secret_id}: {field_name}")
 
     for path in metadata_files("replicas"):
         replica = safe_load(path)
@@ -2048,7 +2289,10 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
             req = safe_load(path)
             if req is None:
                 continue
-            for issue in request_manifest_issues(req):
+            issues = request_manifest_issues(req)
+            if bucket == "pending" and not issues:
+                issues.extend(request_consumer_registration_issues(home, req))
+            for issue in issues:
                 add(issue.get("severity", "error"), f"{path}:{issue.get('path')}", issue.get("message", "invalid request"))
 
     for receipt_path in sorted(dirs["receipts"].glob("*.json")):
@@ -2078,6 +2322,8 @@ def secret_validate_report(home: Path) -> dict[str, Any]:
     counts = {
         "items": len(metadata_files("items")),
         "consumers": len(metadata_files("consumers")),
+        "binding_consumers": binding_consumer_count,
+        "consumer_bindings": consumer_binding_count,
         "replicas": len(metadata_files("replicas")),
         "pending_requests": request_counts.get("pending", 0),
         "done_requests": request_counts.get("done", 0),
@@ -2107,7 +2353,7 @@ def secret_validate(args: argparse.Namespace) -> None:
 def secret_doctor(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     report = secret_validate_report(home)
-    report = {**report, "doctor": "Secret Registry + Minimal Secret Runtime", "runtime_modes_supported": ["env"], "advanced_runtime_deferred": ["always-on broker", "proxy", "MCP secret tools", "provider plugins", "session leases"]}
+    report = {**report, "doctor": "Secret Registry + Minimal Secret Runtime", "runtime_modes_supported": ["env"], "consumer_selection_supported": ["fixed", "binding"], "advanced_runtime_deferred": ["always-on broker", "proxy", "MCP secret tools", "provider plugins", "session leases"]}
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
@@ -2122,21 +2368,61 @@ def secret_doctor(args: argparse.Namespace) -> None:
     raise SystemExit(0 if report["ok"] else 1)
 
 
+def secret_consumer_references(home: Path) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, str]]]:
+    """Derive backlinks independently per consumer; unsafe files cannot erase healthy links."""
+    references: dict[str, list[dict[str, Any]]] = {}
+    problems: list[dict[str, str]] = []
+    consumer_dir = secret_dirs(home)["consumers"]
+    for path in secret_metadata_files(consumer_dir):
+        try:
+            secret_metadata_path(consumer_dir, path.stem)
+        except SystemExit:
+            problems.append({"path": str(path), "code": "multiple_metadata_files", "message": "multiple metadata files for id"})
+            continue
+        try:
+            consumer = load_secret_metadata(path)
+            sources = consumer_secret_sources(consumer)
+            consumer_env_map(consumer)
+        except (Exception, SystemExit):
+            # Parser/schema errors can include raw malformed content. Never echo them.
+            problems.append({"path": str(path), "code": "invalid_consumer_metadata", "message": "invalid consumer metadata or sources"})
+            continue
+        for binding, source in sources.items():
+            ref = {"consumer_id": consumer.get("id") or path.stem}
+            if "bindings" in consumer:
+                ref.update({"binding": binding, "enabled": consumer_binding_enabled(source), "status": source.get("status", "active")})
+            references.setdefault(str(source["uses_secret"]), []).append(ref)
+    return references, problems
+
+
+def item_consumer_view(item: dict[str, Any], references: dict[str, list[dict[str, Any]]], *, complete: bool) -> dict[str, Any]:
+    refs = references.get(str(item.get("id") or ""), [])
+    declared = item.get("consumers")
+    return {"consumers": list(dict.fromkeys(ref["consumer_id"] for ref in refs)),
+            "consumer_bindings": [ref for ref in refs if "binding" in ref],
+            "declared_consumers": declared if isinstance(declared, list) else [],
+            "consumer_references_complete": complete}
+
+
 def secret_list(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
-    ensure_secret_layout(home)
+    dirs = secret_dirs(home)
+    references, problems = secret_consumer_references(home)
     rows = []
-    for path in sorted(secret_dirs(home)["items"].glob("*.yaml")):
-        item = load_yaml_doc(path)
-        rows.append({"id": item.get("id"), "kind": item.get("kind"), "status": item.get("status"), "consumers": item.get("consumers", []), "replicas": item.get("replicas", []), "path": str(path)})
+    for path in secret_metadata_files(dirs["items"]):
+        secret_metadata_path(dirs["items"], path.stem)
+        item = load_secret_metadata(path)
+        rows.append({"id": item.get("id"), "kind": item.get("kind"), "status": item.get("status"), **item_consumer_view(item, references, complete=not problems), "replicas": item.get("replicas", []), "path": str(path)})
     if args.json:
-        print(json.dumps({"schema": SECRET_SCHEMA, "items": rows, "secret_values_exposed": False}, ensure_ascii=False, indent=2))
+        print(json.dumps({"schema": SECRET_SCHEMA, "items": rows, "consumer_references_complete": not problems, "consumer_reference_problems": problems, "secret_values_exposed": False}, ensure_ascii=False, indent=2))
         return
     if not rows:
         print("no secret items")
-        return
     for row in rows:
         print(f"- {row['id']} [{row.get('status')}] {row.get('kind')} consumers={len(row.get('consumers') or [])} replicas={len(row.get('replicas') or [])}")
+    print(f"consumer_references_complete: {str(not problems).lower()}")
+    for problem in problems:
+        print(f"- {problem['path']}: {problem['message']}")
 
 
 def secret_show(args: argparse.Namespace) -> None:
@@ -2146,8 +2432,10 @@ def secret_show(args: argparse.Namespace) -> None:
         raise SystemExit(f"secret metadata not found: {args.secret_id}")
     if not args.metadata:
         raise SystemExit("refusing to show secret values; pass --metadata to show redacted metadata")
-    item = load_yaml_doc(path)
-    print(json.dumps(redacted_item_metadata(item), ensure_ascii=False, indent=2))
+    item = load_secret_metadata(path)
+    references, problems = secret_consumer_references(home)
+    metadata = {**redacted_item_metadata(item), **item_consumer_view(item, references, complete=not problems), "consumer_reference_problems": problems}
+    print(json.dumps(metadata, ensure_ascii=False, indent=2))
 
 
 def api_health_request(values: dict[str, Any], timeout: int) -> dict[str, str]:
@@ -2305,7 +2593,9 @@ def secret_rotate(args: argparse.Namespace) -> None:
     consumer_path = secret_consumer_path(home, args.consumer)
     if not consumer_path.exists():
         raise SystemExit(f"consumer metadata not found: {args.consumer}")
-    consumer = load_yaml_doc(consumer_path)
+    consumer = load_secret_metadata(consumer_path)
+    if "bindings" in consumer:
+        raise SystemExit("binding consumers do not support rotation; use a fixed consumer with a field allowlist")
     secret_id = str(consumer.get("uses_secret") or "")
     if secret_id != args.secret_id:
         raise SystemExit(f"consumer does not use secret: {args.consumer} -> {secret_id}")
@@ -2458,14 +2748,19 @@ def secret_run(args: argparse.Namespace) -> None:
     consumer_path = secret_consumer_path(home, args.consumer)
     if not consumer_path.exists():
         raise SystemExit(f"consumer metadata not found: {args.consumer}")
-    consumer = load_yaml_doc(consumer_path)
-    secret_id = str(consumer.get("uses_secret") or "")
-    if not secret_id:
-        raise SystemExit("consumer missing uses_secret")
-    item = load_yaml_doc(secret_item_path(home, secret_id))
+    consumer = load_secret_metadata(consumer_path)
+    secret_id, binding = resolve_consumer_secret(consumer, getattr(args, "binding", None))
+    env_map = consumer_env_map(consumer)
+    item = load_secret_metadata(secret_item_path(home, secret_id))
+    # Only fixed legacy consumers keep the historical unset-status exception.
+    allowed_statuses = ("configured",) if binding is not None else (None, "", "configured")
+    if item.get("status") not in allowed_statuses:
+        raise SystemExit(f"secret item is not runnable: {secret_id} (status={item.get('status')})")
+    field_issues = consumer_item_field_issues(item, secret_id, env_map)
+    if field_issues:
+        raise SystemExit("; ".join(field_issues))
     value_doc = load_secret_values(home, secret_id)
     values = value_doc.get("values", {})
-    env_map = consumer_env_map(consumer)
     cmd = list(args.command or [])
     if cmd and cmd[0] == "--":
         cmd = cmd[1:]
@@ -2490,7 +2785,10 @@ def secret_run(args: argparse.Namespace) -> None:
         print(stdout, end="")
     if stderr:
         print(stderr, end="", file=sys.stderr)
-    append_secret_audit(home, {"event": "consumer_run", "secret_id": secret_id, "consumer_id": args.consumer, "command": cmd[:1], "exit_code": cp.returncode})
+    event = {"event": "consumer_run", "secret_id": secret_id, "consumer_id": args.consumer, "command": cmd[:1], "exit_code": cp.returncode}
+    if binding is not None:
+        event["binding"] = binding
+    append_secret_audit(home, event)
     raise SystemExit(cp.returncode)
 
 
@@ -6108,6 +6406,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sec_run = sec_sub.add_parser("run", help="inject a consumer's secret fields into a child process environment")
     sec_run.add_argument("--consumer", required=True)
+    sec_run.add_argument("--binding", help="select one allow-listed consumer binding; required when multiple bindings exist")
     sec_run.add_argument("command", nargs=argparse.REMAINDER)
     sec_run.set_defaults(func=secret_run)
 
