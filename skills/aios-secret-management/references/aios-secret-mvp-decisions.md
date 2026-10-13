@@ -14,7 +14,7 @@ These notes condense a design discussion that led to the initial `aios-secret-ma
 - GitHub Secrets are external replicas / sync targets, not local sources of truth.
 - SSH and Caddy secrets are app/OS-owned. Keep their native paths, index and verify them, but do not move or symlink them into AIOS.
 - Request manifests are useful for dynamic agent-generated intake but should be short-lived transaction files. Long-term truth lives in items/consumers/replicas YAML and audit JSONL.
-- Human-provided, remembered, or existing credentials use `intake`; machine-generated credentials that the Agent must not see use `generate`.
+- Human-provided, remembered, or existing credentials use `intake`; machine-generated credentials that the Agent must not see use `generate`. Existing AIOS registrations use `run`. A separately authorized source actuator may opt into first-only `intake --json-stdin`; load the canonical `docs/secret-management.md` controlled-import contract first. It is not an arbitrary key export API or permission to move app/OS-owned secrets.
 
 ## MVP user story
 

@@ -1858,9 +1858,57 @@ def write_replica_from_request(home: Path, secret_id: str, replica: dict[str, An
     rid = str(replica.get("id") or "")
     if not rid:
         return ""
+    path = secret_replica_path(home, rid)
+    if path.exists() or path.is_symlink():
+        return rid  # Lock-held preflight already proved semantic equivalence.
     data = {"schema_version": 1, "id": rid, "kind": "external_replica", "source_secret_ref": secret_id, "updated_at": now_iso(), **replica}
-    write_yaml_doc(secret_replica_path(home, rid), data)
+    write_yaml_doc(path, data)
     return rid
+
+
+@contextlib.contextmanager
+def secret_registration_lock(dirs: dict[str, Path]) -> Any:
+    """Serialize CLI request publication, including shared consumer identities."""
+    fd = os.open(dirs["root"] / ".registration.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit("secret registration is busy; retry the pending request") from None
+        yield
+    finally:
+        os.close(fd)
+
+
+def request_replica_registration_issues(home: Path, req: dict[str, Any]) -> list[dict[str, str]]:
+    """Never overwrite a different replica registration during first intake."""
+    issues = []
+    seen: set[str] = set()
+    secret_id = str(req.get("secret_id") or "")
+    for i, replica in enumerate(req.get("replicas") or []):
+        rid = replica.get("id") if isinstance(replica, dict) else None
+        message = ""
+        if not isinstance(rid, str) or not rid or safe_secret_id(rid) != rid:
+            message = "replica id must be a canonical string"
+        elif rid in seen:
+            message = "duplicate replica registration in request"
+        else:
+            seen.add(rid)
+            path = secret_replica_path(home, rid)
+            if path.exists() or path.is_symlink():
+                try:
+                    existing = load_secret_metadata(path)
+                    candidate = {"schema_version": 1, "id": rid, "kind": "external_replica", "source_secret_ref": secret_id, **replica}
+                    ignored = {"created_at", "updated_at"}
+                    if ({k: v for k, v in existing.items() if k not in ignored} !=
+                            {k: v for k, v in candidate.items() if k not in ignored}):
+                        message = "existing replica conflicts; update registry metadata separately"
+                except (Exception, SystemExit):
+                    message = "existing replica conflicts; could not read registry metadata"
+        if message:
+            issues.append({"severity": "error", "path": f"replicas[{i}]", "message": message})
+    return issues
 
 
 def store_secret_request(
@@ -1873,11 +1921,43 @@ def store_secret_request(
     field_meta: dict[str, Any],
     *,
     audit_event: str,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """Persist one completed request through the shared intake path."""
+    # One short-lived lock, not a transaction engine. Manual metadata writers and
+    # disk failures remain outside this cooperative CLI publication boundary.
+    with secret_registration_lock(dirs), secret_rotation_lock(home, str(req.get("secret_id") or "")):
+        return _store_secret_request(home, dirs, req_path, req, request_id, values, field_meta,
+                                     audit_event=audit_event, force=force)
+
+
+def _store_secret_request(
+    home: Path,
+    dirs: dict[str, Path],
+    req_path: Path,
+    req: dict[str, Any],
+    request_id: str,
+    values: dict[str, Any],
+    field_meta: dict[str, Any],
+    *,
+    audit_event: str,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Persist one completed request after lock-held conflict checks."""
     secret_id = str(req.get("secret_id") or "")
     fail_manifest_issues(request_manifest_issues(req))
     fail_manifest_issues(request_consumer_registration_issues(home, req))
+    fail_manifest_issues(request_replica_registration_issues(home, req))
+    val_path = secret_value_path(home, secret_id)
+    item_path = secret_item_path(home, secret_id)
+    if not req_path.exists():
+        raise SystemExit("pending request is no longer available")
+    if not force and any(path.exists() or path.is_symlink() for path in (val_path, item_path)):
+        raise SystemExit("secret already exists; first intake does not overwrite it")
+    request_id = str(req.get("request_id") or request_id)
+    receipt_path = dirs["receipts"] / f"{safe_secret_id(request_id)}.json"
+    done_path = dirs["done"] / req_path.name
+    if not force and any(path.exists() or path.is_symlink() for path in (receipt_path, done_path)):
+        raise SystemExit("request completion already exists; use a new request id")
     consumers = [write_consumer_from_request(home, secret_id, c) for c in (req.get("consumers") or []) if isinstance(c, dict)]
     replicas = [write_replica_from_request(home, secret_id, r) for r in (req.get("replicas") or []) if isinstance(r, dict)]
     consumers = [x for x in consumers if x]
@@ -1899,8 +1979,6 @@ def store_secret_request(
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
-    val_path = secret_value_path(home, secret_id)
-    item_path = secret_item_path(home, secret_id)
     value_doc = {"schema_version": 1, "schema": SECRET_VALUE_SCHEMA, "secret_id": secret_id, "stored_at": now_iso(), "values": values}
     write_private_text(val_path, json.dumps(value_doc, ensure_ascii=False, indent=2) + "\n", mode=0o600)
     write_yaml_doc(item_path, item)
@@ -1997,9 +2075,13 @@ def secret_generate(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     dirs = secret_dirs(home) if args.dry_run else ensure_secret_layout(home)
     req_path = find_request_path(home, args.request_id, include_done=False)
-    req = load_yaml_doc(req_path)
+    try:
+        req = load_yaml_doc(req_path)
+    except (Exception, SystemExit):
+        raise SystemExit("could not parse pending secret request") from None
     fail_manifest_issues(request_manifest_issues(req))
     fail_manifest_issues(request_consumer_registration_issues(home, req))
+    fail_manifest_issues(request_replica_registration_issues(home, req))
     fields = req.get("fields") or []
     if not isinstance(fields, list) or not fields:
         raise SystemExit(f"request has no fields: {req_path}")
@@ -2040,7 +2122,7 @@ def secret_generate(args: argparse.Namespace) -> None:
         if not secret:
             meta["value"] = value
         field_meta[name] = meta
-    stored = store_secret_request(home, dirs, req_path, req, args.request_id, values, field_meta, audit_event="generate_completed")
+    stored = store_secret_request(home, dirs, req_path, req, args.request_id, values, field_meta, audit_event="generate_completed", force=args.force)
     payload = {
         "secret_id": stored["secret_id"],
         "item": str(stored["item_path"]),
@@ -2059,19 +2141,100 @@ def secret_generate(args: argparse.Namespace) -> None:
         print("- secret_values_exposed: false")
 
 
+SECRET_INTAKE_MAX_BYTES = 128 * 1024
+
+
+def secret_stdin_intake_plan(fields: list[dict[str, Any]]) -> dict[str, str]:
+    """The import channel accepts secrets only; metadata comes from the manifest."""
+    defaults: dict[str, str] = {}
+    supported = {"string", "text", "url", "enum", "password", "secret", "token"}
+    for i, field in enumerate(fields):
+        name = field.get("name")
+        kind = field.get("type", "string")
+        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) or
+                not isinstance(field.get("secret"), bool) or
+                not isinstance(kind, str) or kind not in supported or
+                (kind in {"password", "secret", "token"} and not field["secret"])):
+            raise SystemExit(f"stdin intake field {i} requires a canonical name, supported type and explicit secret classification")
+        if "required" in field and not isinstance(field["required"], bool):
+            raise SystemExit(f"stdin intake field {i} required must be a boolean")
+        choices = field.get("choices", [])
+        if (not isinstance(choices, list) or any(not isinstance(x, str) for x in choices) or
+                (kind == "enum" and not choices)):
+            raise SystemExit(f"stdin intake field {i} has invalid choices")
+        if field["secret"]:
+            continue  # Manifest validation already refuses secret defaults.
+        default = field.get("default")
+        if (not isinstance(default, str) or "\x00" in default or
+                (field.get("required") and not default.strip()) or
+                (choices and default not in choices)):
+            raise SystemExit(f"stdin intake field {i} requires a valid non-secret string default")
+        try:
+            if len(default.encode("utf-8")) > SECRET_INTAKE_MAX_BYTES:
+                raise ValueError
+        except (UnicodeError, ValueError):
+            raise SystemExit(f"stdin intake field {i} has an invalid default") from None
+        defaults[name] = default
+    return defaults
+
+
+def read_secret_intake_stdin(fields: list[dict[str, Any]], defaults: dict[str, str]) -> dict[str, str]:
+    """Read a closed, bounded JSON object without echoing parser/input content."""
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        obj: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError
+            obj[key] = value
+        return obj
+
+    try:
+        raw = sys.stdin.buffer.read(SECRET_INTAKE_MAX_BYTES + 1)
+        if len(raw) > SECRET_INTAKE_MAX_BYTES:
+            raise SystemExit("stdin intake input exceeds 128 KiB")
+        supplied = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object,
+                              parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+    except (ValueError, UnicodeError, OSError, RecursionError):
+        raise SystemExit("stdin intake requires valid UTF-8 JSON with unique keys") from None
+    secret_fields = {field["name"]: field for field in fields if field["secret"]}
+    if not isinstance(supplied, dict) or not secret_fields or set(supplied) != set(secret_fields):
+        raise SystemExit("stdin intake must contain exactly the declared secret fields; non-secret and unknown fields are forbidden")
+    for name, value in supplied.items():
+        field = secret_fields[name]
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            raise SystemExit("stdin intake secret values must be non-empty strings without NUL")
+        try:
+            value.encode("utf-8")
+        except UnicodeError:
+            raise SystemExit("stdin intake secret values must be valid UTF-8 strings") from None
+        if field.get("choices") and value not in field["choices"]:
+            raise SystemExit("stdin intake secret value does not match declared choices")
+    return {**defaults, **supplied}
+
+
 def secret_intake(args: argparse.Namespace) -> None:
     home = Path(args.home).expanduser() if args.home else Path.home()
     dirs = ensure_secret_layout(home)
     req_path = find_request_path(home, args.request_id, include_done=False)
-    req = load_yaml_doc(req_path)
+    try:
+        req = load_yaml_doc(req_path)
+    except (Exception, SystemExit):
+        raise SystemExit("could not parse pending secret request") from None
     fail_manifest_issues(request_manifest_issues(req))
     fail_manifest_issues(request_consumer_registration_issues(home, req))
+    fail_manifest_issues(request_replica_registration_issues(home, req))
     fields = req.get("fields") or []
     if not isinstance(fields, list) or not fields:
         raise SystemExit(f"request has no fields: {req_path}")
     secret_id = str(req.get("secret_id") or "")
     if not secret_id:
         raise SystemExit("request missing secret_id")
+    json_stdin = getattr(args, "json_stdin", False)
+    if json_stdin and args.force:
+        raise SystemExit("stdin intake is first registration only; --force is forbidden; use consumer-allow-listed rotate for updates")
+    defaults = secret_stdin_intake_plan(fields) if json_stdin else {}
+    if json_stdin and (req.get("request_id") != args.request_id or req_path.stem != args.request_id):
+        raise SystemExit("stdin intake requires the pending request id to match exactly")
     if args.dry_run:
         print("Secret intake dry-run")
         print(f"- request: {req_path}")
@@ -2079,16 +2242,20 @@ def secret_intake(args: argparse.Namespace) -> None:
         print("- fields: " + ", ".join(str(f.get("name")) + ("(secret)" if field_is_secret(f) else "") for f in fields if isinstance(f, dict)))
         print("- secret_values_exposed: false")
         return
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
+    if json_stdin:
+        if sys.stdin.isatty():
+            raise SystemExit("stdin intake requires a closed pipe, never interactive terminal input")
+    elif not sys.stdin.isatty() or not sys.stdout.isatty():
         raise SystemExit("refusing non-TTY secret intake; run this command in a real local shell/TTY")
     val_path = secret_value_path(home, secret_id)
     item_path = secret_item_path(home, secret_id)
-    if (val_path.exists() or item_path.exists()) and not args.force:
-        raise SystemExit(f"secret already exists for {secret_id}; pass --force to rotate/update")
-    print(f"Secret intake: {req.get('title') or secret_id}")
-    print(f"Secret id: {secret_id}")
-    print("Values will be stored locally; secret fields are hidden and never printed.")
-    values: dict[str, str] = {}
+    if any(path.exists() or path.is_symlink() for path in (val_path, item_path)) and not args.force:
+        raise SystemExit("secret already exists; first intake does not overwrite it")
+    if not json_stdin:
+        print(f"Secret intake: {req.get('title') or secret_id}")
+        print(f"Secret id: {secret_id}")
+        print("Values will be stored locally; secret fields are hidden and never printed.")
+    values: dict[str, str] = read_secret_intake_stdin(fields, defaults) if json_stdin else {}
     field_meta: dict[str, Any] = {}
     for field in fields:
         if not isinstance(field, dict):
@@ -2096,13 +2263,13 @@ def secret_intake(args: argparse.Namespace) -> None:
         name = str(field.get("name") or "")
         if not name:
             raise SystemExit("field missing name")
-        value = prompt_field(field)
+        value = values[name] if json_stdin else prompt_field(field)
         values[name] = value
         meta = {"type": field.get("type", "string"), "secret": field_is_secret(field), "required": bool(field.get("required")), "value_status": "stored"}
         if not meta["secret"]:
             meta["value"] = value
         field_meta[name] = meta
-    stored = store_secret_request(home, dirs, req_path, req, args.request_id, values, field_meta, audit_event="intake_completed")
+    stored = store_secret_request(home, dirs, req_path, req, args.request_id, values, field_meta, audit_event="intake_completed", force=args.force)
     item_path = stored["item_path"]
     receipt_path = stored["receipt_path"]
     print("Secret intake completed")
@@ -6358,8 +6525,9 @@ def build_parser() -> argparse.ArgumentParser:
     sec_req_create.add_argument("--json", action="store_true")
     sec_req_create.set_defaults(func=secret_request_create)
 
-    sec_intake = sec_sub.add_parser("intake", help="complete a request manifest through a real TTY without printing secret values")
+    sec_intake = sec_sub.add_parser("intake", help="complete a request through a real TTY or opt-in secret-only JSON stdin")
     sec_intake.add_argument("request_id")
+    sec_intake.add_argument("--json-stdin", action="store_true", help="first registration only: read declared secret fields from closed JSON stdin; non-secret fields use manifest defaults")
     sec_intake.add_argument("--dry-run", action="store_true", help="validate request shape without prompting for values")
     sec_intake.add_argument("--force", action="store_true", help="rotate/update an existing local secret item")
     sec_intake.set_defaults(func=secret_intake)

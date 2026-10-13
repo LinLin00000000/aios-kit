@@ -87,8 +87,8 @@ Default MVP flow:
    aios secret intake <request-id>
    ```
 
-   Machine-only credentials instead use `aios secret generate <request-id>` non-interactively.
-4. For `intake`, the user runs the command in a real local shell/TTY and enters values interactively; `generate` creates values locally without exposing them.
+   Machine-only credentials instead use `aios secret generate <request-id>` non-interactively. Already registered AIOS secrets use `secret run`, not another import.
+4. By default, the user runs `intake` in a real local shell/TTY; `generate` creates values locally without exposing them. For a separately authorized platform-owned source actuator, first registration may opt into `intake <request-id> --json-stdin`: the complete transfer actuator internally sends only declared secret fields to the intake child stdin, captures output, and returns only a whitelisted non-secret receipt (never Agent-visible source-export stdout); non-secret fields use manifest defaults and `--force` is forbidden. `secret run` redaction does not cover newly returned platform keys. Before this branch, load the “受控程序首次导入” contract in the canonical `aios-kit` source's `docs/secret-management.md`; if unavailable, stop this branch. The channel grants no platform export authorization and does not migrate app/OS-owned secrets.
 5. CLI / Minimal Runtime validates the request, hides password input for `intake`, stores values, writes metadata, moves the request to `done/`, writes a receipt, and appends `audit.jsonl`.
 6. After completion is reported or observed, agent reads only the receipt and metadata.
 7. Agent verifies consumers/replicas through redacted CLI outputs and updates ops records if needed.
@@ -193,7 +193,7 @@ aios secret run --consumer <consumer-id> -- <command...>
 
 Safety requirements:
 
-- `intake` reads secret values only from a real TTY / safe local intake channel.
+- `intake` defaults to a real TTY; only the separately authorized source-actuator branch above uses opt-in closed JSON stdin. Never fetch real values with ordinary Agent tools or treat the stdin interface as permission for arbitrary export.
 - Password fields use hidden input. Confirmation is off by default; set the field-level boolean `confirm: true` only when the user explicitly requests it, the credential is exceptionally sensitive, or a special manual-entry scenario justifies the extra prompt. Treat omitted/`false` confirmation as the normal path for copied API keys and tokens.
 - Do not support passing secret values via `--value`, command-line arguments, chat text, logs, or receipts.
 - `list`, `verify`, and `sync` must never print secret values. Treat `show --metadata` as **secret-adjacent** in current runtimes: it may include plaintext for fields marked `secret: false` (for example an access-key identifier). Prefer `list`, receipts, or a field-name-only parser for routine Agent audits; do not retain or quote raw `show --metadata` output unless those non-secret values are genuinely required.

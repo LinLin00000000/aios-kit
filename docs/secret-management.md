@@ -37,7 +37,17 @@ aios secret run --consumer aios-kit.translation -- python3 scripts/translate_doc
 aios secret index native --ssh --caddy
 ```
 
-`aios secret intake` 必须在真实 shell/TTY 中运行。password 字段用 hidden input；CLI 不提供 `--value` 参数，也不会把值写进 receipt、audit、Markdown 或聊天记录。二次确认默认关闭：一般从网页或密码管理器复制粘贴的 API key、token 等，不需要重复粘贴；只有 request 明确设置 `confirm: true` 时才会启用。
+`aios secret intake` 默认必须在真实 shell/TTY 中运行。password 字段用 hidden input；CLI 不提供 `--value` 参数，也不会把值写进 receipt、audit、Markdown 或聊天记录。二次确认默认关闭：一般从网页或密码管理器复制粘贴的 API key、token 等，不需要重复粘贴；只有 request 明确设置 `confirm: true` 时才会启用。
+
+### 受控程序首次导入
+
+已有 AIOS item/consumer 直接走 `secret run`，不重复导入。需要把授权平台提供的凭据首次登记为 AIOS-owned item 时（这里只指 AIOS 本地消费副本的存储 owner；原平台仍拥有签发、吊销与远端轮换职责，不转移平台所有权），可显式选择 `aios secret intake <request-id> --json-stdin`。它仍只接受 pending manifest、复用同一正式值后端、receipt 和 `intake_completed` audit；不支持 `--force`，已有 item 或后端拒绝覆盖。更新已有值仍走固定 consumer 的 allowlisted `rotate`，不能用假 Key bootstrap 再 rotate。
+
+stdin 是一个以 EOF 结束的 UTF-8 JSON 对象，最多 128 KiB，键必须**恰好等于所有 `secret: true` 字段名**，值必须为非空字符串（禁止 NUL、无效 Unicode）；即使 optional secret 字段也要明确提供非空值。重复键、unknown 字段、非秘密字段、缺字段、非对象、畸形 JSON、超长输入和 choices 不匹配都拒绝，错误不回显输入。stdin 不接收非秘密字段，防止把导入秘密误写入可读 metadata；非秘密字段只能使用 manifest 中已声明的字符串 `default`，并校验 required/choices。字段名限字母开头的字母数字下划线，字段须有显式布尔 `secret`；支持 `string/text/url/enum/password/secret/token`，敏感类型不能标 `secret: false`，secret 不能带默认值。该模式不执行 TTY 的 `confirm` 二次提示；`--dry-run` 只检查 manifest/登记结构，不消费或校验 stdin。
+
+平台取值仍属于平台自己的 API 与授权。若后续实现 source-transfer actuator，只做小型、固定授权、不可任意提取的完整 transfer 程序：在自身进程内取新值，直接启动上述 intake 子进程并经匿名管道送入 stdin，关闭管道，捕获 CLI 输出且只返回白名单非秘密 receipt。它给 Agent 的入口是完整 transfer，不是任意 export；不得有通用文件读取、任意 URL/SQL 取值能力。若用源程序 stdout 管道，stdout 只能接 intake，禁止 `tee`/`xtrace` 和 Agent 可见 export 输出。`secret run` 只脱敏所选 item 的已知值，不保证脱敏平台新返回的 Key/JWT，不能依赖它隐藏新值。不要把实际值放进 shell literal、argv、环境 dump、普通 OPS、Agent 工具返回或日志；核心没有文件路径提取器、命令 exec 参数、provider 注册表、daemon 或平台 adapter。app/OS-owned（如 SSH/Caddy）的值继续保留原生 owner，不能把这个导入入口当成默认迁移所有凭据的许可。
+
+这是可信运行时工作流边界，不是同账号恶意 Agent 隔离：值会在取值/导入/consumer 进程内存和正式后端中出现；consumer 环境注入沿用现有 `run` 的脱敏上限。manifest 的非秘密默认值和 metadata 必须本来就是可读信息，CLI 不能判断任意字符串是否实际为秘密。
 
 人提供、需要记住或已经存在的凭据走 `intake`；Postgres、Redis、`SESSION_SECRET` 这类不需要人记住的机器随机凭据走 `generate`。`generate` 只处理 pending 的 `secret_intake` request：secret 字段默认用本机 `secrets` 模块生成 32 字节 hex（可用 `generate: true` 和 `length` 明确调整），非 secret 字段必须有 `default`；明显的人类凭据必须显式 `generate: true`，否则 fail closed。它可以在非 TTY、Agent 工具中运行，并沿用 intake 的落盘、receipt 和 audit 路径，但任何输出都不包含明文；不要让 Agent 执行 `openssl rand` 再把结果带入工具输出。
 
@@ -163,7 +173,7 @@ aios secret run --consumer example.account-api --binding site-a -- python3 accou
 
 Intake/generate request 仍是一个 `secret_id` 的事务，只能创建固定 consumer；request 中出现任何 `bindings` 都会拒绝。共享 consumer 需独立维护在 `consumers/` 的 metadata 中，不通过各站 request 反复创建同名 consumer。新站 request 可以使用 `consumers: []`，随后把 item 加入已有 consumer 的 binding 白名单。
 
-已有固定 consumer 只有在规范化后的 metadata 语义完全一致时才能被 request 复用（忽略创建/更新时间），并且不会重写该文件。不同来源、不同 env_map、额外 metadata 或共享 consumer 都会触发冲突；`--force` 也不能绕过。CLI 在提示/生成值之前检查全部 consumer 冲突，并在写入路径再次检查。重复登记同一个 consumer 也会拒绝；新 consumer 使用排他创建，不能覆盖并发出现的不同登记。新 consumer 在排他创建前先完成 JSON 序列化（文件仍是有效 YAML 1.2）；写入失败只会尽力删除仍属于本次 inode 的未完成文件，不删除已被并发替换的文件。该预检不是整个 request 的跨进程事务锁，也没有批量 consumer 回滚：若第二个 consumer 在预检后才发生竞争冲突，首个新 consumer 的 metadata 可能留下，但该失败路径不改既有 values、保留 pending request、且无完成 receipt。metadata 的并发编辑仍应避免。
+已有固定 consumer 只有在规范化后的 metadata 语义完全一致时才能被 request 复用（忽略创建/更新时间），并且不会重写该文件。不同来源、不同 env_map、额外 metadata 或共享 consumer 都会触发冲突；`--force` 也不能绕过。CLI 在提示/生成值之前检查全部 consumer 冲突，并在写入路径再次检查。重复登记同一个 consumer 也会拒绝；新 consumer 使用排他创建，不能覆盖并发出现的不同登记。新 consumer 在排他创建前先完成 JSON 序列化（文件仍是有效 YAML 1.2）；写入失败只会尽力删除仍属于本次 inode 的未完成文件，不删除已被并发替换的文件。共享落盘路径使用一个短寿命登记 flock，并复用已有单 item 值更新锁；锁内再次检查全部 consumer/replica、item/value 和完成记录冲突后才发布，因此互相遵守这些锁的 intake/generate/rotate 不会因登记冲突部分发布或默认覆盖。已有 replica 也只有语义一致时才能复用，冲突或重复登记拒绝；`--force` 不绕过 consumer/replica 冲突。这不是跨文件原子事务或恶意同账号隔离：手工/不遵守锁的 metadata 写入、磁盘错误、进程中止仍可能留下部分登记/值；value backend→item→receipt→done→audit 的原有顺序与失败边界不变，receipt 存在不证明 audit 追加成功。失败时先检查非秘密 receipt/metadata/pending 边界，不盲目重跑或用 `--force` 修复；只在确认没有 item/value 发布后重试 pending。metadata 的外部并发编辑仍应避免。
 
 `intake --force`/`generate --force` 是整体替换该 item 的字段和值，不是增量追加。已有多字段 item 的局部更新应保留固定 consumer 的明确 rotation 字段白名单，不能以共享 schema 为由放宽。
 
